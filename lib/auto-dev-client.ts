@@ -11,7 +11,10 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 
 function apiKey(): string {
   const key = process.env.AUTO_DEV_API_KEY;
-  if (!key) throw new Error("AUTO_DEV_API_KEY is not set");
+  if (!key) {
+    console.error("[auto-dev-client] AUTO_DEV_API_KEY is not set in this environment");
+    throw new Error("AUTO_DEV_API_KEY is not set");
+  }
   return key;
 }
 
@@ -21,9 +24,14 @@ async function autoDevFetch<T>(path: string, timeoutMs = DEFAULT_TIMEOUT_MS): Pr
       headers: { Authorization: `Bearer ${apiKey()}` },
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error(`[auto-dev-client] ${path} returned ${res.status}: ${body.slice(0, 300)}`);
+      return null;
+    }
     return (await res.json()) as T;
-  } catch {
+  } catch (err) {
+    console.error(`[auto-dev-client] fetch failed for ${path}:`, err);
     return null;
   }
 }
