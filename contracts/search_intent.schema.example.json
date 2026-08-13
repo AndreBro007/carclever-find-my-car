@@ -1,0 +1,31 @@
+{
+  "intentVersion": "1.0",
+  "searchScope": "active_retail_inventory",
+  "hardConstraints": {
+    "priceMax": 35000,
+    "yearMin": 2021,
+    "powertrains": ["hybrid"],
+    "drivetrains": ["AWD", "4WD"],
+    "seatsMin": 5,
+    "location": { "zip": "30305", "radiusMiles": 100, "strict": false }
+  },
+  "softPreferences": {
+    "colors": ["Blue"],
+    "goals": ["reliability", "low_total_cost"]
+  },
+  "exclusions": { "makes": ["BMW"] },
+  "flexibility": {
+    "price": "strict",
+    "year": "strict",
+    "mileage": "unspecified",
+    "radius": "flexible",
+    "condition": "unspecified"
+  },
+  "verificationRequired": ["powertrain", "drivetrain", "seating", "history", "destination"],
+  "interpretationNotes": [
+    "Hybrid is a hard semantic requirement but Auto.dev Listings fuel is not safe as the sole candidate gate.",
+    "AWD/4WD and seating require post-search verification.",
+    "Radius may widen only with disclosure."
+  ],
+  "sourcePrompt": "Find me a reliable blue hybrid AWD vehicle under $35,000 near 30305 and no BMWs."
+}
