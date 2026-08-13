@@ -1,7 +1,10 @@
 import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
 import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
-import { searchWithLoosening } from "@/lib/loosening-ladder";
+import { searchListings } from "@/lib/auto-dev-client";
+// TEMP: loosening-ladder bypassed per André's request (Aug 13) — search itself
+// needs to work correctly before any widening logic runs on top of it.
+// import { searchWithLoosening } from "@/lib/loosening-ladder";
 import { verifyAgainstConstraints } from "@/lib/post-verify";
 import { parseIntent } from "@/lib/intent-parser";
 import { applyDiversity } from "@/lib/diversity";
@@ -178,10 +181,11 @@ const handler = createMcpHandler((server) => {
         limit: CANDIDATE_POOL_SIZE,
       };
 
-      const { data: candidates, total, relaxations, scopeNote } = await searchWithLoosening(
-        baseQuery,
-        input.priceFlexibility ?? "strict",
-      );
+      const rawResult = await searchListings(baseQuery);
+      const candidates = rawResult.data;
+      const total = rawResult.total;
+      const relaxations: Array<{ step: string; detail: string }> = [];
+      const scopeNote: "local" | "nationwide" = "local" as "local" | "nationwide";
 
       // Post-verification (SYS-20260812-035, redesign doc §5.4 step 6):
       // Auto.dev can silently swallow/mishandle params and return rows that
