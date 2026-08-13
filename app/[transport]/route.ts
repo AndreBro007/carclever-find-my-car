@@ -156,7 +156,7 @@ const handler = createMcpHandler((server) => {
       const response = {
         meta: {
           totalCandidatesConsidered: candidates.length,
-          totalMatches: total,
+          totalMatches: typeof total === "number" ? total : null,
           corpusSizeApprox: getCorpusCountForDescription(),
           relaxations: [] as Array<{ field: string; requested: unknown; actual: unknown; reason: string }>,
           interpretationNotes: intent.interpretationNotes,
@@ -164,10 +164,29 @@ const handler = createMcpHandler((server) => {
         results: cards,
       };
 
+      // The text content block is what the host model actually reads and
+      // reasons over — structuredContent is supplementary, not a substitute.
+      // Real testing (Aug 13) showed the model only surfaced a one-line
+      // summary and couldn't answer follow-ups about the other results, so
+      // every result's key detail now goes directly into this text.
+      const totalPhrase = typeof total === "number" ? ` out of ${total} in the area` : "";
       const summary =
         cards.length === 0
           ? "No results matched closely enough to show. Consider relaxing price, location, or year constraints."
-          : `Found ${cards.length} closely matching vehicle${cards.length === 1 ? "" : "s"}, out of ${total} in the area. Top match: ${cards[0].identity.year} ${cards[0].identity.make} ${cards[0].identity.model} — ${cards[0].ranking.matchScoreLabel} (${cards[0].ranking.matchScore}%).`;
+          : `Found ${cards.length} closely matching vehicle${cards.length === 1 ? "" : "s"}${totalPhrase}:\n\n` +
+            cards
+              .map((c, i) => {
+                const id = c.identity;
+                const l = c.listing;
+                const r = c.ranking;
+                const trimStr = id.trim ? ` ${id.trim}` : "";
+                const priceStr = l.price != null ? `$${l.price.toLocaleString()}` : "price unavailable";
+                const mileageStr = l.mileage != null ? `${l.mileage.toLocaleString()} mi` : "mileage unknown";
+                const dealerStr = l.dealer ? ` — ${l.dealer}${l.city ? `, ${l.city}` : ""}${l.state ? `, ${l.state}` : ""}` : "";
+                const linkStr = c.links.affiliateUrl ?? c.links.dealerListingUrl ?? "no link available";
+                return `${i + 1}. ${id.year} ${id.make} ${id.model}${trimStr} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}\n   Link: ${linkStr}`;
+              })
+              .join("\n\n");
 
       return {
         content: [{ type: "text" as const, text: summary }],
