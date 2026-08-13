@@ -10,10 +10,14 @@ import type { AutoDevListing } from "./auto-dev-client";
 import type { ListingsQuery } from "./auto-dev-client";
 
 // make/model can be comma-separated OR lists (see match-score.ts for why).
+// Also: model strings have real cross-API family variance (STEP3_STATUS.md,
+// e.g. "Silverado 1500 Crew Cab" vs "Silverado 1500") — exact equality wrongly
+// strips valid rows. Use substring/prefix tolerance instead of strict equality.
 function matchesAnyInList(value: string | undefined, list: string): boolean {
   if (!value) return false;
+  const v = value.trim().toLowerCase();
   const options = list.split(",").map((s) => s.trim().toLowerCase());
-  return options.includes(value.trim().toLowerCase());
+  return options.some((opt) => v === opt || v.startsWith(opt) || opt.startsWith(v));
 }
 
 export function verifyAgainstConstraints(listing: AutoDevListing, query: ListingsQuery): string[] {

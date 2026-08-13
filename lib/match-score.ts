@@ -17,8 +17,9 @@ import type { VerificationResult } from "./vin-cross-check";
 // string equality against the whole list would always fail; check membership.
 function matchesAnyInList(value: string | undefined, list: string): boolean {
   if (!value) return false;
+  const v = value.trim().toLowerCase();
   const options = list.split(",").map((s) => s.trim().toLowerCase());
-  return options.includes(value.trim().toLowerCase());
+  return options.some((opt) => v === opt || v.startsWith(opt) || opt.startsWith(v));
 }
 
 export interface MatchScoreBreakdown {

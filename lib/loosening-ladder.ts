@@ -20,6 +20,7 @@
  * hard filters in the first place (SYS-20260812-023/025).
  */
 import { searchListings, type ListingsQuery, type ListingsResponse } from "./auto-dev-client";
+import { verifyAgainstConstraints } from "./post-verify";
 
 export interface Relaxation {
   step: string;
@@ -31,7 +32,15 @@ export interface LoosenedSearchResult extends ListingsResponse {
   scopeNote: "local" | "nationwide";
 }
 
-const MIN_ACCEPTABLE = 3; // run the ladder if fewer than this many candidates come back
+const MIN_ACCEPTABLE = 3; // run the ladder if fewer than this many VERIFIED candidates come back
+
+// Bug fix (design doc §6 item 2): the ladder must decide whether to widen
+// based on the count AFTER post-verification, not the raw provider count —
+// otherwise a query that gets enough raw rows but has them all stripped by
+
+function countVerified(result: ListingsResponse, query: ListingsQuery): number {
+  return result.data.filter((c) => verifyAgainstConstraints(c, query).length === 0).length;
+}
 
 export async function searchWithLoosening(
   baseQuery: ListingsQuery,
@@ -42,7 +51,8 @@ export async function searchWithLoosening(
   let query = { ...baseQuery };
 
   let result = await searchListings(query);
-  if (result.data.length >= MIN_ACCEPTABLE) {
+  let verifiedCount = countVerified(result, query);
+  if (verifiedCount >= MIN_ACCEPTABLE) {
     return { ...result, relaxations, scopeNote };
   }
 
@@ -50,10 +60,11 @@ export async function searchWithLoosening(
   if (query.zip) {
     const widerRadius = { ...query, radius: 500 };
     const retry = await searchListings(widerRadius);
-    if (retry.data.length >= MIN_ACCEPTABLE) {
+    const retryVerified = countVerified(retry, widerRadius);
+    if (retryVerified >= MIN_ACCEPTABLE) {
       relaxations.push({
         step: "zip_guard",
-        detail: `Widened search radius to 500 miles from ZIP ${query.zip} — fewer than ${MIN_ACCEPTABLE} matches within the original radius.`,
+        detail: `Widened search radius to 500 miles from ZIP ${query.zip} — fewer than ${MIN_ACCEPTABLE} verified matches within the original radius.`,
       });
       return { ...retry, relaxations, scopeNote };
     }
@@ -61,15 +72,17 @@ export async function searchWithLoosening(
     // documented failure: silently returns 0 with HTTP 200, not an error).
     const { zip, radius, ...withoutLocation } = query;
     const nationwide = await searchListings(withoutLocation);
-    if (nationwide.data.length > 0) {
+    const nationwideVerified = countVerified(nationwide, withoutLocation);
+    if (nationwideVerified > verifiedCount) {
       relaxations.push({
         step: "zip_guard",
-        detail: `ZIP ${zip} returned no matches even at a 500-mile radius — it may not be recognized. Widened to nationwide.`,
+        detail: `ZIP ${zip} returned no verified matches even at a 500-mile radius — it may not be recognized. Widened to nationwide.`,
       });
       scopeNote = "nationwide";
       query = withoutLocation;
       result = nationwide;
-      if (result.data.length >= MIN_ACCEPTABLE) return { ...result, relaxations, scopeNote };
+      verifiedCount = nationwideVerified;
+      if (verifiedCount >= MIN_ACCEPTABLE) return { ...result, relaxations, scopeNote };
     }
   }
 
@@ -81,14 +94,16 @@ export async function searchWithLoosening(
       yearMax: query.yearMax != null ? query.yearMax + 2 : undefined,
     };
     const retry = await searchListings(widened);
-    if (retry.data.length > result.data.length) {
+    const retryVerified = countVerified(retry, widened);
+    if (retryVerified > verifiedCount) {
       relaxations.push({
         step: "year_range",
-        detail: `Widened year range by ±2 years — too few matches in the exact requested range.`,
+        detail: `Widened year range by ±2 years — too few verified matches in the exact requested range.`,
       });
       query = widened;
       result = retry;
-      if (result.data.length >= MIN_ACCEPTABLE) return { ...result, relaxations, scopeNote };
+      verifiedCount = retryVerified;
+      if (verifiedCount >= MIN_ACCEPTABLE) return { ...result, relaxations, scopeNote };
     }
   }
 
@@ -96,11 +111,13 @@ export async function searchWithLoosening(
   if (query.zip && (query.radius ?? 50) < 250 && scopeNote === "local") {
     const widened = { ...query, radius: 250 };
     const retry = await searchListings(widened);
-    if (retry.data.length > result.data.length) {
+    const retryVerified = countVerified(retry, widened);
+    if (retryVerified > verifiedCount) {
       relaxations.push({ step: "radius", detail: `Widened search radius to 250 miles.` });
       query = widened;
       result = retry;
-      if (result.data.length >= MIN_ACCEPTABLE) return { ...result, relaxations, scopeNote };
+      verifiedCount = retryVerified;
+      if (verifiedCount >= MIN_ACCEPTABLE) return { ...result, relaxations, scopeNote };
     }
   }
 
@@ -108,24 +125,28 @@ export async function searchWithLoosening(
   if (query.mileageMax != null) {
     const widened = { ...query, mileageMax: Math.round(query.mileageMax * 1.3) };
     let retry = await searchListings(widened);
-    if (retry.data.length > result.data.length) {
+    let retryVerified = countVerified(retry, widened);
+    if (retryVerified > verifiedCount) {
       relaxations.push({
         step: "mileage",
         detail: `Widened mileage ceiling by 30% (to ${widened.mileageMax.toLocaleString()} mi).`,
       });
       query = widened;
       result = retry;
+      verifiedCount = retryVerified;
     }
-    if (result.data.length < MIN_ACCEPTABLE) {
+    if (verifiedCount < MIN_ACCEPTABLE) {
       const { mileageMax, ...dropped } = query;
       retry = await searchListings(dropped);
-      if (retry.data.length > result.data.length) {
+      retryVerified = countVerified(retry, dropped);
+      if (retryVerified > verifiedCount) {
         relaxations.push({ step: "mileage", detail: `Dropped mileage limit entirely.` });
         query = dropped;
         result = retry;
+        verifiedCount = retryVerified;
       }
     }
-    if (result.data.length >= MIN_ACCEPTABLE) return { ...result, relaxations, scopeNote };
+    if (verifiedCount >= MIN_ACCEPTABLE) return { ...result, relaxations, scopeNote };
   }
 
   // Step 4 — widen price ceiling, ONLY if explicitly flagged flexible. Never
@@ -134,7 +155,8 @@ export async function searchWithLoosening(
   if (query.priceMax != null && priceFlexibility === "flexible") {
     const widened = { ...query, priceMax: Math.round(query.priceMax * 1.15) };
     const retry = await searchListings(widened);
-    if (retry.data.length > result.data.length) {
+    const retryVerified = countVerified(retry, widened);
+    if (retryVerified > verifiedCount) {
       relaxations.push({
         step: "price",
         detail: `Widened price ceiling by 15% (to $${widened.priceMax.toLocaleString()}) — you indicated some flexibility on budget.`,
