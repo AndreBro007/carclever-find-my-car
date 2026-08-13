@@ -83,20 +83,33 @@ export interface ListingsResponse {
 
 export async function searchListings(query: ListingsQuery): Promise<ListingsResponse> {
   const params = new URLSearchParams();
-  if (query.make) params.set("make", query.make);
-  if (query.model) params.set("model", query.model);
-  if (query.bodyType) params.set("body_type", query.bodyType);
-  if (query.priceMin != null) params.set("price_min", String(query.priceMin));
-  if (query.priceMax != null) params.set("price_max", String(query.priceMax));
-  if (query.yearMin != null) params.set("year_min", String(query.yearMin));
-  if (query.yearMax != null) params.set("year_max", String(query.yearMax));
-  if (query.mileageMax != null) params.set("mileage_max", String(query.mileageMax));
+
+  // Real Auto.dev v2 syntax (confirmed against docs.auto.dev/v2/products/vehicle-listings
+  // after a live 400 "Invalid parameter provided: make" — the flat param names below were
+  // wrong; real API uses dotted field paths matching the response shape, e.g.
+  // vehicle.make=Ford&vehicle.model=mustang, and dash-ranges for numeric fields:
+  // retailListing.price=1-30000, vehicle.year=2018-2024. zip/distance ARE flat, unprefixed.
+  if (query.make) params.set("vehicle.make", query.make);
+  if (query.model) params.set("vehicle.model", query.model);
+  if (query.bodyType) params.set("vehicle.bodyStyle", query.bodyType); // NOT independently confirmed against docs — verify against a live response before relying on this filter
+
+  if (query.priceMin != null || query.priceMax != null) {
+    params.set("retailListing.price", `${query.priceMin ?? 1}-${query.priceMax ?? 999999}`);
+  }
+  if (query.yearMin != null || query.yearMax != null) {
+    params.set("vehicle.year", `${query.yearMin ?? 1900}-${query.yearMax ?? 2100}`);
+  }
+  if (query.mileageMax != null) {
+    params.set("retailListing.mileage", `0-${query.mileageMax}`); // dash-range pattern assumed consistent with price/year — NOT independently confirmed, verify against a live response
+  }
+
   if (query.zip) params.set("zip", query.zip);
-  if (query.radius != null) params.set("radius", String(query.radius));
-  params.set("limit", String(query.limit ?? 50));
+  if (query.radius != null) params.set("distance", String(query.radius)); // "distance", not "radius"
 
   // NOTE: trim and seats are deliberately NEVER added as query params here —
   // Trust Class B / provider_filter_allowed: false — see SYS-20260812-023/025.
+
+  params.set("limit", String(query.limit ?? 50));
 
   const result = await autoDevFetch<ListingsResponse>(`/listings?${params.toString()}`);
   return result ?? { data: [], total: 0 };
