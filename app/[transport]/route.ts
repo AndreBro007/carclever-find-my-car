@@ -177,7 +177,10 @@ const handler = createMcpHandler((server) => {
         state: input.state,
         accidentCount: input.noAccidents ? 0 : undefined,
         ownerCount: input.oneOwner ? 1 : undefined,
-        sort: "price.asc", // design doc §5 — deterministic, budget-relevant sample instead of recency bias
+        // sort: "price.asc" REMOVED — unverified syntax (design doc flagged this
+        // as needing live confirmation), and is the prime suspect for the search
+        // returning 0 raw candidates on even a common Honda CR-V query. Correctness
+        // first; revisit sort syntax only after confirming a bare working request.
         limit: CANDIDATE_POOL_SIZE,
       };
 
