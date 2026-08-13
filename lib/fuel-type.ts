@@ -1,3 +1,4 @@
+/**
  * Fuel-type normalization helpers for Auto.dev API values.
  *
  * Auto.dev canonical values (confirmed from documentation):

@@ -56,3 +56,4 @@ export function buildEdmundsUrl(vehicle: {
 export function wrapWithCJ(rawUrl: string): string {
   const encoded = encodeURIComponent(rawUrl);
   return `${CJ_CLICK_DOMAIN}/click-${CJ_PUBLISHER_ID}-${CJ_EDMUNDS_PRODUCT_AD_ID}?url=${encoded}`;
+}

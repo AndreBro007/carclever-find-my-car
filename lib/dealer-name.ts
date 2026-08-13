@@ -1,3 +1,4 @@
+/**
  * Dealer name sanitization helper.
  *
  * Auto.dev feed identifiers like "ClementFord New VinSolutions Only" leak
