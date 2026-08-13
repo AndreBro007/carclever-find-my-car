@@ -102,11 +102,24 @@ export interface ListingsQuery {
   zip?: string;
   radius?: number;
   limit?: number;
+  // Widened per design doc §2 — all live-verified filterable in STEP3_STATUS.md / redesign doc.
+  drivetrain?: string; // AWD, 4WD, FWD, RWD (comma-OR)
+  transmission?: string; // Automatic, Manual
+  exteriorColor?: string; // Gray, White, Black, Blue, Silver, Red, Green, Brown, Orange, Burgundy, Beige
+  cylinders?: number;
+  used?: boolean;
+  cpo?: boolean;
+  state?: string;
+  accidentCount?: number; // history.accidentCount — facet-verified filterable
+  ownerCount?: number; // history.ownerCount — facet-verified filterable
+  sort?: string; // e.g. "price.asc"
+  includeFacets?: boolean;
 }
 
 export interface ListingsResponse {
   data: AutoDevListing[];
   total: number;
+  facets?: Record<string, Array<{ value: string; count: number }>>;
 }
 
 export async function searchListings(query: ListingsQuery): Promise<ListingsResponse> {
@@ -119,7 +132,11 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
   // retailListing.price=1-30000, vehicle.year=2018-2024. zip/distance ARE flat, unprefixed.
   if (query.make) params.set("vehicle.make", query.make);
   if (query.model) params.set("vehicle.model", query.model);
-  if (query.bodyType) params.set("vehicle.bodyStyle", query.bodyType); // NOT independently confirmed against docs — verify against a live response before relying on this filter
+  if (query.bodyType) params.set("vehicle.bodyStyle", query.bodyType);
+  if (query.drivetrain) params.set("vehicle.drivetrain", query.drivetrain);
+  if (query.transmission) params.set("vehicle.transmission", query.transmission);
+  if (query.exteriorColor) params.set("vehicle.exteriorColor", query.exteriorColor);
+  if (query.cylinders != null) params.set("vehicle.cylinders", String(query.cylinders));
 
   if (query.priceMin != null || query.priceMax != null) {
     params.set("retailListing.price", `${query.priceMin ?? 1}-${query.priceMax ?? 999999}`);
@@ -128,16 +145,31 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
     params.set("vehicle.year", `${query.yearMin ?? 1900}-${query.yearMax ?? 2100}`);
   }
   if (query.mileageMax != null) {
-    params.set("retailListing.mileage", `0-${query.mileageMax}`); // dash-range pattern assumed consistent with price/year — NOT independently confirmed, verify against a live response
+    // Bug fix: field is "retailListing.miles", not "retailListing.mileage"
+    // — confirmed live in STEP3_STATUS.md ("retailListing.price, retailListing.miles
+    // — ranges verified inclusive"). Was silently wrong before this fix.
+    params.set("retailListing.miles", `0-${query.mileageMax}`);
   }
+
+  // Strict boolean serialization required — STEP3_STATUS.md found
+  // retailListing.used=maybe returns 200 with empty data instead of erroring.
+  if (query.used != null) params.set("retailListing.used", query.used ? "true" : "false");
+  if (query.cpo != null) params.set("retailListing.cpo", query.cpo ? "true" : "false");
+  if (query.state) params.set("retailListing.state", query.state.toUpperCase());
+
+  // Facet-verified filterable, real trust differentiator (design doc §2).
+  if (query.accidentCount != null) params.set("history.accidentCount", String(query.accidentCount));
+  if (query.ownerCount != null) params.set("history.ownerCount", String(query.ownerCount));
 
   if (query.zip) params.set("zip", query.zip);
   if (query.radius != null) params.set("distance", String(query.radius)); // "distance", not "radius"
+  if (query.sort) params.set("sort", query.sort);
 
   // NOTE: trim and seats are deliberately NEVER added as query params here —
   // Trust Class B / provider_filter_allowed: false — see SYS-20260812-023/025.
 
   params.set("limit", String(query.limit ?? 50));
+  params.set("includes", query.includeFacets ? "total,facets" : "total");
 
   const result = await autoDevFetch<ListingsResponse>(`/listings?${params.toString()}`);
   return result ?? { data: [], total: 0 };
