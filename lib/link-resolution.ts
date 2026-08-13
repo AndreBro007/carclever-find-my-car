@@ -25,13 +25,13 @@ function looksObviouslyBroken(url: string | undefined): boolean {
 export function resolveLinks(listing: AutoDevListing): LinkResolution {
   const rawEdmunds = buildEdmundsUrl({
     vin: listing.vin,
-    make: listing.make,
-    model: listing.model,
-    year: listing.year,
+    make: listing.vehicle?.make,
+    model: listing.vehicle?.model,
+    year: listing.vehicle?.year,
   });
   const affiliateUrl = rawEdmunds ? wrapWithCJ(rawEdmunds) : null;
 
-  const dealerUrl = typeof listing.vdp === "string" ? listing.vdp : undefined;
+  const dealerUrl = listing.retailListing?.vdp;
   const dealerListingUrl = looksObviouslyBroken(dealerUrl) ? null : dealerUrl ?? null;
 
   let linkStatus: LinkResolution["linkStatus"];

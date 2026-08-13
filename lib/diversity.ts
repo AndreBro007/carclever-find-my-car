@@ -13,7 +13,7 @@ export function applyDiversity(listings: AutoDevListing[], limit: number): AutoD
   const result: AutoDevListing[] = [];
 
   for (const listing of listings) {
-    const key = `${(listing.make ?? "").toLowerCase()}|${(listing.model ?? "").toLowerCase()}`;
+    const key = `${(listing.vehicle?.make ?? "").toLowerCase()}|${(listing.vehicle?.model ?? "").toLowerCase()}`;
     const count = seen.get(key) ?? 0;
     if (count >= MAX_PER_MAKE_MODEL) continue;
     seen.set(key, count + 1);

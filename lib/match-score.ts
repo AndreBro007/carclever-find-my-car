@@ -36,14 +36,16 @@ function statedCriteriaFit(listing: AutoDevListing, intent: ParsedIntent): numbe
   // hard-constraint count (ranking input only, handled below).
   const checks: boolean[] = [];
   const hc = intent.hardConstraints;
+  const v = listing.vehicle;
+  const rl = listing.retailListing;
 
-  if (hc.priceMax != null) checks.push((listing.price ?? Infinity) <= hc.priceMax);
-  if (hc.priceMin != null) checks.push((listing.price ?? 0) >= hc.priceMin);
-  if (hc.yearMin != null) checks.push((listing.year ?? 0) >= hc.yearMin);
-  if (hc.yearMax != null) checks.push((listing.year ?? Infinity) <= hc.yearMax);
-  if (hc.mileageMax != null) checks.push((listing.mileage ?? Infinity) <= hc.mileageMax);
-  if (hc.make) checks.push((listing.make ?? "").toLowerCase() === hc.make.toLowerCase());
-  if (hc.model) checks.push((listing.model ?? "").toLowerCase() === hc.model.toLowerCase());
+  if (hc.priceMax != null) checks.push((rl?.price ?? Infinity) <= hc.priceMax);
+  if (hc.priceMin != null) checks.push((rl?.price ?? 0) >= hc.priceMin);
+  if (hc.yearMin != null) checks.push((v?.year ?? 0) >= hc.yearMin);
+  if (hc.yearMax != null) checks.push((v?.year ?? Infinity) <= hc.yearMax);
+  if (hc.mileageMax != null) checks.push((rl?.miles ?? Infinity) <= hc.mileageMax);
+  if (hc.make) checks.push((v?.make ?? "").toLowerCase() === hc.make.toLowerCase());
+  if (hc.model) checks.push((v?.model ?? "").toLowerCase() === hc.model.toLowerCase());
 
   let base = checks.length === 0 ? 1.0 : checks.filter(Boolean).length / checks.length;
 
@@ -52,7 +54,7 @@ function statedCriteriaFit(listing: AutoDevListing, intent: ParsedIntent): numbe
   // doesn't add the bonus (SYS-20260812-023/025).
   if (intent.semantic.trimPreference) {
     const trimMatches =
-      (listing.trim ?? "").toLowerCase() === intent.semantic.trimPreference.toLowerCase();
+      (v?.trim ?? "").toLowerCase() === intent.semantic.trimPreference.toLowerCase();
     base = trimMatches ? Math.min(1, base + 0.05) : base;
   }
 

@@ -36,30 +36,58 @@ async function autoDevFetch<T>(path: string, timeoutMs = DEFAULT_TIMEOUT_MS): Pr
   }
 }
 
+/**
+ * Real Auto.dev v2 /listings item shape, confirmed against a live production
+ * response (2026-08-13, see DECISIONS.md SYS-20260812 build log) — NOT flat,
+ * nests under vehicle.* / retailListing.*, matching the same field-path
+ * convention used by the query filter params (vehicle.make, retailListing.price).
+ *
+ * Confirmed fields (seen in a real response):
+ *   vin (top-level), vehicle.{make,model,year,trim,fuel,drivetrain,
+ *   transmission,bodyStyle,engine,exteriorColor,interiorColor,squishVin},
+ *   retailListing.{price,miles,city,state,dealer,cpo,used,vdp,primaryImage,
+ *   carfaxUrl,photoCount}
+ *
+ * NOT independently confirmed yet (kept optional, unverified against a real
+ * response — the sample seen was truncated before these could be checked):
+ *   retailListing.zip, retailListing.dealerId, retailListing.titleStatus,
+ *   vehicle.series
+ */
 export interface AutoDevListing {
   vin: string;
-  year?: number;
-  make?: string;
-  model?: string;
-  trim?: string;
-  series?: string;
-  price?: number;
-  mileage?: number;
-  zip?: string;
-  city?: string;
-  state?: string;
-  fuel?: string;
-  drivetrain?: string;
-  transmission?: string;
-  bodyStyle?: string;
-  used?: boolean;
-  cpo?: boolean;
-  dealerName?: string;
-  dealerId?: string;
-  carfaxUrl?: string;
-  vdp?: string;
-  primaryImage?: string;
-  [key: string]: unknown; // Auto.dev returns more fields than we type explicitly — preserve raw access
+  "@id"?: string;
+  createdAt?: string;
+  vehicle?: {
+    make?: string;
+    model?: string;
+    year?: number;
+    trim?: string;
+    series?: string; // unconfirmed
+    fuel?: string;
+    drivetrain?: string;
+    transmission?: string;
+    bodyStyle?: string;
+    engine?: string;
+    exteriorColor?: string;
+    interiorColor?: string;
+    squishVin?: string;
+  };
+  retailListing?: {
+    price?: number;
+    miles?: number;
+    city?: string;
+    state?: string;
+    zip?: string; // unconfirmed
+    dealer?: string;
+    dealerId?: string; // unconfirmed
+    cpo?: boolean;
+    used?: boolean;
+    vdp?: string;
+    primaryImage?: string;
+    carfaxUrl?: string;
+    photoCount?: number; // known unreliable per field-trust registry, don't use for gallery-size prediction
+    titleStatus?: string; // unconfirmed
+  };
 }
 
 export interface ListingsQuery {
@@ -112,13 +140,6 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
   params.set("limit", String(query.limit ?? 50));
 
   const result = await autoDevFetch<ListingsResponse>(`/listings?${params.toString()}`);
-
-  // TEMPORARY diagnostic: confirm the real shape of a returned item before trusting
-  // AutoDevListing's flat-field assumptions. Remove once verified (SYS-20260812 build log).
-  if (result?.data?.[0]) {
-    console.error("[auto-dev-client] DIAGNOSTIC first item shape:", JSON.stringify(result.data[0]).slice(0, 800));
-  }
-
   return result ?? { data: [], total: 0 };
 }
 

@@ -44,12 +44,15 @@ async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeo
   // actionable CTAs isn't useful regardless of Match Score (SYS-20260812-023/024).
   if (links.linkStatus === "none-available") return null;
 
-  const normalizedFuel = applyKnownHybridOverride(listing.year, listing.make, listing.model, listing.fuel as string | undefined);
+  const v = listing.vehicle;
+  const rl = listing.retailListing;
+
+  const normalizedFuel = applyKnownHybridOverride(v?.year, v?.make, v?.model, v?.fuel);
 
   // Photos must never block the search-results critical path (real evidence:
-  // 868ms median Photos latency, SYS-20260812-014/021). Use whatever primary
-  // image Listings already returned for free; leave the gallery empty here —
-  // it's populated only via the separate, lazy get_vehicle_photos tool call.
+  // 868ms median Photos latency, SYS-20260812-014/021). Leave the gallery
+  // empty here — it's populated only via the separate, lazy
+  // get_vehicle_photos tool call.
   const photos: string[] = [];
 
   const badges: string[] = [];
@@ -61,36 +64,36 @@ async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeo
     canonicalVehicleId: listing.vin,
     identity: {
       vin: listing.vin,
-      year: listing.year ?? null,
-      make: listing.make ?? null,
-      model: listing.model ?? null,
-      trim: listing.trim ?? null,
-      series: listing.series ?? null,
+      year: v?.year ?? null,
+      make: v?.make ?? null,
+      model: v?.model ?? null,
+      trim: v?.trim ?? null,
+      series: v?.series ?? null,
     },
     condition: {
-      inventoryType: listing.used === false ? "new" : "used",
-      used: listing.used ?? null,
-      cpo: listing.cpo ?? null,
-      cpoEvidenceState: listing.cpo == null ? "unknown" : "provider_reported",
+      inventoryType: rl?.used === false ? "new" : "used",
+      used: rl?.used ?? null,
+      cpo: rl?.cpo ?? null,
+      cpoEvidenceState: rl?.cpo == null ? "unknown" : "provider_reported",
     },
     powertrain: {
       type: normalizedFuel,
-      engine: null,
-      drivetrain: listing.drivetrain ?? null,
-      transmission: listing.transmission ?? null,
+      engine: v?.engine ?? null,
+      drivetrain: v?.drivetrain ?? null,
+      transmission: v?.transmission ?? null,
     },
     body: {
-      bodyStyle: listing.bodyStyle ?? null,
+      bodyStyle: v?.bodyStyle ?? null,
     },
     listing: {
-      price: listing.price ?? null,
-      mileage: listing.mileage ?? null,
-      dealer: listing.dealerName ? sanitizeDealerName(listing.dealerName as string) : null,
-      dealerId: listing.dealerId ?? null,
-      city: listing.city ?? null,
-      state: listing.state ?? null,
-      zip: listing.zip ?? null,
-      rawVdp: listing.vdp ?? null,
+      price: rl?.price ?? null,
+      mileage: rl?.miles ?? null,
+      dealer: rl?.dealer ? sanitizeDealerName(rl.dealer) : null,
+      dealerId: rl?.dealerId ?? null,
+      city: rl?.city ?? null,
+      state: rl?.state ?? null,
+      zip: rl?.zip ?? null,
+      rawVdp: rl?.vdp ?? null,
       resolvedDestination: links.dealerListingUrl,
       destinationClass: links.dealerListingUrl ? "dealer_or_aggregator" : null,
     },
@@ -98,7 +101,7 @@ async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeo
       state: "unknown",
     },
     media: {
-      primaryImage: listing.primaryImage ?? null,
+      primaryImage: rl?.primaryImage ?? null,
       photoUrls: photos,
     },
     verification,
@@ -109,9 +112,9 @@ async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeo
       linkStatus: links.linkStatus,
     },
     detail: {
-      carfaxUrl: CAPABILITIES.carfaxPassthrough ? listing.carfaxUrl ?? null : null,
-      titleStatus: listing.titleStatus ?? null,
-      fuelTypeDisplay: formatFuelTypeForDisplay(normalizedFuel, listing.fuel as string | undefined),
+      carfaxUrl: CAPABILITIES.carfaxPassthrough ? rl?.carfaxUrl ?? null : null,
+      titleStatus: rl?.titleStatus ?? null,
+      fuelTypeDisplay: formatFuelTypeForDisplay(normalizedFuel, v?.fuel),
     },
     badges,
   };
@@ -207,7 +210,7 @@ const handler = createMcpHandler((server) => {
       },
     },
     async ({ vin, make, model, year }) => {
-      const links = resolveLinks({ vin, make, model, year } as AutoDevListing);
+      const links = resolveLinks({ vin, vehicle: { make, model, year } } as AutoDevListing);
 
       if (links.linkStatus === "none-available") {
         return {

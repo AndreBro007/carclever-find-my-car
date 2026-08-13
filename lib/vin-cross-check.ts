@@ -22,6 +22,7 @@ function fieldsAgree(listed: string | undefined, decoded: string | undefined): b
 
 export async function crossCheckVin(listing: AutoDevListing): Promise<VerificationResult> {
   const decoded = await decodeVin(listing.vin);
+  const v = listing.vehicle;
 
   if (!decoded) {
     // Decode unavailable — everything stays unknown, never assumed false or true.
@@ -34,10 +35,10 @@ export async function crossCheckVin(listing: AutoDevListing): Promise<Verificati
   }
 
   const checks: Array<[string, boolean | null]> = [
-    ["make", fieldsAgree(listing.make, decoded.make)],
-    ["model", fieldsAgree(listing.model, decoded.model)],
-    ["year", fieldsAgree(listing.year != null ? String(listing.year) : undefined, decoded.year != null ? String(decoded.year) : undefined)],
-    ["trim", fieldsAgree(listing.trim, decoded.trim)], // informational only — trim is never a hard filter
+    ["make", fieldsAgree(v?.make, decoded.make)],
+    ["model", fieldsAgree(v?.model, decoded.model)],
+    ["year", fieldsAgree(v?.year != null ? String(v.year) : undefined, decoded.year != null ? String(decoded.year) : undefined)],
+    ["trim", fieldsAgree(v?.trim, decoded.trim)], // informational only — trim is never a hard filter
   ];
 
   const verifiedAttributes = checks.filter(([, v]) => v === true).map(([k]) => k);
