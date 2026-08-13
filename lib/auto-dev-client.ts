@@ -175,6 +175,7 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
   // returns 0 candidates, which worked correctly before this session's changes).
   if (query.includeFacets) params.set("includes", "total,facets");
 
+  console.error(`[auto-dev-client] DIAGNOSTIC outgoing URL: /listings?${params.toString()}`);
   const result = await autoDevFetch<ListingsResponse>(`/listings?${params.toString()}`);
   return result ?? { data: [], total: 0 };
 }
