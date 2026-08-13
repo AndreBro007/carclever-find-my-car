@@ -46,7 +46,11 @@ async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeo
 
   const normalizedFuel = applyKnownHybridOverride(listing.year, listing.make, listing.model, listing.fuel as string | undefined);
 
-  const photos = CAPABILITIES.photoGallery === "auto" ? await getValidatedPhotos(listing.vin, 3) : [];
+  // Photos must never block the search-results critical path (real evidence:
+  // 868ms median Photos latency, SYS-20260812-014/021). Use whatever primary
+  // image Listings already returned for free; leave the gallery empty here —
+  // it's populated only via the separate, lazy get_vehicle_photos tool call.
+  const photos: string[] = [];
 
   const badges: string[] = [];
   if (verification.hardConstraintStatus === "verified_match") badges.push("vin-verified");
