@@ -169,7 +169,11 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
   // Trust Class B / provider_filter_allowed: false — see SYS-20260812-023/025.
 
   params.set("limit", String(query.limit ?? 50));
-  params.set("includes", query.includeFacets ? "total,facets" : "total");
+  // Only send includes when facets are actually requested — this param
+  // wasn't present in the earlier working version; setting it unconditionally
+  // is the prime suspect for a new regression (even bare make+model now
+  // returns 0 candidates, which worked correctly before this session's changes).
+  if (query.includeFacets) params.set("includes", "total,facets");
 
   const result = await autoDevFetch<ListingsResponse>(`/listings?${params.toString()}`);
   return result ?? { data: [], total: 0 };
