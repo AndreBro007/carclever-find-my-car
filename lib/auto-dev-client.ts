@@ -112,6 +112,13 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
   params.set("limit", String(query.limit ?? 50));
 
   const result = await autoDevFetch<ListingsResponse>(`/listings?${params.toString()}`);
+
+  // TEMPORARY diagnostic: confirm the real shape of a returned item before trusting
+  // AutoDevListing's flat-field assumptions. Remove once verified (SYS-20260812 build log).
+  if (result?.data?.[0]) {
+    console.error("[auto-dev-client] DIAGNOSTIC first item shape:", JSON.stringify(result.data[0]).slice(0, 800));
+  }
+
   return result ?? { data: [], total: 0 };
 }
 
