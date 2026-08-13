@@ -1,6 +1,8 @@
 import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
-import { searchListings, type AutoDevListing } from "@/lib/auto-dev-client";
+import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
+import { searchWithLoosening } from "@/lib/loosening-ladder";
+import { verifyAgainstConstraints } from "@/lib/post-verify";
 import { parseIntent } from "@/lib/intent-parser";
 import { applyDiversity } from "@/lib/diversity";
 import { crossCheckVin } from "@/lib/vin-cross-check";
@@ -14,11 +16,19 @@ import { CAPABILITIES } from "@/lib/capabilities";
 
 initCorpusCount();
 
-const FIND_MATCHING_VEHICLE_DESCRIPTION = () => `Finds specific used vehicle listings that match a buyer's stated or implied criteria — price range, body type, make/model, mileage, year, or descriptive needs like 'reliable for a teen driver' or 'good for a family.' Searches across a live pool of ${getCorpusCountForDescription()} active US listings. Each result is cross-checked against its own VIN-decoded data before being shown, so matches carry a verified-identity signal, not just a keyword match. Results include full vehicle detail (trim, engine, transmission, drivetrain, title status) so follow-up questions about a specific result can be answered without a new search. Use this when a user is trying to decide on or locate an actual vehicle to buy, not for general questions about car types, comparisons of car categories, or how-to advice about buying a car. Returns a small set of closely matching, VIN-checked listings with current pricing, photos, and a link to view or purchase.`;
+// Description rules 2 and 4 below are adapted from the proven, live-tested
+// tool-description language in AUTODEV_V2_NLP_SEARCH_REDESIGN.md §5.1
+// (Sky redesign, approved July 26, 2026) — same architecture principle
+// Find My Car already uses (calling LLM owns intent, server stays thin and
+// deterministic), just with more explicit coaching for known data quirks.
+const FIND_MATCHING_VEHICLE_DESCRIPTION = () => `Finds specific used vehicle listings that match a buyer's stated or implied criteria — price range, body type, make/model, mileage, year, or descriptive needs like 'reliable for a teen driver' or 'good for a family.' Searches across a live pool of ${getCorpusCountForDescription()} active US listings. Each result is cross-checked against its own VIN-decoded data before being shown, so matches carry a verified-identity signal, not just a keyword match. Results include full vehicle detail (trim, engine, transmission, drivetrain, title status) so follow-up questions about a specific result can be answered without a new search. Use this when a user is trying to decide on or locate an actual vehicle to buy, not for general questions about car types, comparisons of car categories, or how-to advice about buying a car. Returns a small set of closely matching, VIN-checked listings with current pricing, photos, and a link to view or purchase.
+
+Notes for decomposing the request: (1) Hybrid and plug-in hybrid vehicles are often mistagged in the source data — if the user names a specific model (e.g. "Sportage" or "RAV4"), prefer setting model to include both the base and hybrid variant name (e.g. "RAV4,RAV4 Hybrid" or "RAV4,RAV4 Prime") rather than relying on a fuel filter alone; if no model is named, fuel-based hybrid/PHEV filtering has known partial coverage — mention that to the user. (2) Map descriptive intent to the dedicated fields (bodyType, seatsMinPreference, goals) rather than into the make/model text. (3) Set priceFlexibility to "flexible" only if the user signals approximation ("around," "roughly," "about") — otherwise price stays a hard ceiling, never silently loosened. (4) Size/style qualifiers like "large" or "compact" aren't directly filterable in the underlying data — use your own knowledge of which specific models fit, and say so if a returned result doesn't actually match the size the user asked for.`;
 
 const FindMatchingVehicleInput = z.object({
   priceMax: z.number().optional(),
   priceMin: z.number().optional(),
+  priceFlexibility: z.enum(["strict", "flexible"]).optional(),
   yearMin: z.number().optional(),
   yearMax: z.number().optional(),
   make: z.string().optional(),
@@ -130,7 +140,7 @@ const handler = createMcpHandler((server) => {
     async (input) => {
       const intent = parseIntent(input);
 
-      const { data: candidates, total } = await searchListings({
+      const baseQuery: ListingsQuery = {
         make: intent.hardConstraints.make,
         model: intent.hardConstraints.model,
         bodyType: intent.hardConstraints.bodyType,
@@ -142,9 +152,25 @@ const handler = createMcpHandler((server) => {
         zip: intent.hardConstraints.location?.zip,
         radius: intent.hardConstraints.location?.radiusMiles,
         limit: CANDIDATE_POOL_SIZE,
-      });
+      };
 
-      const diversified = applyDiversity(candidates, SHORTLIST_SIZE * 2);
+      const { data: candidates, total, relaxations, scopeNote } = await searchWithLoosening(
+        baseQuery,
+        input.priceFlexibility ?? "strict",
+      );
+
+      // Post-verification (SYS-20260812-035, redesign doc §5.4 step 6):
+      // Auto.dev can silently swallow/mishandle params and return rows that
+      // don't actually satisfy a stated filter. Mechanical check only — no
+      // semantic/size-class judgment, that stays the calling LLM's job.
+      const verifiedCandidates = candidates.filter(
+        (c) => verifyAgainstConstraints(c, baseQuery).length === 0,
+      );
+      const violationRate = candidates.length > 0
+        ? (candidates.length - verifiedCandidates.length) / candidates.length
+        : 0;
+
+      const diversified = applyDiversity(verifiedCandidates, SHORTLIST_SIZE * 2);
       const shortlist = diversified.slice(0, SHORTLIST_SIZE);
 
       const cards = (
@@ -153,12 +179,24 @@ const handler = createMcpHandler((server) => {
 
       cards.sort((a, b) => b.ranking.matchScore - a.ranking.matchScore);
 
+      const dataNotes: string[] = [];
+      if (violationRate > 0.2) {
+        dataNotes.push(
+          "Some results from the underlying data source didn't fully match the stated filters and were excluded — this can happen with the provider's data.",
+        );
+      }
+      if (scopeNote === "nationwide") {
+        dataNotes.push("The requested location wasn't recognized, so this search was widened to nationwide.");
+      }
+
       const response = {
         meta: {
           totalCandidatesConsidered: candidates.length,
           totalMatches: typeof total === "number" ? total : null,
           corpusSizeApprox: getCorpusCountForDescription(),
-          relaxations: [] as Array<{ field: string; requested: unknown; actual: unknown; reason: string }>,
+          relaxations,
+          dataNotes,
+          scopeNote,
           interpretationNotes: intent.interpretationNotes,
         },
         results: cards,
@@ -170,10 +208,20 @@ const handler = createMcpHandler((server) => {
       // summary and couldn't answer follow-ups about the other results, so
       // every result's key detail now goes directly into this text.
       const totalPhrase = typeof total === "number" ? ` out of ${total} in the area` : "";
+
+      // Honest disclosure prefix — any relaxation or data quality note must
+      // reach the model's text, not just structuredContent (SYS-20260812-011
+      // #3, redesign doc §5 "CALLING LLM presents results and *honestly
+      // narrates* any relaxations").
+      const disclosurePrefix =
+        relaxations.length > 0 || dataNotes.length > 0
+          ? [...relaxations.map((r) => `Note: ${r.detail}`), ...dataNotes].join("\n") + "\n\n"
+          : "";
+
       const summary =
         cards.length === 0
-          ? "No results matched closely enough to show. Consider relaxing price, location, or year constraints."
-          : `Found ${cards.length} closely matching vehicle${cards.length === 1 ? "" : "s"}${totalPhrase}:\n\n` +
+          ? disclosurePrefix + "No results matched closely enough to show. Consider relaxing price, location, or year constraints."
+          : disclosurePrefix + `Found ${cards.length} closely matching vehicle${cards.length === 1 ? "" : "s"}${totalPhrase}:\n\n` +
             cards
               .map((c, i) => {
                 const id = c.identity;
