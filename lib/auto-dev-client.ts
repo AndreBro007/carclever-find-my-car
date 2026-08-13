@@ -7,7 +7,8 @@
  */
 
 const AUTO_DEV_BASE_URL = "https://api.auto.dev";
-const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_TIMEOUT_MS = 25_000; // was 10s — real logs show fetch failing with [Error [Timeout...
+  // for plain make+model queries; 10s was too short, not a param/query bug.
 
 function apiKey(): string {
   const key = process.env.AUTO_DEV_API_KEY;
@@ -175,7 +176,6 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
   // returns 0 candidates, which worked correctly before this session's changes).
   if (query.includeFacets) params.set("includes", "total,facets");
 
-  console.error(`[auto-dev-client] DIAGNOSTIC outgoing URL: /listings?${params.toString()}`);
   const result = await autoDevFetch<ListingsResponse>(`/listings?${params.toString()}`);
   return result ?? { data: [], total: 0 };
 }
