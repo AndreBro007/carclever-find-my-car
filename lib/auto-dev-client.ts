@@ -183,7 +183,6 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
   // Removing this yesterday broke totalMatches for every search - restored.
   params.set("includes", query.includeFacets ? "total,facets" : "total");
 
-  console.error(`[DIAG-URL] /listings?${params.toString()}`);
   const result = await autoDevFetch<ListingsResponse>(`/listings?${params.toString()}`);
   return result ?? { data: [], total: 0 };
 }

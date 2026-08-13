@@ -179,8 +179,11 @@ const handler = createMcpHandler((server) => {
         // in 53% of real listings, so hard-filtering would violate "unknown != false".
         // noAccidents/oneOwner still collected from input, used as display/ranking
         // signal only against whatever history data the shortlisted results happen to have.
-        sort: "price.asc", // confirmed correct against docs.auto.dev's own example
-        // (was wrongly removed chasing a bug that was actually a client timeout, SYS-044)
+        // sort=price.asc only when make+model narrow the set enough for it to
+        // be fast. Real evidence (Aug 14 logs): a broad query like bodyType=SUV
+        // alone + sort=price.asc timed out at 25s server-side - Auto.dev likely
+        // has to sort a huge unfiltered set. make+model queries stayed fast.
+        sort: (intent.hardConstraints.make && intent.hardConstraints.model) ? "price.asc" : undefined,
         limit: CANDIDATE_POOL_SIZE,
       };
 
