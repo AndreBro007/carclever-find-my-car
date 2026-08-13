@@ -159,8 +159,12 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
   if (query.state) params.set("retailListing.state", query.state.toUpperCase());
 
   // Facet-verified filterable, real trust differentiator (design doc §2).
-  if (query.accidentCount != null) params.set("history.accidentCount", String(query.accidentCount));
-  if (query.ownerCount != null) params.set("history.ownerCount", String(query.ownerCount));
+  // history.accidentCount/ownerCount confirmed real field names (real captured
+  // response: FILTER-COMPLETE-001), but history is null in 53% of sampled rows
+  // (STEP3_STATUS.md). Hard-filtering on a field missing half the time would
+  // silently exclude valid unknown-history cars — violates the "unknown != false"
+  // principle already established. Removed as query filters; handled as
+  // post-search display/ranking signal instead (see route.ts, not implemented yet).
 
   if (query.zip) params.set("zip", query.zip);
   if (query.radius != null) params.set("distance", String(query.radius)); // "distance", not "radius"
@@ -174,7 +178,10 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
   // wasn't present in the earlier working version; setting it unconditionally
   // is the prime suspect for a new regression (even bare make+model now
   // returns 0 candidates, which worked correctly before this session's changes).
-  if (query.includeFacets) params.set("includes", "total,facets");
+  // "total" is only present in the response when ?includes=total is passed
+  // (confirmed: docs.auto.dev/v2/products/vehicle-listings, "Total count (total)").
+  // Removing this yesterday broke totalMatches for every search - restored.
+  params.set("includes", query.includeFacets ? "total,facets" : "total");
 
   const result = await autoDevFetch<ListingsResponse>(`/listings?${params.toString()}`);
   return result ?? { data: [], total: 0 };
