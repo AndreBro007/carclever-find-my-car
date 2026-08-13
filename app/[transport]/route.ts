@@ -158,6 +158,8 @@ const handler = createMcpHandler((server) => {
     async (input) => {
       const intent = parseIntent(input);
 
+      const narrowQuery = Boolean(intent.hardConstraints.make && intent.hardConstraints.model);
+
       const baseQuery: ListingsQuery = {
         make: intent.hardConstraints.make,
         model: intent.hardConstraints.model,
@@ -179,11 +181,10 @@ const handler = createMcpHandler((server) => {
         // in 53% of real listings, so hard-filtering would violate "unknown != false".
         // noAccidents/oneOwner still collected from input, used as display/ranking
         // signal only against whatever history data the shortlisted results happen to have.
-        // sort=price.asc only when make+model narrow the set enough for it to
-        // be fast. Real evidence (Aug 14 logs): a broad query like bodyType=SUV
-        // alone + sort=price.asc timed out at 25s server-side - Auto.dev likely
-        // has to sort a huge unfiltered set. make+model queries stayed fast.
-        sort: (intent.hardConstraints.make && intent.hardConstraints.model) ? "price.asc" : undefined,
+        // sort=price.asc + includes=total both only when narrow enough to be
+        // fast (real evidence, Aug 14: broad queries timed out at 25s on both).
+        sort: narrowQuery ? "price.asc" : undefined,
+        narrowQuery,
         limit: CANDIDATE_POOL_SIZE,
       };
 

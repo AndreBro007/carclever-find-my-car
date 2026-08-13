@@ -115,6 +115,11 @@ export interface ListingsQuery {
   ownerCount?: number; // history.ownerCount — facet-verified filterable
   sort?: string; // e.g. "price.asc"
   includeFacets?: boolean;
+  // Real evidence (Aug 14): includes=total (exact count) and sort=price.asc
+  // both appear expensive on broad/unfiltered queries - Auto.dev may need to
+  // scan/count/sort a huge unindexed set. Narrow (make+model) queries stay fast.
+  // Skip both when the query isn't narrow, to avoid the same timeout pattern.
+  narrowQuery?: boolean;
 }
 
 export interface ListingsResponse {
@@ -180,8 +185,10 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
   // returns 0 candidates, which worked correctly before this session's changes).
   // "total" is only present in the response when ?includes=total is passed
   // (confirmed: docs.auto.dev/v2/products/vehicle-listings, "Total count (total)").
-  // Removing this yesterday broke totalMatches for every search - restored.
-  params.set("includes", query.includeFacets ? "total,facets" : "total");
+  // But requesting it on a broad query appears expensive - only request when narrow.
+  if (query.narrowQuery) {
+    params.set("includes", query.includeFacets ? "total,facets" : "total");
+  }
 
   const result = await autoDevFetch<ListingsResponse>(`/listings?${params.toString()}`);
   return result ?? { data: [], total: 0 };
