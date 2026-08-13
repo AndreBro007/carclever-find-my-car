@@ -29,7 +29,7 @@ Two worked examples of applying this principle (not an exhaustive list — the s
 - Hybrid and plug-in hybrid vehicles are often mistagged in the source data. If a specific model is named (e.g. "Sportage" or "RAV4"), set model to include both the base and hybrid/PHEV variant name (e.g. "RAV4,RAV4 Hybrid" or "RAV4,RAV4 Prime") rather than relying on the fuel filter alone. If no model is named, fuel-based hybrid/PHEV filtering has known partial coverage — mention that to the user.
 - Size and style qualifiers ("large SUV," "compact SUV," "sports sedan," "off-road capable," etc.) have no dedicated field — bodyType alone returns every size undifferentiated. Resolve these into a model list before searching (e.g. for "large SUV": "Suburban,Tahoe,Expedition,Sequoia,Wagoneer,Grand Wagoneer,Yukon XL,Yukon,Armada,Land Cruiser").
 
-Other rules: map descriptive intent to the dedicated fields (bodyType, seatsMinPreference, goals) rather than into free-text model/trim strings. Set priceFlexibility to "flexible" only if the user signals approximation ("around," "roughly," "about") — otherwise price stays a hard ceiling, never silently loosened.`;
+Other rules: map descriptive intent to the dedicated fields (bodyType, seatsMinPreference, goals) rather than into free-text model/trim strings. Set priceFlexibility to "flexible" only if the user signals approximation ("around," "roughly," "about") — otherwise price stays a hard ceiling, never silently loosened. Prefer dedicated fields over model-list resolution when one exists: "AWD"/"4WD" → drivetrain; "manual" → transmission; a named color → exteriorColor; "certified pre-owned"/"CPO" → cpo; "no accidents" → noAccidents; "one owner" → oneOwner. These are real, verified data filters, not proxies.`;
 
 const FindMatchingVehicleInput = z.object({
   priceMax: z.number().optional(),
@@ -46,6 +46,15 @@ const FindMatchingVehicleInput = z.object({
   trimPreference: z.string().optional(),
   seatsMinPreference: z.number().optional(),
   goals: z.array(z.string()).optional(),
+  // Widened per design doc §2 — all live-verified filterable.
+  drivetrain: z.string().optional(), // "AWD" | "4WD" | "FWD" | "RWD", comma-OR
+  transmission: z.enum(["Automatic", "Manual"]).optional(),
+  exteriorColor: z.string().optional(),
+  used: z.boolean().optional(),
+  cpo: z.boolean().optional(),
+  state: z.string().optional(),
+  noAccidents: z.boolean().optional(), // maps to history.accidentCount=0
+  oneOwner: z.boolean().optional(), // maps to history.ownerCount=1
 });
 
 const SHORTLIST_SIZE = 5;
@@ -157,6 +166,15 @@ const handler = createMcpHandler((server) => {
         mileageMax: intent.hardConstraints.mileageMax,
         zip: intent.hardConstraints.location?.zip,
         radius: intent.hardConstraints.location?.radiusMiles,
+        drivetrain: input.drivetrain,
+        transmission: input.transmission,
+        exteriorColor: input.exteriorColor,
+        used: input.used,
+        cpo: input.cpo,
+        state: input.state,
+        accidentCount: input.noAccidents ? 0 : undefined,
+        ownerCount: input.oneOwner ? 1 : undefined,
+        sort: "price.asc", // design doc §5 — deterministic, budget-relevant sample instead of recency bias
         limit: CANDIDATE_POOL_SIZE,
       };
 
