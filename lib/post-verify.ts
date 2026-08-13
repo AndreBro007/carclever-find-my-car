@@ -9,15 +9,22 @@
 import type { AutoDevListing } from "./auto-dev-client";
 import type { ListingsQuery } from "./auto-dev-client";
 
+// make/model can be comma-separated OR lists (see match-score.ts for why).
+function matchesAnyInList(value: string | undefined, list: string): boolean {
+  if (!value) return false;
+  const options = list.split(",").map((s) => s.trim().toLowerCase());
+  return options.includes(value.trim().toLowerCase());
+}
+
 export function verifyAgainstConstraints(listing: AutoDevListing, query: ListingsQuery): string[] {
   const violations: string[] = [];
   const v = listing.vehicle;
   const rl = listing.retailListing;
 
-  if (query.make && v?.make && v.make.toLowerCase() !== query.make.toLowerCase()) {
+  if (query.make && v?.make && !matchesAnyInList(v.make, query.make)) {
     violations.push("make");
   }
-  if (query.model && v?.model && v.model.toLowerCase() !== query.model.toLowerCase()) {
+  if (query.model && v?.model && !matchesAnyInList(v.model, query.model)) {
     violations.push("model");
   }
   if (query.priceMax != null && rl?.price != null && rl.price > query.priceMax) {

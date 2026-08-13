@@ -11,6 +11,16 @@ import type { AutoDevListing } from "./auto-dev-client";
 import type { ParsedIntent } from "./intent-parser";
 import type { VerificationResult } from "./vin-cross-check";
 
+// make/model fields can be comma-separated OR lists (Auto.dev's native comma
+// syntax, e.g. "Suburban,Tahoe,Expedition" for a size-qualified search per
+// the model-name-expansion pattern — see route.ts tool description). Exact
+// string equality against the whole list would always fail; check membership.
+function matchesAnyInList(value: string | undefined, list: string): boolean {
+  if (!value) return false;
+  const options = list.split(",").map((s) => s.trim().toLowerCase());
+  return options.includes(value.trim().toLowerCase());
+}
+
 export interface MatchScoreBreakdown {
   statedCriteriaFit: number; // 0-1
   resolvedCriteriaFit: number; // 0-1
@@ -44,8 +54,8 @@ function statedCriteriaFit(listing: AutoDevListing, intent: ParsedIntent): numbe
   if (hc.yearMin != null) checks.push((v?.year ?? 0) >= hc.yearMin);
   if (hc.yearMax != null) checks.push((v?.year ?? Infinity) <= hc.yearMax);
   if (hc.mileageMax != null) checks.push((rl?.miles ?? Infinity) <= hc.mileageMax);
-  if (hc.make) checks.push((v?.make ?? "").toLowerCase() === hc.make.toLowerCase());
-  if (hc.model) checks.push((v?.model ?? "").toLowerCase() === hc.model.toLowerCase());
+  if (hc.make) checks.push(matchesAnyInList(v?.make, hc.make));
+  if (hc.model) checks.push(matchesAnyInList(v?.model, hc.model));
 
   let base = checks.length === 0 ? 1.0 : checks.filter(Boolean).length / checks.length;
 
