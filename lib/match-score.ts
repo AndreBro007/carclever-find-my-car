@@ -15,9 +15,14 @@ import type { VerificationResult } from "./vin-cross-check";
 // syntax, e.g. "Suburban,Tahoe,Expedition" for a size-qualified search per
 // the model-name-expansion pattern — see route.ts tool description). Exact
 // string equality against the whole list would always fail; check membership.
-function matchesAnyInList(value: string | undefined, list: string): boolean {
-  if (!value) return false;
-  const v = value.trim().toLowerCase();
+//
+// Uses String() rather than relying on the TS type (`string | undefined`)
+// matching runtime reality — real bug found 2026-08-14 (diversity.ts): the
+// API can return unexpected types Auto.dev's own docs don't fully guarantee
+// against, and TS types don't protect against that at runtime.
+function matchesAnyInList(value: unknown, list: string): boolean {
+  if (value == null || value === "") return false;
+  const v = String(value).trim().toLowerCase();
   const options = list.split(",").map((s) => s.trim().toLowerCase());
   return options.some((opt) => v === opt || v.startsWith(opt) || opt.startsWith(v));
 }
@@ -65,7 +70,7 @@ function statedCriteriaFit(listing: AutoDevListing, intent: ParsedIntent): numbe
   // doesn't add the bonus (SYS-20260812-023/025).
   if (intent.semantic.trimPreference) {
     const trimMatches =
-      (v?.trim ?? "").toLowerCase() === intent.semantic.trimPreference.toLowerCase();
+      String(v?.trim ?? "").toLowerCase() === String(intent.semantic.trimPreference ?? "").toLowerCase();
     base = trimMatches ? Math.min(1, base + 0.05) : base;
   }
 

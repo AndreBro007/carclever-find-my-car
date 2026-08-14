@@ -31,7 +31,7 @@ const STRIP_SUFFIXES = [
 export function sanitizeDealerName(rawName: string | null | undefined): string {
   if (rawName == null) return "Dealer";
 
-  let name = rawName.trim();
+  let name = String(rawName).trim();
   if (name === "") return "Dealer";
 
   // Strip one known feed-connector suffix (case-insensitive) from the end

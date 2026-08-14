@@ -27,8 +27,8 @@ export interface VerificationResult {
 
 function makesAgree(listed: string | undefined, decoded: string | null): boolean | null {
   if (!decoded || !listed) return null;
-  const a = listed.trim().toLowerCase();
-  const b = decoded.trim().toLowerCase();
+  const a = String(listed).trim().toLowerCase();
+  const b = String(decoded).trim().toLowerCase();
   // Tolerant of formatting variance (e.g. "Mercedes-Benz" vs "Mercedes Benz").
   const norm = (s: string) => s.replace(/[^a-z0-9]/g, "");
   return norm(a) === norm(b);

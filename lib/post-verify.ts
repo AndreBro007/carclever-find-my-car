@@ -13,9 +13,15 @@ import type { ListingsQuery } from "./auto-dev-client";
 // Also: model strings have real cross-API family variance (STEP3_STATUS.md,
 // e.g. "Silverado 1500 Crew Cab" vs "Silverado 1500") — exact equality wrongly
 // strips valid rows. Use substring/prefix tolerance instead of strict equality.
-function matchesAnyInList(value: string | undefined, list: string): boolean {
+//
+// String(value) wrapper (real bug found 2026-08-14, reproduced live on a
+// bare "convertible" query): rare/varied vehicles from a broad, unanchored
+// search can have make/model come back as a non-string type despite our own
+// type declaring string - a bare .trim() then throws "not a function". Same
+// bug class already found and fixed in diversity.ts this same day.
+function matchesAnyInList(value: unknown, list: string): boolean {
   if (!value) return false;
-  const v = value.trim().toLowerCase();
+  const v = String(value).trim().toLowerCase();
   const options = list.split(",").map((s) => s.trim().toLowerCase());
   return options.some((opt) => v === opt || v.startsWith(opt) || opt.startsWith(v));
 }

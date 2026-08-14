@@ -23,8 +23,8 @@ export type NormalizedFuelType =
  * Returns "unknown" for null, undefined, empty, or unrecognized inputs.
  */
 export function normalizeFuelType(rawFuel: string | null | undefined): NormalizedFuelType {
-  if (rawFuel == null || rawFuel.trim() === "") return "unknown";
-  const f = rawFuel.trim().toLowerCase();
+  if (rawFuel == null || String(rawFuel).trim() === "") return "unknown";
+  const f = String(rawFuel).trim().toLowerCase();
 
   // --- Confirmed from Auto.dev documentation ---
   if (f === "electric")        return "electric";
@@ -95,7 +95,7 @@ export function isStrictEV(rawFuel: string | null | undefined): boolean {
  *   - Lexus LS 500h: hybrid-only
  */
 function buildKnownHybridKey(make: string, model: string): string {
-  return `${make.toLowerCase().trim()}|${model.toLowerCase().trim()}`;
+  return `${String(make).toLowerCase().trim()}|${String(model).toLowerCase().trim()}`;
 }
 
 /**
