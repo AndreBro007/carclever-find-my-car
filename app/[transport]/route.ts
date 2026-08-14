@@ -87,6 +87,13 @@ async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeo
   if (verification.hardConstraintStatus === "verified_match") badges.push("vin-verified");
   if (verification.hardConstraintStatus === "failed") badges.push("vin-conflicting");
   if (intent.semantic.goals.length > 0) badges.push("inferred-match");
+  // Real evidence (Aug 14): a listing priced $85 for a 2024 CR-V passed every
+  // filter cleanly and got VIN-verified — the price itself is the obviously
+  // bad data, not the identity. Flag rather than silently present as trustworthy.
+  const ANOMALOUS_PRICE_FLOOR = 1000;
+  if (listing.retailListing?.price != null && listing.retailListing.price < ANOMALOUS_PRICE_FLOOR) {
+    badges.push("price-likely-inaccurate");
+  }
 
   return {
     canonicalVehicleId: listing.vin,
@@ -183,7 +190,12 @@ const handler = createMcpHandler((server) => {
         // signal only against whatever history data the shortlisted results happen to have.
         // sort=price.asc + includes=total both only when narrow enough to be
         // fast (real evidence, Aug 14: broad queries timed out at 25s on both).
-        sort: narrowQuery ? "price.asc" : undefined,
+        // No custom sort - price.asc surfaces junk/anomalous cheap listings
+        // first (real evidence: $85 CR-V, 250k-mile cars ranked "best" simply
+        // for being cheapest). Default (recency) plus our own Match Score
+        // ranking the shortlist is the right division of labor - Auto.dev's
+        // page order is just a candidate sample, quality ranking is ours.
+        sort: undefined,
         narrowQuery,
         limit: CANDIDATE_POOL_SIZE,
       };
@@ -263,7 +275,10 @@ const handler = createMcpHandler((server) => {
                 const l = c.listing;
                 const r = c.ranking;
                 const trimStr = id.trim ? ` ${id.trim}` : "";
-                const priceStr = l.price != null ? `$${l.price.toLocaleString()}` : "price unavailable";
+                const priceAnomalous = c.badges.includes("price-likely-inaccurate");
+                const priceStr = l.price != null
+                  ? `$${l.price.toLocaleString()}${priceAnomalous ? " ⚠️ price looks like a data error, verify before trusting it" : ""}`
+                  : "price unavailable";
                 const mileageStr = l.mileage != null ? `${l.mileage.toLocaleString()} mi` : "mileage unknown";
                 const dealerStr = l.dealer ? ` — ${l.dealer}${l.city ? `, ${l.city}` : ""}${l.state ? `, ${l.state}` : ""}` : "";
                 const linkStr = c.links.affiliateUrl ?? c.links.dealerListingUrl ?? "no link available";
