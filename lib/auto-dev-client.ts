@@ -88,7 +88,11 @@ export interface AutoDevListing {
     doors?: number;
     cylinders?: number;
     confidence?: unknown; // real field, unresearched — parsed for visibility, not yet used
+    style?: unknown; // observed in schema audit — meaning unconfirmed, investigating
+    condition?: unknown; // speculative: possible new/used/demo/certified signal
   };
+  baseInvoice?: unknown; // observed in schema audit, location in tree unconfirmed — investigating
+  baseMsrp?: unknown;
   retailListing?: {
     price?: number;
     miles?: number;

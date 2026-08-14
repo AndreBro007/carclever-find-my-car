@@ -231,6 +231,10 @@ async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeo
       trim: v?.trim ?? null,
       series: v?.series ?? null,
       squishVin: v?.squishVin ?? null,
+      _diagStyle: v?.style ?? null,
+      _diagCondition: v?.condition ?? null,
+      _diagBaseInvoice: listing.baseInvoice ?? null,
+      _diagBaseMsrp: listing.baseMsrp ?? null,
     },
     condition: {
       inventoryType: rl?.used === false ? "new" : "used",
