@@ -84,6 +84,10 @@ export interface AutoDevListing {
     exteriorColor?: string;
     interiorColor?: string;
     squishVin?: string;
+    type?: string; // finer than bodyStyle: Crossover/SUV/Sedan/Wagon/Minivan/Performance-Sports/Hybrid/Hatchback/Coupe/Luxury/Electric
+    doors?: number;
+    cylinders?: number;
+    confidence?: unknown; // real field, unresearched — parsed for visibility, not yet used
   };
   retailListing?: {
     price?: number;
@@ -113,6 +117,7 @@ export interface AutoDevListing {
     ownerCount?: number;
     oneOwner?: boolean;
     usageType?: string;
+    personalUse?: boolean; // distinct field from usageType per live capture data; not yet surfaced anywhere
   };
 }
 
@@ -132,6 +137,9 @@ export interface ListingsQuery {
   drivetrain?: string; // AWD, 4WD, FWD, RWD (comma-OR)
   transmission?: string; // Automatic, Manual
   exteriorColor?: string; // Gray, White, Black, Blue, Silver, Red, Green, Brown, Orange, Burgundy, Beige
+  interiorColor?: string;
+  vehicleType?: string; // vehicle.type — finer than bodyType, e.g. Crossover vs SUV
+  doors?: number;
   cylinders?: number;
   used?: boolean;
   cpo?: boolean;
@@ -166,6 +174,9 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
   if (query.drivetrain) params.set("vehicle.drivetrain", query.drivetrain);
   if (query.transmission) params.set("vehicle.transmission", query.transmission);
   if (query.exteriorColor) params.set("vehicle.exteriorColor", query.exteriorColor);
+  if (query.interiorColor) params.set("vehicle.interiorColor", query.interiorColor);
+  if (query.vehicleType) params.set("vehicle.type", query.vehicleType);
+  if (query.doors != null) params.set("vehicle.doors", String(query.doors));
   if (query.cylinders != null) params.set("vehicle.cylinders", String(query.cylinders));
 
   if (query.priceMin != null || query.priceMax != null) {
@@ -184,7 +195,10 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
   // Strict boolean serialization required — STEP3_STATUS.md found
   // retailListing.used=maybe returns 200 with empty data instead of erroring.
   if (query.used != null) params.set("retailListing.used", query.used ? "true" : "false");
-  if (query.cpo != null) params.set("retailListing.cpo", query.cpo ? "true" : "false");
+  // cpo NOT sent as a query filter — CPO-001 (field_trust_registry): "cpo=false
+  // is definitive proof of non-CPO" is explicitly forbidden logic. Same fix
+  // pattern as history: disclosed per result (route.ts cpoEvidenceState), never
+  // used to include/exclude. Real bug found in field audit, SYS-20260812-051.
   if (query.state) params.set("retailListing.state", query.state.toUpperCase());
 
   // Facet-verified filterable, real trust differentiator (design doc §2).

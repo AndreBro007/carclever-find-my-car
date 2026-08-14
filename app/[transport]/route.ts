@@ -32,7 +32,7 @@ Two worked examples of applying this principle (not an exhaustive list — the s
 - Hybrid and plug-in hybrid vehicles are often mistagged in the source data. If a specific model is named (e.g. "Sportage" or "RAV4"), set model to include both the base and hybrid/PHEV variant name (e.g. "RAV4,RAV4 Hybrid" or "RAV4,RAV4 Prime") rather than relying on the fuel filter alone. If no model is named, fuel-based hybrid/PHEV filtering has known partial coverage — mention that to the user.
 - Size and style qualifiers ("large SUV," "compact SUV," "sports sedan," "off-road capable," etc.) have no dedicated field — bodyType alone returns every size undifferentiated. Resolve these into a model list before searching (e.g. for "large SUV": "Suburban,Tahoe,Expedition,Sequoia,Wagoneer,Grand Wagoneer,Yukon XL,Yukon,Armada,Land Cruiser").
 
-Other rules: map descriptive intent to the dedicated fields (bodyType, seatsMinPreference, goals) rather than into free-text model/trim strings. Set priceFlexibility to "flexible" only if the user signals approximation ("around," "roughly," "about") — otherwise price stays a hard ceiling, never silently loosened. Prefer dedicated fields over model-list resolution when one exists: "AWD"/"4WD" → drivetrain; "manual" → transmission; a named color → exteriorColor; "certified pre-owned"/"CPO" → cpo. These are real, verified hard filters. "No accidents"/"one owner" → noAccidents/oneOwner: vehicle history is frequently unreported in the underlying data (roughly half of listings), so these are NEVER used to exclude results — a listing is never dropped just because its history is unknown. Instead, every result is checked against available history data and honestly labeled: reported clean, reported with issues, or unreported. A Carfax link is included when available so the user can independently verify. If you asked for "no accidents" and a result shows reported accidents, say so plainly rather than presenting it as if it matched cleanly.
+Other rules: map descriptive intent to the dedicated fields (bodyType, seatsMinPreference, goals) rather than into free-text model/trim strings. Set priceFlexibility to "flexible" only if the user signals approximation ("around," "roughly," "about") — otherwise price stays a hard ceiling, never silently loosened. Prefer dedicated fields over model-list resolution when one exists: "AWD"/"4WD" → drivetrain; "manual" → transmission; a named color → exteriorColor. These are real, verified hard filters. Additional real filters: interiorColor (named interior color), vehicleType (finer than bodyType — use for distinctions like "crossover" vs "SUV" or "hatchback" vs "coupe" when the user is specific about this), doors, cylinders (engine cylinder count, e.g. "V8" → 8). "No accidents"/"one owner"/"CPO"/"certified pre-owned" → noAccidents/oneOwner/cpo: vehicle history and CPO status are frequently unreported or unconfirmed in the underlying data (roughly half of listings for history), so NONE of these are ever used to exclude results — a listing is never dropped just because this data is unknown, and CPO status specifically can never be disproven by the data (only confirmed when present). Instead, every result is checked against whatever data is actually available and honestly labeled: reported clean/certified, reported with issues, or unreported/unconfirmed. A Carfax link is included when available so the user can independently verify. If you asked for "no accidents," "one owner," or "CPO" and a result doesn't clearly confirm it, say so plainly rather than presenting it as if it matched cleanly.
 
 Set priorityAxis based on what the user is actually optimizing for, not just which fields happen to be filled in — the same request text can imply different priorities even with identical filters. "Best SUV I can get under $60k," "nicest one in my budget," or any request with a price ceiling and no other stated priority → "best_for_budget" (default — this samples from the top of the stated budget down, which tends to surface newer years and better trims). "Cheapest," "lowest price," "budget option" → "cheapest". "Lowest mileage," "as few miles as possible" → "lowest_mileage". "Newest," "latest model year" → "newest". When in doubt, use "best_for_budget" — it matches this tool's purpose of finding the best match, not just any match.`;
 
@@ -56,6 +56,10 @@ const FindMatchingVehicleInput = z.object({
   drivetrain: z.string().optional(), // "AWD" | "4WD" | "FWD" | "RWD", comma-OR
   transmission: z.enum(["Automatic", "Manual"]).optional(),
   exteriorColor: z.string().optional(),
+  interiorColor: z.string().optional(),
+  vehicleType: z.string().optional(), // finer than bodyType: Crossover, SUV, Sedan, Wagon, Minivan, Performance-Sports, Hybrid, Hatchback, Coupe, Luxury, Electric
+  doors: z.number().optional(),
+  cylinders: z.number().optional(),
   used: z.boolean().optional(),
   cpo: z.boolean().optional(),
   state: z.string().optional(),
@@ -83,7 +87,30 @@ const SHORTLIST_SIZE = 5;
  * ourselves. Falls back to year.desc when there's no price ceiling to anchor to.
  */
 /**
- * History (accidents/owner count) — Trust Class C per field-trust registry:
+ * CPO disclosure — same Trust Class C treatment as history (SYS-20260812-050/051).
+ * cpo=false is explicitly forbidden as definitive proof of non-CPO (CPO-001).
+ * Never excludes; always discloses what's actually known.
+ */
+function buildCpoSummary(
+  listing: AutoDevListing,
+): { state: "confirmed_cpo" | "reported_not_cpo" | "unknown"; note: string } {
+  const cpo = listing.retailListing?.cpo;
+  if (cpo === true) {
+    return { state: "confirmed_cpo", note: "Reported as Certified Pre-Owned by the dealer." };
+  }
+  if (cpo === false) {
+    return {
+      state: "reported_not_cpo",
+      note: "Not reported as CPO by this listing — this isn't definitive proof it lacks certification, just that it wasn't flagged as one.",
+    };
+  }
+  return { state: "unknown", note: "CPO status not reported for this listing." };
+}
+
+/**
+ * History disclosure — Trust Class C. Extended (SYS-20260812-051 audit) to
+ * cover owner count alongside accidents; previously only accidents were
+ * checked despite oneOwner being a real, collected input doing nothing.
  * "discover broadly, then verify locally or cross-API" — NEVER a query filter
  * (already removed as one, SYS-20260812-047), only a post-search disclosure.
  *
@@ -97,17 +124,29 @@ const SHORTLIST_SIZE = 5;
  */
 function buildHistorySummary(
   listing: AutoDevListing,
-): { state: "known_clean" | "known_issues" | "unreported"; note: string } {
+): { state: "known_clean" | "known_issues" | "unreported"; note: string; ownerNote: string | null } {
   const h = listing.history;
   const carfaxAvailable = Boolean(listing.retailListing?.carfaxUrl);
   const carfaxHint = carfaxAvailable
     ? " The Carfax link on this result is the way to independently confirm."
     : " No Carfax link was available on this listing to independently confirm.";
 
+  // Owner count — same disclosure discipline, previously collected as an
+  // input (oneOwner) and never used at all (SYS-20260812-051 audit finding).
+  let ownerNote: string | null = null;
+  if (h?.ownerCount != null) {
+    ownerNote = `Reported ${h.ownerCount} owner${h.ownerCount === 1 ? "" : "s"} in this listing's history.`;
+  } else if (h?.oneOwner === true) {
+    ownerNote = "Reported as a one-owner vehicle.";
+  } else if (h?.oneOwner === false) {
+    ownerNote = "Not reported as one-owner — not definitive proof of multiple owners, just not flagged as one-owner.";
+  }
+
   if (!h || (h.accidentCount == null && h.accidents == null)) {
     return {
       state: "unreported",
-      note: `Accident/owner history was not reported for this listing — this is common (roughly half of listings), not a red flag by itself.${carfaxHint}`,
+      note: `Accident history was not reported for this listing — this is common (roughly half of listings), not a red flag by itself.${carfaxHint}`,
+      ownerNote,
     };
   }
 
@@ -116,12 +155,14 @@ function buildHistorySummary(
     return {
       state: "known_issues",
       note: `Reported ${accidentCount} accident${accidentCount === 1 ? "" : "s"} in this listing's history.${carfaxHint}`,
+      ownerNote,
     };
   }
 
   return {
     state: "known_clean",
     note: "No accidents reported in this listing's history (single-source; not an independent guarantee).",
+    ownerNote,
   };
 }
 
@@ -158,6 +199,7 @@ async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeo
 
   const normalizedFuel = applyKnownHybridOverride(v?.year, v?.make, v?.model, v?.fuel);
   const historySummary = buildHistorySummary(listing);
+  const cpoSummary = buildCpoSummary(listing);
 
   // Photos must never block the search-results critical path (real evidence:
   // 868ms median Photos latency, SYS-20260812-014/021). Leave the gallery
@@ -170,6 +212,7 @@ async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeo
   if (verification.hardConstraintStatus === "failed") badges.push("vin-conflicting");
   if (intent.semantic.goals.length > 0) badges.push("inferred-match");
   if (historySummary.state === "known_issues") badges.push("history-issues-reported");
+  if (cpoSummary.state === "confirmed_cpo") badges.push("cpo-confirmed");
   // Real evidence (Aug 14): a listing priced $85 for a 2024 CR-V passed every
   // filter cleanly and got VIN-verified — the price itself is the obviously
   // bad data, not the identity. Flag rather than silently present as trustworthy.
@@ -187,12 +230,13 @@ async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeo
       model: v?.model ?? null,
       trim: v?.trim ?? null,
       series: v?.series ?? null,
+      squishVin: v?.squishVin ?? null,
     },
     condition: {
       inventoryType: rl?.used === false ? "new" : "used",
       used: rl?.used ?? null,
       cpo: rl?.cpo ?? null,
-      cpoEvidenceState: rl?.cpo == null ? "unknown" : "provider_reported",
+      cpoEvidenceState: cpoSummary.state,
     },
     powertrain: {
       type: normalizedFuel,
@@ -202,6 +246,8 @@ async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeo
     },
     body: {
       bodyStyle: v?.bodyStyle ?? null,
+      vehicleType: v?.type ?? null,
+      doors: v?.doors ?? null,
     },
     listing: {
       price: rl?.price ?? null,
@@ -229,6 +275,9 @@ async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeo
     },
     detail: {
       carfaxUrl: CAPABILITIES.carfaxPassthrough ? rl?.carfaxUrl ?? null : null,
+      cpoNote: cpoSummary.note,
+      ownerHistoryNote: historySummary.ownerNote,
+      interiorColor: v?.interiorColor ?? null,
       titleStatus: rl?.titleStatus ?? null,
       fuelTypeDisplay: formatFuelTypeForDisplay(normalizedFuel, v?.fuel),
     },
@@ -260,8 +309,13 @@ const handler = createMcpHandler((server) => {
         drivetrain: input.drivetrain,
         transmission: input.transmission,
         exteriorColor: input.exteriorColor,
+        interiorColor: input.interiorColor,
+        vehicleType: input.vehicleType,
+        doors: input.doors,
+        cylinders: input.cylinders,
         used: input.used,
-        cpo: input.cpo,
+        // cpo NOT sent as a filter — CPO-001 forbids treating cpo=false as
+        // definitive. input.cpo still collected, used for disclosure below.
         state: input.state,
         // accidentCount/ownerCount NOT sent as query filters — history is null
         // in 53% of real listings, so hard-filtering would violate "unknown != false".
