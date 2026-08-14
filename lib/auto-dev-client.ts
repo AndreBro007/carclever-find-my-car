@@ -280,6 +280,17 @@ export interface VinDecodeResult {
  * vin-anatomy verification (design doc §5), which cut 5 API calls per search.
  * Retained for single-vehicle drill-down, where one extra call is justified.
  */
+/**
+ * Single-listing lookup via the PATH-form endpoint (/listings/{vin}), distinct
+ * from the query-param `vin=` we confirmed does NOT support comma-OR
+ * (SYS-20260812-058). Docs describe this specifically as "returns a single
+ * specific listing" - the intended mechanism for "give me this exact car."
+ */
+export async function getListingByVin(vin: string): Promise<AutoDevListing | null> {
+  const outcome = await autoDevFetch<{ data: AutoDevListing }>(`/listings/${encodeURIComponent(vin)}`);
+  return outcome.ok ? outcome.data.data : null;
+}
+
 export async function decodeVin(vin: string): Promise<VinDecodeResult | null> {
   const outcome = await autoDevFetch<VinDecodeResult>(`/vin/${encodeURIComponent(vin)}`);
   return outcome.ok ? outcome.data : null;

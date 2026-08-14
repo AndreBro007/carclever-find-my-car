@@ -1,7 +1,7 @@
 import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
 import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
-import { searchListings } from "@/lib/auto-dev-client";
+import { searchListings, getListingByVin } from "@/lib/auto-dev-client";
 // TEMP: loosening-ladder bypassed per André's request (Aug 13) — search itself
 // needs to work correctly before any widening logic runs on top of it.
 // import { searchWithLoosening } from "@/lib/loosening-ladder";
@@ -482,6 +482,30 @@ const handler = createMcpHandler((server) => {
       return {
         content: [{ type: "text" as const, text: primary }],
         structuredContent: links,
+      };
+    },
+  );
+
+  // TEMP diagnostic - testing /listings/{vin} path-form endpoint, parallel timing.
+  server.registerTool(
+    "diag_test_vin_path_batch",
+    {
+      description: "TEMP diagnostic - do not use for real searches.",
+      inputSchema: { vins: z.string() },
+    },
+    async ({ vins }) => {
+      const vinList = vins.split(",").map((v) => v.trim());
+      const start = Date.now();
+      const results = await Promise.all(vinList.map((v) => getListingByVin(v)));
+      const elapsedMs = Date.now() - start;
+      const found = results.filter((r): r is NonNullable<typeof r> => r !== null);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Requested ${vinList.length} VINs via path-form, in parallel.\nElapsed: ${elapsedMs}ms\nFound: ${found.length}/${vinList.length}\nReturned VINs: ${found.map((r) => r.vin).join(", ")}`,
+          },
+        ],
       };
     },
   );
