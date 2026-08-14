@@ -279,6 +279,11 @@ async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeo
       cpoNote: cpoSummary.note,
       ownerHistoryNote: historySummary.ownerNote,
       interiorColor: v?.interiorColor ?? null,
+      exteriorColor: v?.exteriorColor ?? null,
+      cylinders: v?.cylinders ?? null,
+      dataConfidence: v?.confidence ?? null, // real field, 0.0-1.0 per docs, unresearched use case - surfaced for observation
+      historyUsageType: listing.history?.usageType ?? null,
+      historyPersonalUse: listing.history?.personalUse ?? null,
       titleStatus: rl?.titleStatus ?? null,
       fuelTypeDisplay: formatFuelTypeForDisplay(normalizedFuel, v?.fuel),
     },
