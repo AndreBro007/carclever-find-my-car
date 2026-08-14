@@ -485,26 +485,6 @@ const handler = createMcpHandler((server) => {
       };
     },
   );
-
-  // TEMP diagnostic - testing vehicle.squishVin as a VIN-batch alternative.
-  server.registerTool(
-    "diag_test_squishvin_batch",
-    {
-      description: "TEMP diagnostic - do not use for real searches.",
-      inputSchema: { squishVins: z.string() },
-    },
-    async ({ squishVins }) => {
-      const result = await searchListings({ squishVinFilter: squishVins, limit: 20 });
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Requested squishVins: ${squishVins}\nReturned ${result.data.length} rows (total: ${result.total})\nReturned VIN/squishVin pairs: ${result.data.map((r) => `${r.vin}(${r.vehicle?.squishVin})`).join(", ")}\nError: ${result.error ?? "none"}`,
-          },
-        ],
-      };
-    },
-  );
 });
 
 export { handler as GET, handler as POST, handler as DELETE };

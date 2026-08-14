@@ -126,7 +126,6 @@ export interface AutoDevListing {
 }
 
 export interface ListingsQuery {
-  squishVinFilter?: string; // TEMP diagnostic - testing squishVin comma-OR as VIN-batch alternative
   make?: string;
   model?: string;
   bodyType?: string;
@@ -214,7 +213,6 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
   // principle already established. Removed as query filters; handled as
   // post-search display/ranking signal instead (see route.ts, not implemented yet).
 
-  if (query.squishVinFilter) params.set("vehicle.squishVin", query.squishVinFilter); // TEMP
   if (query.zip) params.set("zip", query.zip);
   if (query.radius != null) params.set("distance", String(query.radius)); // "distance", not "radius"
   if (query.sort) params.set("sort", query.sort);
