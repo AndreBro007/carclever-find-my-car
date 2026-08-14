@@ -164,7 +164,7 @@ export interface ListingsResponse {
   degraded?: string;
 }
 
-export async function searchListings(query: ListingsQuery): Promise<ListingsResponse> {
+function buildListingsParams(query: ListingsQuery): URLSearchParams {
   const params = new URLSearchParams();
 
   // Real Auto.dev v2 syntax (confirmed against docs.auto.dev/v2/products/vehicle-listings
@@ -190,45 +190,25 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
     params.set("vehicle.year", `${query.yearMin ?? 1900}-${query.yearMax ?? 2100}`);
   }
   if (query.mileageMax != null) {
-    // Bug fix: field is "retailListing.miles", not "retailListing.mileage"
-    // — confirmed live in STEP3_STATUS.md ("retailListing.price, retailListing.miles
-    // — ranges verified inclusive"). Was silently wrong before this fix.
     params.set("retailListing.miles", `0-${query.mileageMax}`);
   }
 
-  // Strict boolean serialization required — STEP3_STATUS.md found
-  // retailListing.used=maybe returns 200 with empty data instead of erroring.
   if (query.used != null) params.set("retailListing.used", query.used ? "true" : "false");
-  // cpo NOT sent as a query filter — CPO-001 (field_trust_registry): "cpo=false
-  // is definitive proof of non-CPO" is explicitly forbidden logic. Same fix
-  // pattern as history: disclosed per result (route.ts cpoEvidenceState), never
-  // used to include/exclude. Real bug found in field audit, SYS-20260812-051.
   if (query.state) params.set("retailListing.state", query.state.toUpperCase());
 
-  // Facet-verified filterable, real trust differentiator (design doc §2).
-  // history.accidentCount/ownerCount confirmed real field names (real captured
-  // response: FILTER-COMPLETE-001), but history is null in 53% of sampled rows
-  // (STEP3_STATUS.md). Hard-filtering on a field missing half the time would
-  // silently exclude valid unknown-history cars — violates the "unknown != false"
-  // principle already established. Removed as query filters; handled as
-  // post-search display/ranking signal instead (see route.ts, not implemented yet).
-
   if (query.zip) params.set("zip", query.zip);
-  if (query.radius != null) params.set("distance", String(query.radius)); // "distance", not "radius"
+  if (query.radius != null) params.set("distance", String(query.radius));
   if (query.sort) params.set("sort", query.sort);
 
-  // NOTE: trim and seats are deliberately NEVER added as query params here —
-  // Trust Class B / provider_filter_allowed: false — see SYS-20260812-023/025.
+  // NOTE: trim, seats, cpo deliberately never sent as query params — Trust
+  // Class B/C, not safe hard filters (SYS-20260812-023/025/047/051).
 
-  // Per-plan caps (docs): Starter 20, Growth 100, Scale 500. Requests above the
-  // cap silently clamp — so asking for 100 is safe on any plan and simply
-  // returns fewer rows on Starter. Currently on Growth, so 100 is the real pool.
   params.set("limit", String(query.limit ?? 100));
+  return params;
+}
 
-  // "total" is only returned when ?includes=total is passed (docs: "Total count").
-  // Restored unconditionally — the earlier narrowQuery gating was based on an
-  // unproven "exact count is expensive" hypothesis that was never tested, and it
-  // left totalMatches wrong for every non-narrow query.
+export async function searchListings(query: ListingsQuery): Promise<ListingsResponse> {
+  const params = buildListingsParams(query);
   params.set("includes", query.includeFacets ? "total,facets" : "total");
 
   const outcome = await autoDevFetch<ListingsResponse>(`/listings?${params.toString()}`);
@@ -248,6 +228,91 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
       return {
         data: retry.data.data ?? [],
         total: retry.data.total ?? 0,
+        degraded: "The vehicle data service was slow, so this search used a smaller result set than usual.",
+      };
+    }
+  }
+
+  return {
+    data: [],
+    total: 0,
+    error:
+      outcome.reason === "timeout"
+        ? "The vehicle data service didn't respond in time. This is a temporary service issue, not a problem with the search itself — trying again usually works."
+        : `The vehicle data service returned an error${outcome.status ? ` (${outcome.status})` : ""}. This is a service issue, not a problem with the search itself.`,
+  };
+}
+
+/**
+ * Lean primary search using ?select= (design doc §5 / two-stage design,
+ * SYS-20260812-060). Requests only the fields actually needed for filtering,
+ * diversity, and initial scoring — vin/year/make/model/trim/price/miles —
+ * for a smaller/faster payload across the full candidate pool.
+ *
+ * ?select= flattens the response to dot-keyed properties (confirmed in docs,
+ * SYS-20260812-057) — adapted back into the normal nested AutoDevListing
+ * shape here, so every downstream function (diversity, match-score,
+ * post-verify) works completely unchanged, unaware select was ever used.
+ *
+ * Full detail for the eventual shortlist is fetched separately via
+ * getListingByVin() (parallel, path-form endpoint) — confirmed working,
+ * exact, and fast (4.66s for 5 VINs), SYS-20260812-060.
+ */
+const LEAN_SELECT_FIELDS =
+  "vehicle.vin,vehicle.year,vehicle.make,vehicle.model,vehicle.trim,retailListing.price,retailListing.miles";
+
+interface LeanRow {
+  "vehicle.vin"?: string;
+  "vehicle.year"?: number;
+  "vehicle.make"?: string;
+  "vehicle.model"?: string;
+  "vehicle.trim"?: string;
+  "retailListing.price"?: number;
+  "retailListing.miles"?: number;
+}
+
+function leanRowToListing(row: LeanRow): AutoDevListing | null {
+  if (!row["vehicle.vin"]) return null; // can't use a candidate with no VIN
+  return {
+    vin: row["vehicle.vin"],
+    vehicle: {
+      year: row["vehicle.year"],
+      make: row["vehicle.make"],
+      model: row["vehicle.model"],
+      trim: row["vehicle.trim"],
+    },
+    retailListing: {
+      price: row["retailListing.price"],
+      miles: row["retailListing.miles"],
+    },
+  };
+}
+
+export async function searchListingsLean(query: ListingsQuery): Promise<ListingsResponse> {
+  const params = buildListingsParams(query);
+  params.set("select", LEAN_SELECT_FIELDS);
+  params.set("includes", "total"); // facets never needed for the lean pass
+
+  const outcome = await autoDevFetch<{ data: LeanRow[]; total?: number }>(`/listings?${params.toString()}`);
+  if (outcome.ok) {
+    const listings = (outcome.data.data ?? [])
+      .map(leanRowToListing)
+      .filter((l): l is AutoDevListing => l !== null);
+    return { data: listings, total: outcome.data.total ?? 0 };
+  }
+
+  if (outcome.reason === "timeout") {
+    const retryParams = new URLSearchParams(params);
+    retryParams.set("limit", "25");
+    retryParams.delete("includes");
+    const retry = await autoDevFetch<{ data: LeanRow[] }>(`/listings?${retryParams.toString()}`, 15_000);
+    if (retry.ok) {
+      const listings = (retry.data.data ?? [])
+        .map(leanRowToListing)
+        .filter((l): l is AutoDevListing => l !== null);
+      return {
+        data: listings,
+        total: 0,
         degraded: "The vehicle data service was slow, so this search used a smaller result set than usual.",
       };
     }

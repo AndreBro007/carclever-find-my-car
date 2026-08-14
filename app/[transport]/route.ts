@@ -1,7 +1,7 @@
 import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
 import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
-import { searchListings, getListingByVin } from "@/lib/auto-dev-client";
+import { searchListingsLean, getListingByVin } from "@/lib/auto-dev-client";
 // TEMP: loosening-ladder bypassed per André's request (Aug 13) — search itself
 // needs to work correctly before any widening logic runs on top of it.
 // import { searchWithLoosening } from "@/lib/loosening-ladder";
@@ -324,7 +324,10 @@ const handler = createMcpHandler((server) => {
         limit: CANDIDATE_POOL_SIZE,
       };
 
-      const rawResult = await searchListings(baseQuery);
+      // Two-stage search (SYS-20260812-060): lean ?select= primary search for
+      // the full candidate pool (smaller payload, faster), then full-detail
+      // refetch via parallel /listings/{vin} calls for just the shortlist.
+      const rawResult = await searchListingsLean(baseQuery);
       const candidates = rawResult.data;
       const total = rawResult.total;
       const relaxations: Array<{ step: string; detail: string }> = [];
@@ -342,7 +345,17 @@ const handler = createMcpHandler((server) => {
         : 0;
 
       const diversified = applyDiversity(verifiedCandidates, SHORTLIST_SIZE * 2);
-      const shortlist = diversified.slice(0, SHORTLIST_SIZE);
+      const leanShortlist = diversified.slice(0, SHORTLIST_SIZE);
+
+      // Stage 2: full detail for exactly the shortlisted vehicles, in parallel.
+      // Confirmed working, exact, fast (4.66s for 5 VINs), SYS-20260812-060.
+      // Falls back to the lean row itself if a single fetch fails - a partial
+      // result (still has vin/make/model/year/price/miles, still gets a real
+      // Edmunds link) beats silently dropping a real match.
+      const fullDetail = await Promise.all(
+        leanShortlist.map((lean) => getListingByVin(lean.vin)),
+      );
+      const shortlist = leanShortlist.map((lean, i) => fullDetail[i] ?? lean);
 
       const cards = (
         await Promise.all(shortlist.map((listing) => buildResultCard(listing, intent)))
