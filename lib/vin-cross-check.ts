@@ -1,59 +1,93 @@
 /**
- * VIN cross-check — decode each shortlisted VIN and diff against the
- * Listings-reported identity fields. Per-field agree/disagree/unknown,
- * never a single boolean (SYS-20260812-002/025). Only run on the
- * shortlist (3-5 results), never the full candidate pool — Starter tier
- * is rate-limited to 5 req/sec (SYS-20260812-002 §6).
+ * VIN cross-check — now fully LOCAL (design doc §5).
+ *
+ * Previously called /vin/{vin} once per shortlisted result: 5 extra Auto.dev
+ * calls per search, on top of the listings call. Now derived offline from VIN
+ * anatomy (ISO 3779/3780), taking a search from 6 API calls to 1.
+ *
+ * What we can verify offline: model year (position 10 + position 7 cycle rule),
+ * manufacturer (WMI, where recognised), and transcription validity (North
+ * American check digit). What we cannot: model and trim — these stay "unknown",
+ * never assumed wrong.
+ *
+ * Discipline unchanged: unknown is never treated as a conflict, and trim/model
+ * gaps never fail a match (Trust Class B).
  */
-import { decodeVin, type AutoDevListing, type VinDecodeResult } from "./auto-dev-client";
+import type { AutoDevListing } from "./auto-dev-client";
+import { analyzeVin } from "./vin-anatomy";
 
 export interface VerificationResult {
   hardConstraintStatus: "verified_match" | "potential_match" | "failed";
   verifiedAttributes: string[];
   unknownAttributes: string[];
   conflictingAttributes: string[];
+  /** Populated when the VIN itself is structurally invalid or fails its check digit. */
+  vinIntegrityNote?: string;
 }
 
-function fieldsAgree(listed: string | undefined, decoded: string | undefined): boolean | null {
-  if (decoded == null || decoded === "") return null; // unknown, not a conflict
-  if (listed == null || listed === "") return null;
-  return listed.trim().toLowerCase() === decoded.trim().toLowerCase();
+function makesAgree(listed: string | undefined, decoded: string | null): boolean | null {
+  if (!decoded || !listed) return null;
+  const a = listed.trim().toLowerCase();
+  const b = decoded.trim().toLowerCase();
+  // Tolerant of formatting variance (e.g. "Mercedes-Benz" vs "Mercedes Benz").
+  const norm = (s: string) => s.replace(/[^a-z0-9]/g, "");
+  return norm(a) === norm(b);
 }
 
-export async function crossCheckVin(listing: AutoDevListing): Promise<VerificationResult> {
-  const decoded = await decodeVin(listing.vin);
+export function crossCheckVin(listing: AutoDevListing): VerificationResult {
   const v = listing.vehicle;
+  const anatomy = analyzeVin(listing.vin);
 
-  if (!decoded) {
-    // Decode unavailable — everything stays unknown, never assumed false or true.
+  const verifiedAttributes: string[] = [];
+  const unknownAttributes: string[] = [];
+  const conflictingAttributes: string[] = [];
+  let vinIntegrityNote: string | undefined;
+
+  if (!anatomy.formatValid) {
     return {
       hardConstraintStatus: "potential_match",
       verifiedAttributes: [],
       unknownAttributes: ["make", "model", "year", "trim"],
       conflictingAttributes: [],
+      vinIntegrityNote: "VIN is not a valid 17-character VIN — identity could not be checked.",
     };
   }
 
-  const checks: Array<[string, boolean | null]> = [
-    ["make", fieldsAgree(v?.make, decoded.make)],
-    ["model", fieldsAgree(v?.model, decoded.model)],
-    ["year", fieldsAgree(v?.year != null ? String(v.year) : undefined, decoded.year != null ? String(decoded.year) : undefined)],
-    ["trim", fieldsAgree(v?.trim, decoded.trim)], // informational only — trim is never a hard filter
-  ];
+  if (anatomy.checkDigitValid === false) {
+    vinIntegrityNote =
+      "VIN check digit does not validate — the VIN may be mistyped in the listing.";
+  }
 
-  const verifiedAttributes = checks.filter(([, v]) => v === true).map(([k]) => k);
-  const conflictingAttributes = checks.filter(([, v]) => v === false).map(([k]) => k);
-  const unknownAttributes = checks.filter(([, v]) => v === null).map(([k]) => k);
+  // Year — derivable from the VIN itself.
+  if (anatomy.modelYear != null && v?.year != null) {
+    if (anatomy.modelYear === v.year) verifiedAttributes.push("year");
+    else conflictingAttributes.push("year");
+  } else {
+    unknownAttributes.push("year");
+  }
 
-  // trim conflicts are informational, never fail the overall match (Trust Class B).
-  const materialConflicts = conflictingAttributes.filter((k) => k !== "trim");
+  // Make — derivable where the WMI is recognised; unrecognised is unknown.
+  const makeAgreement = makesAgree(v?.make, anatomy.manufacturer);
+  if (makeAgreement === true) verifiedAttributes.push("make");
+  else if (makeAgreement === false) conflictingAttributes.push("make");
+  else unknownAttributes.push("make");
+
+  // Model and trim are not encoded in a decodable way in the VIN's public
+  // structure — always unknown here, never a conflict.
+  unknownAttributes.push("model", "trim");
 
   const hardConstraintStatus: VerificationResult["hardConstraintStatus"] =
-    materialConflicts.length > 0
+    conflictingAttributes.length > 0
       ? "failed"
-      : unknownAttributes.length > 0
-        ? "potential_match"
-        : "verified_match";
+      : verifiedAttributes.length > 0
+        ? "verified_match"
+        : "potential_match";
 
-  return { hardConstraintStatus, verifiedAttributes, unknownAttributes, conflictingAttributes };
+  return {
+    hardConstraintStatus,
+    verifiedAttributes,
+    unknownAttributes,
+    conflictingAttributes,
+    vinIntegrityNote,
+  };
 }

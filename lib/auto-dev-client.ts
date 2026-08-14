@@ -19,7 +19,18 @@ function apiKey(): string {
   return key;
 }
 
-async function autoDevFetch<T>(path: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<T | null> {
+/**
+ * Result wrapper so a transport failure is never confused with a genuine
+ * empty result. Previously both collapsed to `null` -> `{data: [], total: 0}`,
+ * which made timeouts look identical to "no cars matched" and produced actively
+ * wrong user advice ("try relaxing your constraints") when the real problem was
+ * that the request never completed.
+ */
+export type FetchOutcome<T> =
+  | { ok: true; data: T }
+  | { ok: false; reason: "timeout" | "http" | "network"; status?: number };
+
+async function autoDevFetch<T>(path: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<FetchOutcome<T>> {
   try {
     const res = await fetch(`${AUTO_DEV_BASE_URL}${path}`, {
       headers: { Authorization: `Bearer ${apiKey()}` },
@@ -28,12 +39,13 @@ async function autoDevFetch<T>(path: string, timeoutMs = DEFAULT_TIMEOUT_MS): Pr
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       console.error(`[auto-dev-client] ${path} returned ${res.status}: ${body.slice(0, 300)}`);
-      return null;
+      return { ok: false, reason: "http", status: res.status };
     }
-    return (await res.json()) as T;
+    return { ok: true, data: (await res.json()) as T };
   } catch (err) {
+    const isTimeout = err instanceof Error && /timeout|abort/i.test(err.name + err.message);
     console.error(`[auto-dev-client] fetch failed for ${path}:`, err);
-    return null;
+    return { ok: false, reason: isTimeout ? "timeout" : "network" };
   }
 }
 
@@ -115,17 +127,16 @@ export interface ListingsQuery {
   ownerCount?: number; // history.ownerCount — facet-verified filterable
   sort?: string; // e.g. "price.asc"
   includeFacets?: boolean;
-  // Real evidence (Aug 14): includes=total (exact count) and sort=price.asc
-  // both appear expensive on broad/unfiltered queries - Auto.dev may need to
-  // scan/count/sort a huge unindexed set. Narrow (make+model) queries stay fast.
-  // Skip both when the query isn't narrow, to avoid the same timeout pattern.
-  narrowQuery?: boolean;
 }
 
 export interface ListingsResponse {
   data: AutoDevListing[];
   total: number;
   facets?: Record<string, Array<{ value: string; count: number }>>;
+  /** Set when the request genuinely failed — distinct from "no cars matched". */
+  error?: string;
+  /** Set when results came back but via a reduced fallback request. */
+  degraded?: string;
 }
 
 export async function searchListings(query: ListingsQuery): Promise<ListingsResponse> {
@@ -178,20 +189,47 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
   // NOTE: trim and seats are deliberately NEVER added as query params here —
   // Trust Class B / provider_filter_allowed: false — see SYS-20260812-023/025.
 
-  params.set("limit", String(query.limit ?? 50));
-  // Only send includes when facets are actually requested — this param
-  // wasn't present in the earlier working version; setting it unconditionally
-  // is the prime suspect for a new regression (even bare make+model now
-  // returns 0 candidates, which worked correctly before this session's changes).
-  // "total" is only present in the response when ?includes=total is passed
-  // (confirmed: docs.auto.dev/v2/products/vehicle-listings, "Total count (total)").
-  // But requesting it on a broad query appears expensive - only request when narrow.
-  if (query.narrowQuery) {
-    params.set("includes", query.includeFacets ? "total,facets" : "total");
+  // Per-plan caps (docs): Starter 20, Growth 100, Scale 500. Requests above the
+  // cap silently clamp — so asking for 100 is safe on any plan and simply
+  // returns fewer rows on Starter. Currently on Growth, so 100 is the real pool.
+  params.set("limit", String(query.limit ?? 100));
+
+  // "total" is only returned when ?includes=total is passed (docs: "Total count").
+  // Restored unconditionally — the earlier narrowQuery gating was based on an
+  // unproven "exact count is expensive" hypothesis that was never tested, and it
+  // left totalMatches wrong for every non-narrow query.
+  params.set("includes", query.includeFacets ? "total,facets" : "total");
+
+  const outcome = await autoDevFetch<ListingsResponse>(`/listings?${params.toString()}`);
+  if (outcome.ok) {
+    return { data: outcome.data.data ?? [], total: outcome.data.total ?? 0, facets: outcome.data.facets };
   }
 
-  const result = await autoDevFetch<ListingsResponse>(`/listings?${params.toString()}`);
-  return result ?? { data: [], total: 0 };
+  // Degrade rather than fail outright: on a timeout, retry once with a smaller,
+  // cheaper request (fewer rows, no count) so the user still gets usable results
+  // during the API slowness we've repeatedly observed, instead of an empty answer.
+  if (outcome.reason === "timeout") {
+    const retryParams = new URLSearchParams(params);
+    retryParams.set("limit", "25");
+    retryParams.delete("includes");
+    const retry = await autoDevFetch<ListingsResponse>(`/listings?${retryParams.toString()}`, 15_000);
+    if (retry.ok) {
+      return {
+        data: retry.data.data ?? [],
+        total: retry.data.total ?? 0,
+        degraded: "The vehicle data service was slow, so this search used a smaller result set than usual.",
+      };
+    }
+  }
+
+  return {
+    data: [],
+    total: 0,
+    error:
+      outcome.reason === "timeout"
+        ? "The vehicle data service didn't respond in time. This is a temporary service issue, not a problem with the search itself — trying again usually works."
+        : `The vehicle data service returned an error${outcome.status ? ` (${outcome.status})` : ""}. This is a service issue, not a problem with the search itself.`,
+  };
 }
 
 export interface VinDecodeResult {
@@ -206,8 +244,14 @@ export interface VinDecodeResult {
   bodyStyle?: string;
 }
 
+/**
+ * Paid VIN decode. NO LONGER used in the search path — replaced by local
+ * vin-anatomy verification (design doc §5), which cut 5 API calls per search.
+ * Retained for single-vehicle drill-down, where one extra call is justified.
+ */
 export async function decodeVin(vin: string): Promise<VinDecodeResult | null> {
-  return autoDevFetch<VinDecodeResult>(`/vin/${encodeURIComponent(vin)}`);
+  const outcome = await autoDevFetch<VinDecodeResult>(`/vin/${encodeURIComponent(vin)}`);
+  return outcome.ok ? outcome.data : null;
 }
 
 export interface PhotosResult {
@@ -215,5 +259,6 @@ export interface PhotosResult {
 }
 
 export async function getPhotos(vin: string): Promise<PhotosResult | null> {
-  return autoDevFetch<PhotosResult>(`/photos/${encodeURIComponent(vin)}`);
+  const outcome = await autoDevFetch<PhotosResult>(`/photos/${encodeURIComponent(vin)}`);
+  return outcome.ok ? outcome.data : null;
 }

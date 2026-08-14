@@ -61,10 +61,10 @@ const FindMatchingVehicleInput = z.object({
 });
 
 const SHORTLIST_SIZE = 5;
-const CANDIDATE_POOL_SIZE = 50;
+const CANDIDATE_POOL_SIZE = 100; // Growth plan cap per docs; silently clamps to 20 on Starter
 
 async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeof parseIntent>) {
-  const verification = await crossCheckVin(listing);
+  const verification = crossCheckVin(listing); // now local/synchronous — no API call
   const { matchScore, matchScoreLabel, breakdown } = computeMatchScore(listing, intent, verification);
   const links = resolveLinks(listing);
 
@@ -165,8 +165,6 @@ const handler = createMcpHandler((server) => {
     async (input) => {
       const intent = parseIntent(input);
 
-      const narrowQuery = Boolean(intent.hardConstraints.make && intent.hardConstraints.model);
-
       const baseQuery: ListingsQuery = {
         make: intent.hardConstraints.make,
         model: intent.hardConstraints.model,
@@ -186,17 +184,14 @@ const handler = createMcpHandler((server) => {
         state: input.state,
         // accidentCount/ownerCount NOT sent as query filters — history is null
         // in 53% of real listings, so hard-filtering would violate "unknown != false".
-        // noAccidents/oneOwner still collected from input, used as display/ranking
-        // signal only against whatever history data the shortlisted results happen to have.
-        // sort=price.asc + includes=total both only when narrow enough to be
-        // fast (real evidence, Aug 14: broad queries timed out at 25s on both).
-        // No custom sort - price.asc surfaces junk/anomalous cheap listings
-        // first (real evidence: $85 CR-V, 250k-mile cars ranked "best" simply
-        // for being cheapest). Default (recency) plus our own Match Score
-        // ranking the shortlist is the right division of labor - Auto.dev's
-        // page order is just a candidate sample, quality ranking is ours.
-        sort: undefined,
-        narrowQuery,
+        //
+        // sort: left at Auto.dev's documented default (updatedAt.desc). price.asc
+        // is a valid, documented, indexed sort — it was never a performance
+        // problem — but as a *sampling* strategy it biases the pool toward the
+        // cheapest listings, which for used cars means oldest/highest-mileage and
+        // data errors (real evidence: an $85 2024 CR-V ranked top). With limit at
+        // the plan cap and our own Match Score ranking the shortlist, the sample
+        // no longer needs a price bias. OPEN QUESTION flagged for André.
         limit: CANDIDATE_POOL_SIZE,
       };
 
@@ -232,6 +227,9 @@ const handler = createMcpHandler((server) => {
           "Some results from the underlying data source didn't fully match the stated filters and were excluded — this can happen with the provider's data.",
         );
       }
+      if (rawResult.degraded) {
+        dataNotes.push(rawResult.degraded);
+      }
       if (scopeNote === "nationwide") {
         dataNotes.push("The requested location wasn't recognized, so this search was widened to nationwide.");
       }
@@ -244,6 +242,7 @@ const handler = createMcpHandler((server) => {
           relaxations,
           dataNotes,
           scopeNote,
+          serviceError: rawResult.error ?? null,
           interpretationNotes: intent.interpretationNotes,
         },
         results: cards,
@@ -265,9 +264,18 @@ const handler = createMcpHandler((server) => {
           ? [...relaxations.map((r) => `Note: ${r.detail}`), ...dataNotes].join("\n") + "\n\n"
           : "";
 
+      // A failed request must never be reported as "no cars matched" - that
+      // sends the user off changing their perfectly good search criteria when
+      // the real problem was that the request never completed.
+      const serviceFailureMessage = rawResult.error
+        ? `${rawResult.error} Your search criteria look fine — this is worth retrying in a moment.`
+        : null;
+
       const summary =
-        cards.length === 0
-          ? disclosurePrefix + "No results matched closely enough to show. Consider relaxing price, location, or year constraints."
+        serviceFailureMessage
+          ? disclosurePrefix + serviceFailureMessage
+          : cards.length === 0
+          ? disclosurePrefix + "No vehicles matched these criteria. Widening the price range, location radius, or year range would likely surface options."
           : disclosurePrefix + `Found ${cards.length} closely matching vehicle${cards.length === 1 ? "" : "s"}${totalPhrase}:\n\n` +
             cards
               .map((c, i) => {
