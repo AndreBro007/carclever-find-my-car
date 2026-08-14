@@ -229,6 +229,12 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
 
   const outcome = await autoDevFetch<ListingsResponse>(`/listings?${params.toString()}`);
   if (outcome.ok) {
+    // TEMPORARY diagnostic (Aug 14): full raw dump of the first row to observe
+    // unconfirmed fields (style, baseInvoice, baseMsrp, any new/used/demo/
+    // condition signal beyond retailListing.used) - remove after one real check.
+    if (outcome.data.data?.[0]) {
+      console.error("[DIAG-RAW-ROW]", JSON.stringify(outcome.data.data[0]));
+    }
     return { data: outcome.data.data ?? [], total: outcome.data.total ?? 0, facets: outcome.data.facets };
   }
 
