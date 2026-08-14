@@ -101,6 +101,19 @@ export interface AutoDevListing {
     photoCount?: number; // known unreliable per field-trust registry, don't use for gallery-size prediction
     titleStatus?: string; // unconfirmed
   };
+  // Trust Class C (auto_dev.field_trust_registry.yaml): "discover broadly, then
+  // verify locally or cross-API" — never a query filter, only a post-search
+  // verification/display signal. Confirmed real via live projection test
+  // (PROJPARITY-004-select): present in 27/30 sampled rows in that run, but
+  // STEP3_STATUS.md's broader 300-row sample found history null in 53% of
+  // rows — presence varies, absence is common and must never be read as clean.
+  history?: {
+    accidents?: boolean;
+    accidentCount?: number;
+    ownerCount?: number;
+    oneOwner?: boolean;
+    usageType?: string;
+  };
 }
 
 export interface ListingsQuery {

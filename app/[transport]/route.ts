@@ -32,7 +32,7 @@ Two worked examples of applying this principle (not an exhaustive list — the s
 - Hybrid and plug-in hybrid vehicles are often mistagged in the source data. If a specific model is named (e.g. "Sportage" or "RAV4"), set model to include both the base and hybrid/PHEV variant name (e.g. "RAV4,RAV4 Hybrid" or "RAV4,RAV4 Prime") rather than relying on the fuel filter alone. If no model is named, fuel-based hybrid/PHEV filtering has known partial coverage — mention that to the user.
 - Size and style qualifiers ("large SUV," "compact SUV," "sports sedan," "off-road capable," etc.) have no dedicated field — bodyType alone returns every size undifferentiated. Resolve these into a model list before searching (e.g. for "large SUV": "Suburban,Tahoe,Expedition,Sequoia,Wagoneer,Grand Wagoneer,Yukon XL,Yukon,Armada,Land Cruiser").
 
-Other rules: map descriptive intent to the dedicated fields (bodyType, seatsMinPreference, goals) rather than into free-text model/trim strings. Set priceFlexibility to "flexible" only if the user signals approximation ("around," "roughly," "about") — otherwise price stays a hard ceiling, never silently loosened. Prefer dedicated fields over model-list resolution when one exists: "AWD"/"4WD" → drivetrain; "manual" → transmission; a named color → exteriorColor; "certified pre-owned"/"CPO" → cpo. These are real, verified hard filters. "No accidents"/"one owner" → noAccidents/oneOwner: these influence ranking and are reported per result, but are NOT hard filters — vehicle history is frequently unreported in the underlying data, and a missing history record is never treated as a red flag.
+Other rules: map descriptive intent to the dedicated fields (bodyType, seatsMinPreference, goals) rather than into free-text model/trim strings. Set priceFlexibility to "flexible" only if the user signals approximation ("around," "roughly," "about") — otherwise price stays a hard ceiling, never silently loosened. Prefer dedicated fields over model-list resolution when one exists: "AWD"/"4WD" → drivetrain; "manual" → transmission; a named color → exteriorColor; "certified pre-owned"/"CPO" → cpo. These are real, verified hard filters. "No accidents"/"one owner" → noAccidents/oneOwner: vehicle history is frequently unreported in the underlying data (roughly half of listings), so these are NEVER used to exclude results — a listing is never dropped just because its history is unknown. Instead, every result is checked against available history data and honestly labeled: reported clean, reported with issues, or unreported. A Carfax link is included when available so the user can independently verify. If you asked for "no accidents" and a result shows reported accidents, say so plainly rather than presenting it as if it matched cleanly.
 
 Set priorityAxis based on what the user is actually optimizing for, not just which fields happen to be filled in — the same request text can imply different priorities even with identical filters. "Best SUV I can get under $60k," "nicest one in my budget," or any request with a price ceiling and no other stated priority → "best_for_budget" (default — this samples from the top of the stated budget down, which tends to surface newer years and better trims). "Cheapest," "lowest price," "budget option" → "cheapest". "Lowest mileage," "as few miles as possible" → "lowest_mileage". "Newest," "latest model year" → "newest". When in doubt, use "best_for_budget" — it matches this tool's purpose of finding the best match, not just any match.`;
 
@@ -82,6 +82,49 @@ const SHORTLIST_SIZE = 5;
  * with newer years/better trims — without us having to encode that correlation
  * ourselves. Falls back to year.desc when there's no price ceiling to anchor to.
  */
+/**
+ * History (accidents/owner count) — Trust Class C per field-trust registry:
+ * "discover broadly, then verify locally or cross-API" — NEVER a query filter
+ * (already removed as one, SYS-20260812-047), only a post-search disclosure.
+ *
+ * Design principle (agreed with André): never exclude a result on MISSING
+ * history data — only on a known, positive contradiction. Always disclose
+ * confidence honestly per result, and point to the Carfax link (free
+ * passthrough, SYS-20260812-022) as the independent source when Auto.dev's
+ * own data can't fully answer the question. This is the general pattern for
+ * "user asked for something we can't be fully sure about" - run broadly,
+ * never silently narrow the pool, be explicit about what we actually know.
+ */
+function buildHistorySummary(
+  listing: AutoDevListing,
+): { state: "known_clean" | "known_issues" | "unreported"; note: string } {
+  const h = listing.history;
+  const carfaxAvailable = Boolean(listing.retailListing?.carfaxUrl);
+  const carfaxHint = carfaxAvailable
+    ? " The Carfax link on this result is the way to independently confirm."
+    : " No Carfax link was available on this listing to independently confirm.";
+
+  if (!h || (h.accidentCount == null && h.accidents == null)) {
+    return {
+      state: "unreported",
+      note: `Accident/owner history was not reported for this listing — this is common (roughly half of listings), not a red flag by itself.${carfaxHint}`,
+    };
+  }
+
+  const accidentCount = h.accidentCount ?? (h.accidents ? 1 : 0);
+  if (accidentCount > 0) {
+    return {
+      state: "known_issues",
+      note: `Reported ${accidentCount} accident${accidentCount === 1 ? "" : "s"} in this listing's history.${carfaxHint}`,
+    };
+  }
+
+  return {
+    state: "known_clean",
+    note: "No accidents reported in this listing's history (single-source; not an independent guarantee).",
+  };
+}
+
 function resolveSort(
   priorityAxis: "best_for_budget" | "cheapest" | "lowest_mileage" | "newest" | undefined,
   priceMax: number | undefined,
@@ -114,6 +157,7 @@ async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeo
   const rl = listing.retailListing;
 
   const normalizedFuel = applyKnownHybridOverride(v?.year, v?.make, v?.model, v?.fuel);
+  const historySummary = buildHistorySummary(listing);
 
   // Photos must never block the search-results critical path (real evidence:
   // 868ms median Photos latency, SYS-20260812-014/021). Leave the gallery
@@ -125,6 +169,7 @@ async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeo
   if (verification.hardConstraintStatus === "verified_match") badges.push("vin-verified");
   if (verification.hardConstraintStatus === "failed") badges.push("vin-conflicting");
   if (intent.semantic.goals.length > 0) badges.push("inferred-match");
+  if (historySummary.state === "known_issues") badges.push("history-issues-reported");
   // Real evidence (Aug 14): a listing priced $85 for a 2024 CR-V passed every
   // filter cleanly and got VIN-verified — the price itself is the obviously
   // bad data, not the identity. Flag rather than silently present as trustworthy.
@@ -170,9 +215,7 @@ async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeo
       resolvedDestination: links.dealerListingUrl,
       destinationClass: links.dealerListingUrl ? "dealer_or_aggregator" : null,
     },
-    history: {
-      state: "unknown",
-    },
+    history: historySummary,
     media: {
       primaryImage: rl?.primaryImage ?? null,
       photoUrls: photos,
@@ -321,7 +364,8 @@ const handler = createMcpHandler((server) => {
                 const mileageStr = l.mileage != null ? `${l.mileage.toLocaleString()} mi` : "mileage unknown";
                 const dealerStr = l.dealer ? ` — ${l.dealer}${l.city ? `, ${l.city}` : ""}${l.state ? `, ${l.state}` : ""}` : "";
                 const linkStr = c.links.affiliateUrl ?? c.links.dealerListingUrl ?? "no link available";
-                return `${i + 1}. ${id.year} ${id.make} ${id.model}${trimStr} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}\n   Link: ${linkStr}`;
+                const historyLine = c.history.state === "known_issues" ? `\n   ⚠️ ${c.history.note}` : "";
+                return `${i + 1}. ${id.year} ${id.make} ${id.model}${trimStr} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}\n   Link: ${linkStr}`;
               })
               .join("\n\n");
 
