@@ -126,6 +126,7 @@ export interface AutoDevListing {
 }
 
 export interface ListingsQuery {
+  vinFilter?: string; // TEMP diagnostic - testing comma-OR support for the top-level vin param
   make?: string;
   model?: string;
   bodyType?: string;
@@ -213,6 +214,7 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
   // principle already established. Removed as query filters; handled as
   // post-search display/ranking signal instead (see route.ts, not implemented yet).
 
+  if (query.vinFilter) params.set("vin", query.vinFilter); // TEMP diagnostic
   if (query.zip) params.set("zip", query.zip);
   if (query.radius != null) params.set("distance", String(query.radius)); // "distance", not "radius"
   if (query.sort) params.set("sort", query.sort);
