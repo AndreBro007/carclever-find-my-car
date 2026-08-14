@@ -231,13 +231,10 @@ async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeo
       trim: v?.trim ?? null,
       series: v?.series ?? null,
       squishVin: v?.squishVin ?? null,
-      _diagStyle: v?.style ?? null,
-      _diagCondition: v?.condition ?? null,
-      _diagBaseInvoice: listing.baseInvoice ?? null,
-      _diagBaseMsrp: listing.baseMsrp ?? null,
+      bodyStyleConfig: v?.style ?? null, // confirmed real (e.g. "4dr SUV") - short structural descriptor, not narrative text
     },
     condition: {
-      inventoryType: rl?.used === false ? "new" : "used",
+      inventoryType: rl?.used === false ? "new" : rl?.used === true ? "used" : "unknown",
       used: rl?.used ?? null,
       cpo: rl?.cpo ?? null,
       cpoEvidenceState: cpoSummary.state,
