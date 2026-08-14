@@ -485,28 +485,6 @@ const handler = createMcpHandler((server) => {
       };
     },
   );
-
-  // TEMP diagnostic tool - testing whether the top-level vin= param supports
-  // comma-OR batch fetching (docs document it singular, unlike vehicle.make etc).
-  // Remove after the two-stage search design question is settled.
-  server.registerTool(
-    "diag_test_vin_batch",
-    {
-      description: "TEMP diagnostic - do not use for real searches.",
-      inputSchema: { vins: z.string() },
-    },
-    async ({ vins }) => {
-      const result = await searchListings({ vinFilter: vins, limit: 20 });
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Requested VINs: ${vins}\nReturned ${result.data.length} rows (total: ${result.total})\nReturned VINs: ${result.data.map((r) => r.vin).join(", ")}\nError: ${result.error ?? "none"}`,
-          },
-        ],
-      };
-    },
-  );
 });
 
 export { handler as GET, handler as POST, handler as DELETE };
