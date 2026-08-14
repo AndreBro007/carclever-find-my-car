@@ -32,12 +32,15 @@ Two worked examples of applying this principle (not an exhaustive list — the s
 - Hybrid and plug-in hybrid vehicles are often mistagged in the source data. If a specific model is named (e.g. "Sportage" or "RAV4"), set model to include both the base and hybrid/PHEV variant name (e.g. "RAV4,RAV4 Hybrid" or "RAV4,RAV4 Prime") rather than relying on the fuel filter alone. If no model is named, fuel-based hybrid/PHEV filtering has known partial coverage — mention that to the user.
 - Size and style qualifiers ("large SUV," "compact SUV," "sports sedan," "off-road capable," etc.) have no dedicated field — bodyType alone returns every size undifferentiated. Resolve these into a model list before searching (e.g. for "large SUV": "Suburban,Tahoe,Expedition,Sequoia,Wagoneer,Grand Wagoneer,Yukon XL,Yukon,Armada,Land Cruiser").
 
-Other rules: map descriptive intent to the dedicated fields (bodyType, seatsMinPreference, goals) rather than into free-text model/trim strings. Set priceFlexibility to "flexible" only if the user signals approximation ("around," "roughly," "about") — otherwise price stays a hard ceiling, never silently loosened. Prefer dedicated fields over model-list resolution when one exists: "AWD"/"4WD" → drivetrain; "manual" → transmission; a named color → exteriorColor; "certified pre-owned"/"CPO" → cpo. These are real, verified hard filters. "No accidents"/"one owner" → noAccidents/oneOwner: these influence ranking and are reported per result, but are NOT hard filters — vehicle history is frequently unreported in the underlying data, and a missing history record is never treated as a red flag.`;
+Other rules: map descriptive intent to the dedicated fields (bodyType, seatsMinPreference, goals) rather than into free-text model/trim strings. Set priceFlexibility to "flexible" only if the user signals approximation ("around," "roughly," "about") — otherwise price stays a hard ceiling, never silently loosened. Prefer dedicated fields over model-list resolution when one exists: "AWD"/"4WD" → drivetrain; "manual" → transmission; a named color → exteriorColor; "certified pre-owned"/"CPO" → cpo. These are real, verified hard filters. "No accidents"/"one owner" → noAccidents/oneOwner: these influence ranking and are reported per result, but are NOT hard filters — vehicle history is frequently unreported in the underlying data, and a missing history record is never treated as a red flag.
+
+Set priorityAxis based on what the user is actually optimizing for, not just which fields happen to be filled in — the same request text can imply different priorities even with identical filters. "Best SUV I can get under $60k," "nicest one in my budget," or any request with a price ceiling and no other stated priority → "best_for_budget" (default — this samples from the top of the stated budget down, which tends to surface newer years and better trims). "Cheapest," "lowest price," "budget option" → "cheapest". "Lowest mileage," "as few miles as possible" → "lowest_mileage". "Newest," "latest model year" → "newest". When in doubt, use "best_for_budget" — it matches this tool's purpose of finding the best match, not just any match.`;
 
 const FindMatchingVehicleInput = z.object({
   priceMax: z.number().optional(),
   priceMin: z.number().optional(),
   priceFlexibility: z.enum(["strict", "flexible"]).optional(),
+  priorityAxis: z.enum(["best_for_budget", "cheapest", "lowest_mileage", "newest"]).optional(),
   yearMin: z.number().optional(),
   yearMax: z.number().optional(),
   make: z.string().optional(),
@@ -61,6 +64,41 @@ const FindMatchingVehicleInput = z.object({
 });
 
 const SHORTLIST_SIZE = 5;
+
+/**
+ * Resolves the calling LLM's decoded priorityAxis into Auto.dev's single-field
+ * sort. Same decode-then-execute pattern as the rest of the tool: the LLM reads
+ * the user's actual sentence and picks the axis; we map it deterministically.
+ *
+ * This exists because inferring priority from *which fields happen to be set*
+ * is genuinely ambiguous — a user with both priceMax and mileageMax could mean
+ * "SUV under $60k, low mileage is a nice-to-have" or "lowest mileage SUV,
+ * $60k is just a cap" - identical structured params, opposite intent. Only the
+ * sentence itself disambiguates that, so it's the LLM's job, not a heuristic.
+ *
+ * best_for_budget (default) reflects the app's actual purpose: find the best
+ * vehicle for what they're describing, not the cheapest one that qualifies.
+ * Sampling from the top of a stated budget (price.desc) tends to correlate
+ * with newer years/better trims — without us having to encode that correlation
+ * ourselves. Falls back to year.desc when there's no price ceiling to anchor to.
+ */
+function resolveSort(
+  priorityAxis: "best_for_budget" | "cheapest" | "lowest_mileage" | "newest" | undefined,
+  priceMax: number | undefined,
+): string | undefined {
+  switch (priorityAxis) {
+    case "cheapest":
+      return "price.asc";
+    case "lowest_mileage":
+      return "miles.asc";
+    case "newest":
+      return "year.desc";
+    case "best_for_budget":
+    default:
+      return priceMax != null ? "price.desc" : "year.desc";
+  }
+}
+
 const CANDIDATE_POOL_SIZE = 100; // Growth plan cap per docs; silently clamps to 20 on Starter
 
 async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeof parseIntent>) {
@@ -184,14 +222,7 @@ const handler = createMcpHandler((server) => {
         state: input.state,
         // accidentCount/ownerCount NOT sent as query filters — history is null
         // in 53% of real listings, so hard-filtering would violate "unknown != false".
-        //
-        // sort: left at Auto.dev's documented default (updatedAt.desc). price.asc
-        // is a valid, documented, indexed sort — it was never a performance
-        // problem — but as a *sampling* strategy it biases the pool toward the
-        // cheapest listings, which for used cars means oldest/highest-mileage and
-        // data errors (real evidence: an $85 2024 CR-V ranked top). With limit at
-        // the plan cap and our own Match Score ranking the shortlist, the sample
-        // no longer needs a price bias. OPEN QUESTION flagged for André.
+        sort: resolveSort(input.priorityAxis, intent.hardConstraints.priceMax),
         limit: CANDIDATE_POOL_SIZE,
       };
 
