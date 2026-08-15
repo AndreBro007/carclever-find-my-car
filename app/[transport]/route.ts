@@ -366,7 +366,26 @@ const handler = createMcpHandler((server) => {
         await Promise.all(shortlist.map((listing) => buildResultCard(listing, intent)))
       ).filter((c): c is NonNullable<typeof c> => c !== null);
 
-      cards.sort((a, b) => b.ranking.matchScore - a.ranking.matchScore);
+      // Match Score ordering is only correct for the default best_for_budget
+      // axis, where "best overall fit" is genuinely what the user asked for.
+      // For directional axes (cheapest/lowest_mileage/newest), the shortlist
+      // already arrives in the correct order — it was fetched from Auto.dev
+      // with the matching sort (resolveSort() above: price.asc/miles.asc/
+      // year.desc) and that order survives diversity capping and the stage-2
+      // detail refetch unchanged, since both preserve array order rather than
+      // reordering. Re-sorting by Match Score here silently overwrote that
+      // correct order for every search regardless of priorityAxis, which is
+      // exactly what caused three separate real, confirmed 50+ second
+      // multi-call incidents in live testing (Aug 15 baseline, SYS-20260815-
+      // 001/002: cheapest, lowest_mileage, and newest all affected) — the
+      // calling LLM had to manually re-verify and narrow the ceiling itself
+      // because our own "cheapest"/"newest" results weren't actually ordered
+      // that way by the time they reached it.
+      if (input.priorityAxis === "cheapest" || input.priorityAxis === "lowest_mileage" || input.priorityAxis === "newest") {
+        // Leave cards in their already-correct fetched order — do not re-sort.
+      } else {
+        cards.sort((a, b) => b.ranking.matchScore - a.ranking.matchScore);
+      }
 
       const dataNotes: string[] = [];
       if (violationRate > 0.2) {
