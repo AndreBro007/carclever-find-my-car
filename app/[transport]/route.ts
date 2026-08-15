@@ -424,7 +424,23 @@ const handler = createMcpHandler((server) => {
       let candidates = rawResult.data;
       let total = rawResult.total;
       const relaxations: Array<{ step: string; detail: string }> = [];
-      const scopeNote: "local" | "nationwide" = zipIsValid ? "local" : "nationwide";
+      // Extended (2026-08-15) — previously only distinguished "local" vs
+      // "nationwide" on ZIP validity, so a genuinely absent ZIP (no location
+      // given at all — e.g. a bare state-only or fully unscoped search)
+      // silently reported as "local" with zero disclosure. Confirmed live:
+      // a real "Toyota Camry in Texas" search (state filter, no ZIP) showed
+      // scopeNote: "local" despite covering the entire state — the only
+      // reason the user got an honest caveat was the host model choosing to
+      // add one unprompted, not this tool. Same "don't rely on the caller's
+      // good behavior" principle as the invalid-ZIP fix.
+      const scopeNote: "local" | "statewide" | "nationwide" =
+        rawZip != null && !zipIsValid
+          ? "nationwide"
+          : rawZip == null && baseQuery.state
+          ? "statewide"
+          : rawZip == null
+          ? "nationwide"
+          : "local";
 
       // Facet-grounded model-name correction (design doc §4), added
       // 2026-08-15 — fixes the real MX-5 regression (SYS-20260815-001):
@@ -551,8 +567,12 @@ const handler = createMcpHandler((server) => {
       if (rawResult.degraded) {
         dataNotes.push(rawResult.degraded);
       }
-      if (scopeNote === "nationwide") {
+      if (scopeNote === "nationwide" && rawZip != null) {
         dataNotes.push("The requested location wasn't recognized, so this search was widened to nationwide.");
+      } else if (scopeNote === "nationwide") {
+        dataNotes.push("No location was specified, so this search covers listings nationwide rather than a specific area.");
+      } else if (scopeNote === "statewide") {
+        dataNotes.push(`No specific ZIP or city was given, so this search covers all of ${baseQuery.state} rather than a specific area.`);
       }
 
       const response = {
