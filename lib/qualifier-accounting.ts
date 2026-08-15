@@ -33,10 +33,11 @@ export interface CardIntentInput {
   cpo?: boolean;
   noAccidents?: boolean;
   oneOwner?: boolean;
+  seatsMinPreference?: number;
 }
 
 export interface CardForConfirmation {
-  detail: { interiorColor: string | null; exteriorColor: string | null; cylinders: number | null; cpoNote: string; ownerHistoryNote: string | null };
+  detail: { interiorColor: string | null; exteriorColor: string | null; cylinders: number | null; cpoNote: string; ownerHistoryNote: string | null; seatsNote: string };
   powertrain: { drivetrain: string | null; transmission: string | null };
   body: { doors: number | null; vehicleType: string | null };
   condition: { used: boolean | null };
@@ -84,6 +85,12 @@ export function buildIntentConfirmations(input: CardIntentInput, card: CardForCo
     // — this is the fix for "no accidents"/"one owner" only appearing in
     // text when there's a WARNING, never as a positive confirmation.
     confirmations.push(card.history.note);
+  }
+  if (input.seatsMinPreference != null) {
+    // Seats is never a hard filter (Trust Class C, same as CPO/history) —
+    // always disclose, whether it meets the preference, falls short, or is
+    // unreported, never exclude on it.
+    confirmations.push(card.detail.seatsNote);
   }
 
   return confirmations;
@@ -170,6 +177,13 @@ export function buildQualifierAccounting(input: CardIntentInput): QualifierAccou
       requested: "one owner",
       tier: "disclosed_not_filtered",
       applied: "never used to exclude results — disclosed per result instead",
+    });
+  }
+  if (input.seatsMinPreference != null) {
+    entries.push({
+      requested: `${input.seatsMinPreference}+ seats`,
+      tier: "disclosed_not_filtered",
+      applied: "never used to exclude results — seating capacity is a real response field but not a documented Auto.dev filter, so it's disclosed per result instead",
     });
   }
 
