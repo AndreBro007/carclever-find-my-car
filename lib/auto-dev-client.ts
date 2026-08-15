@@ -157,11 +157,35 @@ export interface ListingsQuery {
 export interface ListingsResponse {
   data: AutoDevListing[];
   total: number;
-  facets?: Record<string, Array<{ value: string; count: number }>>;
+  // Real shape confirmed live (2026-08-15): each facet group is a dict of
+  // "Label (count)" strings mapped to a ready-made drill-down URL — NOT the
+  // clean {value,count}[] this type previously assumed. e.g.
+  // facets.models === { "MX-5 Miata (130)": "https://api.auto.dev/listings?...", ... }
+  // Use parseFacetGroup() below to get clean {value,count} pairs from this.
+  facets?: Record<string, Record<string, string>>;
   /** Set when the request genuinely failed — distinct from "no cars matched". */
   error?: string;
   /** Set when results came back but via a reduced fallback request. */
   degraded?: string;
+}
+
+/**
+ * Parses a raw facet group ({"MX-5 Miata (130)": url, ...}) into clean
+ * {value, count} pairs, sorted by count descending. The "(count)" suffix is
+ * always present in real responses (confirmed 2026-08-15); a key without a
+ * parseable count is skipped rather than guessed at.
+ */
+export function parseFacetGroup(
+  group: Record<string, string> | undefined,
+): Array<{ value: string; count: number }> {
+  if (!group) return [];
+  const parsed: Array<{ value: string; count: number }> = [];
+  for (const key of Object.keys(group)) {
+    const match = key.match(/^(.*)\s\((\d+)\)$/);
+    if (!match) continue;
+    parsed.push({ value: match[1].trim(), count: Number(match[2]) });
+  }
+  return parsed.sort((a, b) => b.count - a.count);
 }
 
 function buildListingsParams(query: ListingsQuery): URLSearchParams {
@@ -328,7 +352,34 @@ export async function searchListingsLean(query: ListingsQuery): Promise<Listings
   };
 }
 
-export interface VinDecodeResult {
+/**
+ * Fetches the real model-name vocabulary for a make (facets), used ONLY as a
+ * fallback when a specific make+model search returns zero results — never
+ * called on a normal/successful search, so this adds no latency to the
+ * common case (design doc §4, live-verified 2026-08-15).
+ *
+ * Deliberately drops `model` from the query and requests limit=1 — we only
+ * need the facets, not any rows, so this is a cheap, minimal call. Real
+ * confirmed finding: facets come back EMPTY on the exact zero-result query
+ * itself (nothing matched, nothing to facet over) — they only populate at
+ * a broader anchor level, which is why model must be dropped here rather
+ * than resent alongside includes=facets on the original query.
+ */
+export async function getModelFacets(
+  query: ListingsQuery,
+): Promise<Array<{ value: string; count: number }>> {
+  const broaderQuery: ListingsQuery = { ...query, model: undefined, limit: 1 };
+  const params = buildListingsParams(broaderQuery);
+  params.set("includes", "facets");
+
+  const outcome = await autoDevFetch<{ facets?: Record<string, Record<string, string>> }>(
+    `/listings?${params.toString()}`,
+  );
+  if (!outcome.ok) return [];
+  return parseFacetGroup(outcome.data.facets?.models);
+}
+
+
   make?: string;
   model?: string;
   year?: number;
