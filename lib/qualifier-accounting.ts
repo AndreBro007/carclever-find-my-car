@@ -36,7 +36,7 @@ export interface CardIntentInput {
 }
 
 export interface CardForConfirmation {
-  detail: { interiorColor: string | null; exteriorColor: string | null; cylinders: number | null; cpoNote: string; ownerHistoryNote: string };
+  detail: { interiorColor: string | null; exteriorColor: string | null; cylinders: number | null; cpoNote: string; ownerHistoryNote: string | null };
   powertrain: { drivetrain: string | null; transmission: string | null };
   body: { doors: number | null; vehicleType: string | null };
   condition: { used: boolean | null };
