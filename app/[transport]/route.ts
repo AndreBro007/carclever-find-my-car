@@ -1,7 +1,7 @@
 import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
 import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
-import { searchListingsLean, getListingByVin } from "@/lib/auto-dev-client";
+import { searchListingsLean, getListingByVin, getModelFacets } from "@/lib/auto-dev-client";
 // TEMP: loosening-ladder bypassed per André's request (Aug 13) — search itself
 // needs to work correctly before any widening logic runs on top of it.
 // import { searchWithLoosening } from "@/lib/loosening-ladder";
@@ -333,10 +333,55 @@ const handler = createMcpHandler((server) => {
       // the full candidate pool (smaller payload, faster), then full-detail
       // refetch via parallel /listings/{vin} calls for just the shortlist.
       const rawResult = await searchListingsLean(baseQuery);
-      const candidates = rawResult.data;
-      const total = rawResult.total;
+      let candidates = rawResult.data;
+      let total = rawResult.total;
       const relaxations: Array<{ step: string; detail: string }> = [];
       const scopeNote: "local" | "nationwide" = "local" as "local" | "nationwide";
+
+      // Facet-grounded model-name correction (design doc §4), added
+      // 2026-08-15 — fixes the real MX-5 regression (SYS-20260815-001):
+      // model strings that don't exactly match Auto.dev's data (e.g. "MX-5"
+      // vs the real "MX-5 Miata") return a clean silent zero rather than an
+      // error. ONLY runs when the primary search genuinely found nothing AND
+      // a specific model was requested — every search that already returns
+      // results is completely unaffected, so this adds no latency to the
+      // common case. One corrective re-search only, never a loop, and the
+      // correction is always disclosed via relaxations, never silent.
+      if (total === 0 && candidates.length === 0 && baseQuery.model) {
+        const requestedModels = baseQuery.model.split(",").map((m) => m.trim());
+        const realModels = await getModelFacets(baseQuery);
+
+        const corrections = requestedModels.map((requested) => {
+          const lower = requested.toLowerCase();
+          const match = realModels.find((real) => {
+            const realLower = real.value.toLowerCase();
+            return realLower !== lower && (realLower.startsWith(lower) || lower.startsWith(realLower));
+          });
+          return { requested, corrected: match?.value ?? null };
+        });
+
+        const anyCorrected = corrections.some((c) => c.corrected);
+        if (anyCorrected) {
+          const correctedModelString = corrections
+            .map((c) => c.corrected ?? c.requested)
+            .join(",");
+          const retryQuery: ListingsQuery = { ...baseQuery, model: correctedModelString };
+          const retryResult = await searchListingsLean(retryQuery);
+
+          if (retryResult.data.length > 0) {
+            candidates = retryResult.data;
+            total = retryResult.total;
+            for (const c of corrections) {
+              if (c.corrected) {
+                relaxations.push({
+                  step: "model_name_correction",
+                  detail: `"${c.requested}" isn't a recognized model name in current inventory — corrected to "${c.corrected}".`,
+                });
+              }
+            }
+          }
+        }
+      }
 
       // Post-verification (SYS-20260812-035, redesign doc §5.4 step 6):
       // Auto.dev can silently swallow/mishandle params and return rows that
