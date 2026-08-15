@@ -112,6 +112,41 @@ function buildCpoSummary(
 }
 
 /**
+ * Seats disclosure — same Trust Class C treatment as CPO/history
+ * (SYS-20260815 follow-up). `vehicle.seats` is a real response field, but
+ * confirmed absent from Auto.dev's documented Vehicle Filters list (field
+ * audit, 2026-08-14) — it can be reported, never queried as a hard filter.
+ * `seatsMinPreference` was collected as input since early in the build and
+ * did nothing until now — this closes that gap, without ever excluding a
+ * result on seat count (a below-preference or unreported seat count is
+ * disclosed, not dropped — same "unknown != false" discipline as history/CPO).
+ */
+function buildSeatsSummary(
+  listing: AutoDevListing,
+  seatsMin: number | undefined,
+): { state: "meets_or_exceeds" | "below_requested" | "reported" | "unknown"; note: string } {
+  const seats = listing.vehicle?.seats;
+  if (seats == null) {
+    return {
+      state: "unknown",
+      note: seatsMin != null
+        ? `Seating capacity not reported by this listing — can't confirm it meets the requested ${seatsMin}+ seats.`
+        : "Seating capacity not reported by this listing.",
+    };
+  }
+  if (seatsMin == null) {
+    return { state: "reported", note: `${seats} seats.` };
+  }
+  if (seats >= seatsMin) {
+    return { state: "meets_or_exceeds", note: `${seats} seats — meets the requested ${seatsMin}+ seat minimum.` };
+  }
+  return {
+    state: "below_requested",
+    note: `${seats} seats — below the requested ${seatsMin}+ seat minimum. Shown anyway since seat count is a soft preference, not a hard filter.`,
+  };
+}
+
+/**
  * History disclosure — Trust Class C. Extended (SYS-20260812-051 audit) to
  * cover owner count alongside accidents; previously only accidents were
  * checked despite oneOwner being a real, collected input doing nothing.
@@ -208,6 +243,7 @@ async function buildResultCard(
   const normalizedFuel = applyKnownHybridOverride(v?.year, v?.make, v?.model, v?.fuel);
   const historySummary = buildHistorySummary(listing);
   const cpoSummary = buildCpoSummary(listing);
+  const seatsSummary = buildSeatsSummary(listing, intent.hardConstraints.seatsMin);
 
   // Photos must never block the search-results critical path (real evidence:
   // 868ms median Photos latency, SYS-20260812-014/021). Leave the gallery
@@ -289,6 +325,8 @@ async function buildResultCard(
       interiorColor: v?.interiorColor ?? null,
       exteriorColor: v?.exteriorColor ?? null,
       cylinders: v?.cylinders ?? null,
+      seats: v?.seats ?? null,
+      seatsNote: seatsSummary.note,
       dataConfidence: v?.confidence ?? null, // real field, 0.0-1.0 per docs, unresearched use case - surfaced for observation
       historyUsageType: listing.history?.usageType ?? null,
       historyPersonalUse: listing.history?.personalUse ?? null,
@@ -451,6 +489,9 @@ const handler = createMcpHandler((server) => {
         cpo: input.cpo,
         noAccidents: input.noAccidents,
         oneOwner: input.oneOwner,
+        // Resolved value, not raw input — picks up goal-inferred seat needs
+        // (e.g. "family car") as well as an explicit seatsMinPreference.
+        seatsMinPreference: intent.hardConstraints.seatsMin,
       };
 
       const cards = (
