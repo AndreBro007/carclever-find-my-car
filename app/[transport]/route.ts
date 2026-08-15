@@ -319,6 +319,20 @@ const handler = createMcpHandler((server) => {
     async (input) => {
       const intent = parseIntent(input);
 
+      // "Lowest mileage" almost always means "lowest mileage used car" in
+      // real buy-intent — a new car being low-mileage isn't a finding worth
+      // surfacing as the best match, and Auto.dev has no separate "demo"
+      // category (confirmed: retailListing.used is a strict true=used/
+      // false=new boolean, nothing else) — a demo vehicle without a prior
+      // retail owner would carry used:false, same bucket as genuinely new.
+      // So defaulting to used:true when the user hasn't stated a new/used
+      // preference correctly excludes both, using the one real signal
+      // available. Never silent — always disclosed via dataNotes below,
+      // same discipline as every other default/relaxation in this tool.
+      // Respects an explicit input.used if the user actually asked for new.
+      const lowestMileageDefaultedToUsed = input.priorityAxis === "lowest_mileage" && input.used == null;
+      const effectiveUsed = lowestMileageDefaultedToUsed ? true : input.used;
+
       const baseQuery: ListingsQuery = {
         make: intent.hardConstraints.make,
         model: intent.hardConstraints.model,
@@ -337,7 +351,7 @@ const handler = createMcpHandler((server) => {
         vehicleType: input.vehicleType,
         doors: input.doors,
         cylinders: input.cylinders,
-        used: input.used,
+        used: effectiveUsed,
         // cpo NOT sent as a filter — CPO-001 forbids treating cpo=false as
         // definitive. input.cpo still collected, used for disclosure below.
         state: input.state,
@@ -465,6 +479,11 @@ const handler = createMcpHandler((server) => {
       }
 
       const dataNotes: string[] = [];
+      if (lowestMileageDefaultedToUsed) {
+        dataNotes.push(
+          "Searched used vehicles only — \"lowest mileage\" defaults to used, not new or dealer-demo inventory, since a new car's low mileage isn't a meaningful comparison. Ask for new vehicles specifically if that's what you want.",
+        );
+      }
       if (violationRate > 0.2) {
         dataNotes.push(
           "Some results from the underlying data source didn't fully match the stated filters and were excluded — this can happen with the provider's data.",
