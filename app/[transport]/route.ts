@@ -243,7 +243,7 @@ async function buildResultCard(
   const normalizedFuel = applyKnownHybridOverride(v?.year, v?.make, v?.model, v?.fuel);
   const historySummary = buildHistorySummary(listing);
   const cpoSummary = buildCpoSummary(listing);
-  const seatsSummary = buildSeatsSummary(listing, intent.hardConstraints.seatsMin);
+  const seatsSummary = buildSeatsSummary(listing, intent.semantic.seatsMin);
 
   // Photos must never block the search-results critical path (real evidence:
   // 868ms median Photos latency, SYS-20260812-014/021). Leave the gallery
@@ -491,7 +491,7 @@ const handler = createMcpHandler((server) => {
         oneOwner: input.oneOwner,
         // Resolved value, not raw input — picks up goal-inferred seat needs
         // (e.g. "family car") as well as an explicit seatsMinPreference.
-        seatsMinPreference: intent.hardConstraints.seatsMin,
+        seatsMinPreference: intent.semantic.seatsMin,
       };
 
       const cards = (
