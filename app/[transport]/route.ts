@@ -378,10 +378,16 @@ const handler = createMcpHandler((server) => {
       // usually catches this upstream before it reaches us, but that's not
       // something this tool controls or can rely on — same "don't trust the
       // caller's input, verify and disclose" principle as everything else
-      // here. 5-digit format check only — deliberately lean, not a full
-      // ZIP-database validation.
+      // here. Real fix required TWO checks, not one — a bare 5-digit format
+      // check alone is insufficient: "00000" IS 5 digits, so it passed a
+      // naive regex and reproduced the exact same bug (confirmed live via
+      // the first version of this fix). No US ZIP has all-identical digits
+      // (00000/11111/.../99999 are unassigned), so that's added as a cheap,
+      // real second check — not a full ZIP database, deliberately lean.
       const rawZip = intent.hardConstraints.location?.zip;
-      const zipIsValid = rawZip == null || /^\d{5}$/.test(rawZip);
+      const zipFormatValid = rawZip == null || /^\d{5}$/.test(rawZip);
+      const zipNotAllSameDigit = rawZip == null || !/^(\d)\1{4}$/.test(rawZip);
+      const zipIsValid = zipFormatValid && zipNotAllSameDigit;
 
       const baseQuery: ListingsQuery = {
         make: intent.hardConstraints.make,
