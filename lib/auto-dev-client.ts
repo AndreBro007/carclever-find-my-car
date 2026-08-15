@@ -375,6 +375,12 @@ export async function getModelFacets(
 
   const outcome = await autoDevFetch<{ facets?: Record<string, Record<string, string>> }>(
     `/listings?${params.toString()}`,
+    10_000, // Fixed 2026-08-16: this is a tiny limit=1, facets-only request — the
+    // full 25s DEFAULT_TIMEOUT_MS meant for real search calls left a worst-case
+    // chain of primary search (25s) + this facet lookup (25s) + corrective
+    // re-search (25s) = 75s, exceeding Vercel's 60s maxDuration. Same failure
+    // mode as the real Aug 12 loosening-ladder timeout incident. 10s is ample
+    // for this call (every real run completed in ~5s during Aug 15 testing).
   );
   if (!outcome.ok) return [];
   return parseFacetGroup(outcome.data.facets?.models);
