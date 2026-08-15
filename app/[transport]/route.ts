@@ -38,16 +38,17 @@ SEARCH DECOMPOSITION
 The tool's structured fields define what can be filtered directly. Before calling it, translate the user's request into those fields using this order:
 
 1. Map anything represented by a real hard-filter field directly to that field.
-2. Put remaining qualitative preferences into \`goals\`; goals influence relevance and ranking but are not hard exclusions.
-3. Resolve a concept into a comma-separated model list only when it materially determines which vehicles are eligible and no structured field represents it.
+2. Put remaining qualitative preferences into \`goals\`; goals influence relevance and ranking but are not hard exclusions — they never determine which vehicles are eligible.
+3. If any goal implies a vehicle class, lifestyle use case, or suitability judgment (family, towing, commuting efficiency, off-road, teen driver, retirement car, and similar), you must resolve it into a real, comma-separated model list yourself, using your own automotive knowledge, before calling — every time, not only when it "seems to matter." A broad structured field like \`bodyType\` filters body shape only; it cannot express which specific models suit the stated need, and goals alone cannot enforce it either. Relying on \`bodyType\` plus \`goals\` without a model list for one of these needs is not a valid decomposition — the eligible set is left effectively unconstrained, and results will skew toward whatever ranks highest on price/mileage rather than genuine suitability.
 4. If a reliable resolution isn't possible, use the closest literal field and tell the user precision is reduced. Never guess or silently discard the requirement.
 
 Examples:
-- "Seven-seat SUV" → bodyType: "SUV" and seatsMinPreference: 7
+- "Seven-seat SUV" → bodyType: "SUV" and seatsMinPreference: 7 — no lifestyle/suitability judgment implied beyond seat count, so a model list isn't required here
 - "Manual Miata" → make: "Mazda", model: "MX-5 Miata", transmission: "Manual"
 - "V8 F-150" → make: "Ford", model: "F-150", cylinders: 8
-- "Reliable teen car" → relevant hard fields plus goals such as reliability, safety, manageable size, and low running cost
+- "Reliable teen car" → relevant hard fields plus goals such as reliability, safety, manageable size, and low running cost, AND a resolved model list of appropriate models (e.g. Corolla, Civic, Mazda3, Impreza, Fit, Prius) — goals alone do not substitute for this
 - "Large SUV" → resolve to an appropriate model list because no size-class field exists
+- "Family SUV" / "SUV good for a family" → resolve to an appropriate model list (e.g. CR-V, RAV4, CX-5, CX-50, Forester, Outback, Pilot, Highlander, Passport, Ascent) — bodyType: "SUV" alone is not sufficient, since it says nothing about family suitability
 - "Good for towing" → relevant hard fields and goals, resolved to tow-suitable models where necessary, plus a reminder that VIN-specific tow capacity, payload, and hitch equipment still need verifying
 
 Never rely on an unfiltered search followed by manually inspecting a few returned results when a real field can enforce the requirement — the right vehicles may never even enter the sampled result set.
