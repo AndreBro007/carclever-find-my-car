@@ -16,6 +16,7 @@ import { sanitizeDealerName } from "@/lib/dealer-name";
 import { applyKnownHybridOverride, formatFuelTypeForDisplay } from "@/lib/fuel-type";
 import { getCorpusCountForDescription, initCorpusCount } from "@/lib/corpus-count";
 import { CAPABILITIES } from "@/lib/capabilities";
+import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting, type CardIntentInput } from "@/lib/qualifier-accounting";
 
 initCorpusCount();
 
@@ -188,7 +189,11 @@ function resolveSort(
 
 const CANDIDATE_POOL_SIZE = 100; // Growth plan cap per docs; silently clamps to 20 on Starter
 
-async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeof parseIntent>) {
+async function buildResultCard(
+  listing: AutoDevListing,
+  intent: ReturnType<typeof parseIntent>,
+  intentInput: CardIntentInput,
+) {
   const verification = crossCheckVin(listing); // now local/synchronous — no API call
   const { matchScore, matchScoreLabel, breakdown } = computeMatchScore(listing, intent, verification);
   const links = resolveLinks(listing);
@@ -224,7 +229,7 @@ async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeo
     badges.push("price-likely-inaccurate");
   }
 
-  return {
+  const cardShape = {
     canonicalVehicleId: listing.vin,
     identity: {
       vin: listing.vin,
@@ -291,6 +296,16 @@ async function buildResultCard(listing: AutoDevListing, intent: ReturnType<typeo
       fuelTypeDisplay: formatFuelTypeForDisplay(normalizedFuel, v?.fuel),
     },
     badges,
+  };
+
+  return {
+    ...cardShape,
+    // Qualifier accounting (SYS-20260815 follow-up): dynamic, per-result
+    // confirmation of only the fields the user actually asked about — keeps
+    // the card lean while closing the "text summary only ever warns, never
+    // confirms" gap found in the Aug 15 baseline.
+    intentConfirmations: buildIntentConfirmations(intentInput, cardShape),
+    dataConflicts: detectDataConflicts(listing),
   };
 }
 
@@ -410,8 +425,22 @@ const handler = createMcpHandler((server) => {
       );
       const shortlist = leanShortlist.map((lean, i) => fullDetail[i] ?? lean);
 
+      const intentInput: CardIntentInput = {
+        exteriorColor: input.exteriorColor,
+        interiorColor: input.interiorColor,
+        drivetrain: input.drivetrain,
+        transmission: input.transmission,
+        cylinders: input.cylinders,
+        doors: input.doors,
+        vehicleType: input.vehicleType,
+        used: input.used,
+        cpo: input.cpo,
+        noAccidents: input.noAccidents,
+        oneOwner: input.oneOwner,
+      };
+
       const cards = (
-        await Promise.all(shortlist.map((listing) => buildResultCard(listing, intent)))
+        await Promise.all(shortlist.map((listing) => buildResultCard(listing, intent, intentInput)))
       ).filter((c): c is NonNullable<typeof c> => c !== null);
 
       // Match Score ordering is only correct for the default best_for_budget
@@ -458,6 +487,7 @@ const handler = createMcpHandler((server) => {
           scopeNote,
           serviceError: rawResult.error ?? null,
           interpretationNotes: intent.interpretationNotes,
+          qualifierAccounting: buildQualifierAccounting(intentInput),
         },
         results: cards,
       };
@@ -505,7 +535,16 @@ const handler = createMcpHandler((server) => {
                 const dealerStr = l.dealer ? ` — ${l.dealer}${l.city ? `, ${l.city}` : ""}${l.state ? `, ${l.state}` : ""}` : "";
                 const linkStr = c.links.affiliateUrl ?? c.links.dealerListingUrl ?? "no link available";
                 const historyLine = c.history.state === "known_issues" ? `\n   ⚠️ ${c.history.note}` : "";
-                return `${i + 1}. ${id.year} ${id.make} ${id.model}${trimStr} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}\n   Link: ${linkStr}`;
+                // Qualifier accounting: only for fields the user actually
+                // asked about (c.intentConfirmations is already scoped to
+                // that). Skip the history note here if it's already shown
+                // via historyLine above, so it isn't repeated twice.
+                const confirmedItems = c.intentConfirmations.filter(
+                  (x) => !(c.history.state === "known_issues" && x === c.history.note),
+                );
+                const confirmedLine = confirmedItems.length > 0 ? `\n   Confirmed: ${confirmedItems.join(", ")}` : "";
+                const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
+                return `${i + 1}. ${id.year} ${id.make} ${id.model}${trimStr} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}\n   Link: ${linkStr}`;
               })
               .join("\n\n");
 
