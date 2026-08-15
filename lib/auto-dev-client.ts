@@ -87,6 +87,7 @@ export interface AutoDevListing {
     type?: string; // finer than bodyStyle: Crossover/SUV/Sedan/Wagon/Minivan/Performance-Sports/Hybrid/Hatchback/Coupe/Luxury/Electric
     doors?: number;
     cylinders?: number;
+    seats?: number; // real response field ("Seating capacity") — confirmed absent from Vehicle Filters, response-only. Was never even parsed before 2026-08-15, despite seatsMinPreference being collected as input and doing nothing.
     confidence?: unknown; // real field, unresearched — parsed for visibility, not yet used
     style?: unknown; // observed in schema audit — meaning unconfirmed, investigating
     condition?: unknown; // speculative: possible new/used/demo/certified signal
