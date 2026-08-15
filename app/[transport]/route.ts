@@ -371,6 +371,18 @@ const handler = createMcpHandler((server) => {
       const lowestMileageDefaultedToUsed = input.priorityAxis === "lowest_mileage" && input.used == null;
       const effectiveUsed = lowestMileageDefaultedToUsed ? true : input.used;
 
+      // Lean ZIP validation (2026-08-15) — Auto.dev silently ignores an
+      // invalid ZIP and returns unfiltered, effectively nationwide results
+      // with no error and no signal anything went wrong (confirmed live:
+      // zip=00000 returned real Camrys from GA/WA/TX). A real host model
+      // usually catches this upstream before it reaches us, but that's not
+      // something this tool controls or can rely on — same "don't trust the
+      // caller's input, verify and disclose" principle as everything else
+      // here. 5-digit format check only — deliberately lean, not a full
+      // ZIP-database validation.
+      const rawZip = intent.hardConstraints.location?.zip;
+      const zipIsValid = rawZip == null || /^\d{5}$/.test(rawZip);
+
       const baseQuery: ListingsQuery = {
         make: intent.hardConstraints.make,
         model: intent.hardConstraints.model,
@@ -380,8 +392,8 @@ const handler = createMcpHandler((server) => {
         yearMin: intent.hardConstraints.yearMin,
         yearMax: intent.hardConstraints.yearMax,
         mileageMax: intent.hardConstraints.mileageMax,
-        zip: intent.hardConstraints.location?.zip,
-        radius: intent.hardConstraints.location?.radiusMiles,
+        zip: zipIsValid ? rawZip : undefined,
+        radius: zipIsValid ? intent.hardConstraints.location?.radiusMiles : undefined,
         drivetrain: input.drivetrain,
         transmission: input.transmission,
         exteriorColor: input.exteriorColor,
@@ -406,7 +418,7 @@ const handler = createMcpHandler((server) => {
       let candidates = rawResult.data;
       let total = rawResult.total;
       const relaxations: Array<{ step: string; detail: string }> = [];
-      const scopeNote: "local" | "nationwide" = "local" as "local" | "nationwide";
+      const scopeNote: "local" | "nationwide" = zipIsValid ? "local" : "nationwide";
 
       // Facet-grounded model-name correction (design doc §4), added
       // 2026-08-15 — fixes the real MX-5 regression (SYS-20260815-001):
