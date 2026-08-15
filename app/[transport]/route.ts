@@ -41,34 +41,34 @@ History, ownership, and certification claims are disclosed, never used to exclud
 Set priorityAxis based on what the user is actually optimizing for, not just which fields happen to be filled in — the same request text can imply different priorities even with identical filters. "Best SUV I can get under $60k," "nicest one in my budget," or any request with a price ceiling and no other stated priority → "best_for_budget" (default — this samples from the top of the stated budget down, which tends to surface newer years and better trims). "Cheapest," "lowest price," "budget option" → "cheapest". "Lowest mileage," "as few miles as possible" → "lowest_mileage". "Newest," "latest model year" → "newest". When in doubt, use "best_for_budget" — it matches this tool's purpose of finding the best match, not just any match.`;
 
 const FindMatchingVehicleInput = z.object({
-  priceMax: z.number().optional(),
-  priceMin: z.number().optional(),
-  priceFlexibility: z.enum(["strict", "flexible"]).optional(),
-  priorityAxis: z.enum(["best_for_budget", "cheapest", "lowest_mileage", "newest"]).optional(),
-  yearMin: z.number().optional(),
-  yearMax: z.number().optional(),
-  make: z.string().optional(),
-  model: z.string().optional(),
-  bodyType: z.string().optional(),
-  mileageMax: z.number().optional(),
-  zip: z.string().optional(),
-  radiusMiles: z.number().optional(),
-  trimPreference: z.string().optional(),
-  seatsMinPreference: z.number().optional(),
-  goals: z.array(z.string()).optional(),
+  priceMax: z.number().optional().describe("Maximum price in USD. A hard ceiling — never send a value higher than what the user actually stated."),
+  priceMin: z.number().optional().describe("Minimum price in USD."),
+  priceFlexibility: z.enum(["strict", "flexible"]).optional().describe("Whether the price ceiling can flex. Set to 'flexible' only if the user signals approximation ('around', 'roughly', 'about') — otherwise omit; the ceiling stays strict by default."),
+  priorityAxis: z.enum(["best_for_budget", "cheapest", "lowest_mileage", "newest"]).optional().describe("What the user is actually optimizing for. 'best_for_budget' (default) for 'best I can get' or 'nicest in my budget'. 'cheapest' for lowest price. 'lowest_mileage' for fewest miles (this defaults the search to used vehicles only — new/demo cars are excluded automatically, disclosed to the user). 'newest' for latest model year."),
+  yearMin: z.number().optional().describe("Minimum model year."),
+  yearMax: z.number().optional().describe("Maximum model year."),
+  make: z.string().optional().describe("Vehicle manufacturer, e.g. Toyota, Honda, Ford."),
+  model: z.string().optional().describe("Real vehicle model name(s). Comma-separate multiple models, e.g. 'RAV4,RAV4 Hybrid' or 'Suburban,Tahoe,Yukon' for a resolved size/style qualifier. Any size, style, or use-case description the user gives ('large SUV', 'good for towing', 'sporty') has no dedicated field — resolve it into real model names here, using your own knowledge, before calling this tool."),
+  bodyType: z.string().optional().describe("Broad body style only, e.g. SUV, Sedan, Truck, Minivan. Use vehicleType instead for a finer distinction like Crossover vs SUV or hatchback vs coupe."),
+  mileageMax: z.number().optional().describe("Maximum odometer mileage."),
+  zip: z.string().optional().describe("5-digit US ZIP code to search near. Required for a local search radius — a search without one covers the user's stated state (if given) or the whole country, and is disclosed as such."),
+  radiusMiles: z.number().optional().describe("Search radius in miles from the ZIP. Defaults to 50 if omitted."),
+  trimPreference: z.string().optional().describe("Preferred trim level, e.g. 'Limited' or 'Sport'. Ranking input only — never excludes a result with a different or unknown trim."),
+  seatsMinPreference: z.number().optional().describe("Minimum seating capacity needed, e.g. 7 for a family needing three rows. Never excludes a result — seat count is disclosed per result (meets, falls short, or unreported), not hard-filtered, since seating capacity is not a real Auto.dev filter."),
+  goals: z.array(z.string()).optional().describe("Freeform buyer goals like 'family', 'reliability', 'commuting'. Ranking/context input only, not a hard filter — this tool has no reliability or ownership-cost data to verify these claims against."),
   // Widened per design doc §2 — all live-verified filterable.
-  drivetrain: z.string().optional(), // "AWD" | "4WD" | "FWD" | "RWD", comma-OR
-  transmission: z.enum(["Automatic", "Manual"]).optional(),
-  exteriorColor: z.string().optional(),
-  interiorColor: z.string().optional(),
-  vehicleType: z.string().optional(), // finer than bodyType: Crossover, SUV, Sedan, Wagon, Minivan, Performance-Sports, Hybrid, Hatchback, Coupe, Luxury, Electric
-  doors: z.number().optional(),
-  cylinders: z.number().optional(),
-  used: z.boolean().optional(),
-  cpo: z.boolean().optional(),
-  state: z.string().optional(),
-  noAccidents: z.boolean().optional(), // maps to history.accidentCount=0
-  oneOwner: z.boolean().optional(), // maps to history.ownerCount=1
+  drivetrain: z.string().optional().describe("AWD, 4WD, FWD, or RWD. Comma-separate multiple values if the user is open to more than one."),
+  transmission: z.enum(["Automatic", "Manual"]).optional().describe("Automatic or Manual. A real, verified hard filter — always use this field when the user names a transmission type."),
+  exteriorColor: z.string().optional().describe("Named exterior color, e.g. Blue, Red, Black, Silver. A real, verified hard filter on the actual data — always use this field when the user names an exterior color, never skip it or leave it unfiltered."),
+  interiorColor: z.string().optional().describe("Named interior color, e.g. Black, Tan, Gray. A real, verified hard filter on the actual data, exactly like exteriorColor — always use this field when the user names an interior color. Do not skip it, and do not substitute checking each result's interior color manually after an unfiltered search — that produces an incomplete result set."),
+  vehicleType: z.string().optional().describe("Finer body classification than bodyType, e.g. Crossover, SUV, Sedan, Wagon, Minivan, Performance/Sports, Hybrid, Hatchback, Coupe, Luxury, Electric. Use this when the user is specific about a distinction bodyType alone can't capture."),
+  doors: z.number().optional().describe("Exact door count, e.g. 2 or 4."),
+  cylinders: z.number().optional().describe("Engine cylinder COUNT — a discrete number, distinct from engine displacement in liters (e.g. '2.5L', '3.5L'), which is NOT filterable. 'V8' means 8. 'V6' means 6. 'four-cylinder' or 'I4' means 4. This is a real, verified hard filter on the actual data — always use this field for a stated cylinder configuration. Do not treat it as unfilterable, and do not substitute checking each result's engine text manually after an unfiltered search — that produces an incomplete result set."),
+  used: z.boolean().optional().describe("true for used vehicles only, false for new vehicles only. Omit to search both. Automatically set to true when priorityAxis is 'lowest_mileage' unless the user explicitly asked for new."),
+  cpo: z.boolean().optional().describe("true if the user specifically wants certified pre-owned. Never excludes non-CPO results — CPO status is disclosed per result (confirmed, reported not CPO, or unreported), not hard-filtered, since the data can confirm CPO status but never disprove it."),
+  state: z.string().optional().describe("Two-letter US state code, e.g. CA, TX, NY. Use for a state-wide search when the user names a state but gives no city or ZIP — the search is disclosed as covering the whole state rather than a specific area."),
+  noAccidents: z.boolean().optional().describe("true if the user specifically wants no reported accidents. Never excludes results — accident history is disclosed per result (reported clean, reported issues, or unreported), not hard-filtered, since roughly half of listings have no history data at all and unknown must never be treated as false."), // maps to history.accidentCount=0
+  oneOwner: z.boolean().optional().describe("true if the user specifically wants a one-owner vehicle. Never excludes results — ownership history is disclosed per result, not hard-filtered, for the same reason as noAccidents."), // maps to history.ownerCount=1
 });
 
 const SHORTLIST_SIZE = 5;
@@ -353,6 +353,7 @@ const handler = createMcpHandler((server) => {
     {
       description: FIND_MATCHING_VEHICLE_DESCRIPTION(),
       inputSchema: FindMatchingVehicleInput.shape,
+      annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async (input) => {
       const intent = parseIntent(input);
@@ -658,7 +659,8 @@ const handler = createMcpHandler((server) => {
     {
       description:
         "Fetches additional photos for a specific vehicle by VIN. Lazy/non-blocking — call this after showing initial search results, never before. Each photo is validated independently; a single broken image never affects the rest of the gallery or the vehicle's match quality.",
-      inputSchema: { vin: z.string() },
+      inputSchema: { vin: z.string().describe("The vehicle's 17-character VIN, from a prior find_matching_vehicle result.") },
+      annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ vin }) => {
       const photos = await getValidatedPhotos(vin, 5);
@@ -680,11 +682,12 @@ const handler = createMcpHandler((server) => {
       description:
         "Resolves a usable link for viewing or purchasing a specific vehicle, given its VIN, make, model, and year. Prefers the Edmunds pricing link; falls back to the dealer's own listing if usable.",
       inputSchema: {
-        vin: z.string(),
-        make: z.string(),
-        model: z.string(),
-        year: z.number(),
+        vin: z.string().describe("The vehicle's 17-character VIN."),
+        make: z.string().describe("Vehicle manufacturer, e.g. Toyota."),
+        model: z.string().describe("Vehicle model name, e.g. Camry."),
+        year: z.number().describe("Model year."),
       },
+      annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ vin, make, model, year }) => {
       const links = resolveLinks({ vin, vehicle: { make, model, year } } as AutoDevListing);
