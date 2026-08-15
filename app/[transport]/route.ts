@@ -564,7 +564,30 @@ const handler = createMcpHandler((server) => {
       const fullDetail = await Promise.all(
         leanShortlist.map((lean) => getListingByVin(lean.vin)),
       );
-      const shortlist = leanShortlist.map((lean, i) => fullDetail[i] ?? lean);
+      const refetched = leanShortlist.map((lean, i) => fullDetail[i] ?? lean);
+
+      // Post-refetch re-verification (SYS-20260816-004): getListingByVin is a
+      // separate, independent Auto.dev fetch and can return a price (or other
+      // hard-constraint fields) that differs from the already-verified stage-1
+      // lean data — e.g. a live price change between the search call and the
+      // per-VIN refetch. Without this check, a listing that correctly passed
+      // priceMax/verifyAgainstConstraints at stage 1 could reach the user
+      // over budget at stage 2 with zero re-verification, even under
+      // priceFlexibility: "strict". Real, confirmed bug — not Auto.dev
+      // buffering, not a caller-side parameter mistake (found investigating
+      // André's live testing question, root-caused by reading this file).
+      // Falls back to the already-verified lean row if the stage-2 refetch
+      // itself now fails the check — same "never silently drop a real match"
+      // preference as the existing getListingByVin-failure fallback above,
+      // but only when the lean row itself still passes.
+      let priceDriftDetected = false;
+      const shortlist = refetched.map((full, i) => {
+        const violations = verifyAgainstConstraints(full, baseQuery);
+        if (violations.length === 0) return full;
+        priceDriftDetected = true;
+        const lean = leanShortlist[i];
+        return verifyAgainstConstraints(lean, baseQuery).length === 0 ? lean : full;
+      });
 
       const intentInput: CardIntentInput = {
         exteriorColor: input.exteriorColor,
@@ -612,6 +635,11 @@ const handler = createMcpHandler((server) => {
       if (lowestMileageDefaultedToUsed) {
         dataNotes.push(
           "Searched used vehicles only — \"lowest mileage\" defaults to used, not new or dealer-demo inventory, since a new car's low mileage isn't a meaningful comparison. Ask for new vehicles specifically if that's what you want.",
+        );
+      }
+      if (priceDriftDetected) {
+        dataNotes.push(
+          "One or more listings had updated pricing or details at the time of the detailed lookup that no longer matched your stated filters (e.g. a live price change) — the original verified data was used instead where possible.",
         );
       }
       if (violationRate > 0.2) {
