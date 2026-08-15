@@ -25,20 +25,74 @@ initCorpusCount();
 // (Sky redesign, approved July 26, 2026) — same architecture principle
 // Find My Car already uses (calling LLM owns intent, server stays thin and
 // deterministic), just with more explicit coaching for known data quirks.
-const FIND_MATCHING_VEHICLE_DESCRIPTION = () => `Finds specific used vehicle listings that match a buyer's stated or implied criteria — price range, body type, make/model, mileage, year, or descriptive needs like 'reliable for a teen driver' or 'good for a family.' Searches across a live pool of ${getCorpusCountForDescription()} active US listings. Each result is cross-checked against its own VIN-decoded data before being shown, so matches carry a verified-identity signal, not just a keyword match. Results include full vehicle detail (trim, engine, transmission, drivetrain, title status) so follow-up questions about a specific result can be answered without a new search. Use this when a user is trying to decide on or locate an actual vehicle to buy, not for general questions about car types, comparisons of car categories, or how-to advice about buying a car. Returns a small set of closely matching, VIN-checked listings with current pricing, photos, and a link to view or purchase.
+const FIND_MATCHING_VEHICLE_DESCRIPTION = () => `Finds specific new or used vehicles from live US inventory when a user is actively shopping for, locating, or narrowing down a real vehicle to buy. Call this tool for explicit searches ("Honda CR-V under $35k near 90210"), superlatives ("cheapest," "newest," "lowest mileage"), detailed requirements (price, make/model, year, mileage, color, drivetrain, transmission, cylinders, seating), or open-ended buyer needs such as "reliable for a teen driver," "good for towing," "good for commuting," or "good for a family." This tool understands what a need actually implies — reliability, size, safety, running cost, capability — and resolves it into the right real search, even when nothing in the request names a specific car.
 
-GENERAL PRINCIPLE — read this before decomposing any request: the structured fields on this tool (make, model, bodyType, drivetrain, fuel, seatsMinPreference, goals, price/year/mileage/zip) are what the underlying data can actually be filtered on. Any part of the user's request that does NOT map cleanly onto one of these fields — a size class ("large," "compact"), a use-case ("good for towing," "great in snow," "good for a road trip"), a style descriptor, a nickname, or any other real-world attribute the data doesn't encode directly — must be resolved BEFORE calling this tool, using your own knowledge, into concrete values in the fields that DO exist. In practice this almost always means turning the vague term into a comma-separated list of specific real model names in the model field, or into a value for drivetrain/fuel/seatsMinPreference. Do NOT rely on reviewing results after the search to catch a mismatch — results aren't sorted by anything beyond the literal filters, so the right vehicles may never even be fetched if the request wasn't resolved up front. If you're not confident which specific models or values fit, say so rather than guess, and fall back to the closest literal field (e.g. bodyType alone) with a caveat to the user about reduced precision.
+Do not use this tool for general automotive education, financing or leasing advice, maintenance questions, or category comparisons that don't require live inventory.
 
-Three worked examples of applying this principle (not an exhaustive list — the same reasoning applies to any request that doesn't map directly to a field):
-- Hybrid and plug-in hybrid vehicles are often mistagged in the source data. If a specific model is named (e.g. "Sportage" or "RAV4"), set model to include both the base and hybrid/PHEV variant name (e.g. "RAV4,RAV4 Hybrid" or "RAV4,RAV4 Prime") rather than relying on the fuel filter alone. If no model is named, fuel-based hybrid/PHEV filtering has known partial coverage — mention that to the user.
-- Size and style qualifiers ("large SUV," "compact SUV," "sports sedan," "off-road capable," etc.) have no dedicated field — bodyType alone returns every size undifferentiated. Resolve these into a model list before searching (e.g. for "large SUV": "Suburban,Tahoe,Expedition,Sequoia,Wagoneer,Grand Wagoneer,Yukon XL,Yukon,Armada,Land Cruiser").
-- Engine cylinder count IS a real, verified hard filter (cylinders) — this is a discrete count, distinct from engine displacement (e.g. "2.5L," "3.5L"), which is NOT filterable. "V8" means cylinders: 8. "V6" means cylinders: 6. "four-cylinder" or "I4" means cylinders: 4. If a user mentions a cylinder configuration, always map it to cylinders as a real filter — never treat it as an unfilterable displacement spec, and never fall back to checking each result's engine text by hand when the filter itself will do the job faster and more completely.
+The tool searches across ${getCorpusCountForDescription()} active US listings and returns a small set of genuinely close matches, not a broad inventory dump. Vehicle identity is VIN-decoded and cross-checked. Every hard filter actually sent is confirmed against the tool's canonical structured data; anything unavailable, preference-only, relaxed, anomalous, or conflicting is disclosed rather than silently assumed or dropped.
 
-Map descriptive intent to the dedicated fields (bodyType, seatsMinPreference, goals) rather than into free-text model/trim strings. Prefer dedicated fields over model-list resolution whenever one exists — these are real, verified hard filters, not guesses: "AWD"/"4WD" → drivetrain. "Manual" → transmission. A named exterior color → exteriorColor. A named interior color → interiorColor. "V8"/"V6"/a cylinder count → cylinders (see the worked example above). A specific door count → doors. "Crossover" vs. "SUV," "hatchback" vs. "coupe," or any distinction finer than body type → vehicleType. Set priceFlexibility to "flexible" only if the user signals approximation ("around," "roughly," "about") — otherwise price stays a hard ceiling, never silently loosened.
+VIN-verified means the vehicle's core identity was cross-checked. It does not independently guarantee dealer-reported price, mileage, equipment, availability, ownership history, accident history, or condition.
 
-History, ownership, and certification claims are disclosed, never used to exclude a result. "No accidents"/"one owner"/"CPO"/"certified pre-owned" map to noAccidents/oneOwner/cpo, but vehicle history and CPO status are frequently unreported or unconfirmed in the underlying data (roughly half of listings for history) — none of these ever exclude a result, and CPO status specifically can never be disproven by the data, only confirmed when present. Every result is checked against whatever data is actually available and honestly labeled: reported clean/certified, reported with issues, or unreported/unconfirmed. A Carfax link is included when available so the user can independently verify. If a result doesn't clearly confirm what was asked, say so plainly rather than presenting it as if it matched cleanly.
+SEARCH DECOMPOSITION
 
-Set priorityAxis based on what the user is actually optimizing for, not just which fields happen to be filled in — the same request text can imply different priorities even with identical filters. "Best SUV I can get under $60k," "nicest one in my budget," or any request with a price ceiling and no other stated priority → "best_for_budget" (default — this samples from the top of the stated budget down, which tends to surface newer years and better trims). "Cheapest," "lowest price," "budget option" → "cheapest". "Lowest mileage," "as few miles as possible" → "lowest_mileage". "Newest," "latest model year" → "newest". When in doubt, use "best_for_budget" — it matches this tool's purpose of finding the best match, not just any match.`;
+The tool's structured fields define what can be filtered directly. Before calling it, translate the user's request into those fields using this order:
+
+1. Map anything represented by a real hard-filter field directly to that field.
+2. Put remaining qualitative preferences into \`goals\`; goals influence relevance and ranking but are not hard exclusions.
+3. Resolve a concept into a comma-separated model list only when it materially determines which vehicles are eligible and no structured field represents it.
+4. If a reliable resolution isn't possible, use the closest literal field and tell the user precision is reduced. Never guess or silently discard the requirement.
+
+Examples:
+- "Seven-seat SUV" → bodyType: "SUV" and seatsMinPreference: 7
+- "Manual Miata" → make: "Mazda", model: "MX-5 Miata", transmission: "Manual"
+- "V8 F-150" → make: "Ford", model: "F-150", cylinders: 8
+- "Reliable teen car" → relevant hard fields plus goals such as reliability, safety, manageable size, and low running cost
+- "Large SUV" → resolve to an appropriate model list because no size-class field exists
+- "Good for towing" → relevant hard fields and goals, resolved to tow-suitable models where necessary, plus a reminder that VIN-specific tow capacity, payload, and hitch equipment still need verifying
+
+Never rely on an unfiltered search followed by manually inspecting a few returned results when a real field can enforce the requirement — the right vehicles may never even enter the sampled result set.
+
+HARD-FIELD MAPPING
+
+Prefer dedicated structured fields whenever one exists:
+- AWD or 4WD → drivetrain
+- Manual or automatic → transmission
+- Named exterior color → exteriorColor
+- Named interior color → interiorColor
+- V8 → cylinders: 8. V6 → cylinders: 6. Four-cylinder/I4 → cylinders: 4
+- Specific door count → doors
+- Minimum seating → seatsMinPreference
+- Broad body style → bodyType
+- Finer classification (crossover vs. SUV, hatchback vs. coupe) → vehicleType
+- "New" → used: false. "Used" or "pre-owned" → used: true. Omit if unspecified to search both — except lowest_mileage, which defaults to used only (see PRIORITY AXIS).
+
+Cylinder count is filterable; engine displacement is not. "V8" must use cylinders: 8 — never treat it as an unfilterable displacement spec, and never fall back to manually checking engine text when the filter does the job faster and more completely.
+
+Use priceFlexibility: "flexible" only when the user signals approximation ("around," "roughly," "about"). Otherwise price is a strict ceiling, never silently loosened.
+
+HYBRID AND PHEV COVERAGE
+
+Hybrid and plug-in hybrid vehicles are often inconsistently tagged in source listings, and there's no dedicated fuel-type filter. When a specific model is named, include the relevant hybrid/PHEV variant name in the model field (e.g. "RAV4,RAV4 Hybrid,RAV4 Prime" or "Sportage,Sportage Hybrid,Sportage Plug-In Hybrid") — this is the reliable way to catch these vehicles. This broadens the search to include both; it doesn't guarantee every result is electrified. Check each individual result's own model field (results distinguish "Camry" from "Camry Hybrid," for example) before telling a user a specific result is or isn't the hybrid/PHEV variant they asked for — this is a deliberate, narrow exception to the no-manual-post-filtering rule above, made only because no dedicated fuel-type hard filter exists. When no model is named, mention to the user that hybrid/PHEV coverage may be incomplete without one.
+
+HARD FILTERS VERSUS DISCLOSURE
+
+Real hard filters determine eligibility — every primary result satisfies every hard field actually sent. noAccidents, oneOwner, and cpo are different: they're disclosure and ranking inputs, never guaranteed exclusions. Vehicle history is frequently unreported — missing is unknown, not clean and not negative. CPO status can be confirmed when reported but never conclusively disproven by its absence. Every result is reported honestly: confirmed clean/certified, reported with issues, or unreported/unconfirmed. A Carfax link is included when available so the buyer can verify independently. If a result doesn't clearly confirm what was asked, say so plainly rather than presenting it as a clean match.
+
+RESULT TRUST
+
+Trust the tool's own confirmation rather than manually re-deriving a filtered attribute from raw listing text — every result's text states plainly which of the stated criteria it met, and separately flags any genuine data conflict on that listing (e.g. an engine's cylinder count disagreeing with its own series description). If a price, mileage, or other value is flagged as an implausible data error, never present it as the genuine cheapest, newest, or best match in your own summary — it stays visible for transparency but is excluded from that judgment.
+
+PRIORITY AXIS
+
+Set priorityAxis based on what the user is actually optimizing for: "cheapest"/"lowest price"/"budget option" → cheapest. "Lowest mileage"/"as few miles as possible" → lowest_mileage (this defaults the search to used vehicles only, since a new car's low mileage isn't a meaningful comparison — disclosed to the user, not silent). "Newest"/"latest model year" → newest. "Best," "nicest," a price ceiling with no other stated priority → best_for_budget (default — samples from the top of budget down). When uncertain, use best_for_budget.
+
+LOCATION HANDLING
+
+A ZIP anchors a local search. Validate a user-provided ZIP before calling — if it's invalid or not a real US ZIP, ask for a corrected one rather than substituting another location yourself. A named city with no ZIP has no dedicated field on this tool — if the city/state is unambiguous, resolve it to a real, representative central ZIP yourself and disclose the ZIP used, the same way you'd resolve "large SUV" into real model names. If the city or state is ambiguous (Portland, Springfield, Columbus, and similar), ask which one before searching rather than guessing. A named state with no ZIP searches that whole state — disclosed to the user as broader than a local search, never presented as if it were local. No location at all searches nationwide — same disclosure. Never silently narrow or widen scope without saying so.
+
+EMPTY SEARCHES
+
+If a search returns nothing, a strict user constraint is never silently relaxed to fix it. When the tool can genuinely self-correct (for example, an unrecognized model name gets checked against real inventory and corrected), that correction is always disclosed, never silent — treat it as a real fix, not a guess. If nothing can be self-corrected, say plainly that nothing matched, name the limiting constraint if it's clear, and suggest the smallest real adjustment (a higher budget, a wider radius, an additional model) rather than guessing at a workaround yourself.`;
 
 const FindMatchingVehicleInput = z.object({
   priceMax: z.number().optional().describe("Maximum price in USD. A hard ceiling — never send a value higher than what the user actually stated."),
