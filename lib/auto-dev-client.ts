@@ -379,7 +379,7 @@ export async function getModelFacets(
   return parseFacetGroup(outcome.data.facets?.models);
 }
 
-
+export interface VinDecodeResult {
   make?: string;
   model?: string;
   year?: number;
