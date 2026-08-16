@@ -34,12 +34,23 @@ export interface CardIntentInput {
   noAccidents?: boolean;
   oneOwner?: boolean;
   seatsMinPreference?: number;
+  /**
+   * Set only when the body-style filter (bodyType or vehicleType) had to be
+   * dropped entirely to find any results (SYS-20260816-046/050) — the value
+   * the user originally asked for, kept here so each result can be checked
+   * against it even though it's no longer an active filter. Real reason this
+   * exists: dropping the filter can surface a genuinely different body style
+   * for a nameplate that spans several (e.g. Convertible results for a
+   * Mercedes E-Class Sedan request) — this must never look like a plain
+   * confirmed match when it isn't one.
+   */
+  droppedBodyStyleFilter?: string | null;
 }
 
 export interface CardForConfirmation {
   detail: { interiorColor: string | null; exteriorColor: string | null; cylinders: number | null; cpoNote: string; ownerHistoryNote: string | null; seatsNote: string };
   powertrain: { drivetrain: string | null; transmission: string | null };
-  body: { doors: number | null; vehicleType: string | null };
+  body: { doors: number | null; vehicleType: string | null; bodyStyle: string | null };
   condition: { used: boolean | null };
   history: { note: string };
 }
@@ -71,7 +82,24 @@ export function buildIntentConfirmations(input: CardIntentInput, card: CardForCo
   if (input.doors != null && card.body.doors != null) {
     confirmations.push(`${card.body.doors}-door`);
   }
-  if (input.vehicleType && card.body.vehicleType) {
+  // Body-style mismatch disclosure (SYS-20260816-050): only relevant when
+  // the filter had to be dropped (droppedBodyStyleFilter set). Checked
+  // first and returns early for this concern specifically — a genuine
+  // mismatch must never also get the plain vehicleType line below, which
+  // would read as an unqualified confirmation.
+  if (input.droppedBodyStyleFilter) {
+    const target = input.droppedBodyStyleFilter.toLowerCase();
+    const actual = card.body.bodyStyle ?? card.body.vehicleType;
+    const matches =
+      card.body.bodyStyle?.toLowerCase() === target || card.body.vehicleType?.toLowerCase() === target;
+    if (matches) {
+      confirmations.push(actual as string);
+    } else if (actual) {
+      confirmations.push(
+        `${actual} — NOT the requested ${input.droppedBodyStyleFilter}; shown because a body-style filter had to be dropped to find any real matches for this model`,
+      );
+    }
+  } else if (input.vehicleType && card.body.vehicleType) {
     confirmations.push(card.body.vehicleType);
   }
   if (input.used != null && card.condition.used != null) {

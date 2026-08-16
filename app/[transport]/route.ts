@@ -599,6 +599,15 @@ const handler = createMcpHandler((server) => {
         }
       }
 
+      // Tracks the body-style value dropped by the fallback below, if any —
+      // used downstream both to prefer genuine matches when picking the
+      // shortlist and to disclose a mismatch honestly per result
+      // (SYS-20260816-050, closing the real flaw found in SYS-20260816-047:
+      // dropping the filter entirely can surface a genuinely different body
+      // style, e.g. Convertible results for a Sedan request, since some
+      // nameplates like E-Class genuinely span multiple body styles).
+      let droppedBodyStyle: string | undefined;
+
       // Body-style filter drop (SYS-20260816-046): vehicle.type/vehicle.bodyStyle
       // tagging is genuinely inconsistent per model, not a clean rule that can
       // be predicted or substituted for — confirmed live: Volvo V90 (a wagon)
@@ -620,6 +629,7 @@ const handler = createMcpHandler((server) => {
           candidates = retryResult.data;
           total = retryResult.total;
           effectiveQuery = withoutBodyStyle;
+          droppedBodyStyle = droppedStyle;
           relaxations.push({
             step: "body_style_filter_dropped",
             detail: `Dropped the body-style filter ("${droppedStyle}") after it returned zero results for the requested model — the model already implies its own body style, and body-style tagging can be inconsistent for some vehicles.`,
@@ -689,7 +699,26 @@ const handler = createMcpHandler((server) => {
         ? (candidates.length - verifiedCandidates.length) / candidates.length
         : 0;
 
-      const diversified = applyDiversity(verifiedCandidates, targetCount * 2);
+      // Body-style match preference (SYS-20260816-050): when the body-style
+      // filter had to be dropped above, prefer candidates whose OWN reported
+      // body style/type genuinely matches what was originally asked for —
+      // a real Sedan, if one exists in the pool, should be picked ahead of a
+      // Convertible sharing the same nameplate. Stable sort: candidates that
+      // match keep their existing relative order, non-matches move after
+      // them but are still eligible — never silently dropped, only
+      // deprioritized, since sometimes a mismatched body style really is the
+      // only thing available and showing it (honestly disclosed downstream)
+      // beats showing nothing.
+      const orderedCandidates = droppedBodyStyle
+        ? [...verifiedCandidates].sort((a, b) => {
+            const target = droppedBodyStyle!.toLowerCase();
+            const aMatches = a.vehicle?.bodyStyle?.toLowerCase() === target || a.vehicle?.type?.toLowerCase() === target;
+            const bMatches = b.vehicle?.bodyStyle?.toLowerCase() === target || b.vehicle?.type?.toLowerCase() === target;
+            return aMatches === bMatches ? 0 : aMatches ? -1 : 1;
+          })
+        : verifiedCandidates;
+
+      const diversified = applyDiversity(orderedCandidates, targetCount * 2);
       const leanShortlist = diversified.slice(0, targetCount);
 
       // Stage 2: full detail for exactly the shortlisted vehicles, in parallel.
@@ -744,6 +773,7 @@ const handler = createMcpHandler((server) => {
         // Resolved value, not raw input — picks up goal-inferred seat needs
         // (e.g. "family car") as well as an explicit seatsMinPreference.
         seatsMinPreference: intent.semantic.seatsMin,
+        droppedBodyStyleFilter: droppedBodyStyle,
       };
 
       const cards = (
