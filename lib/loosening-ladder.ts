@@ -114,6 +114,15 @@ export interface WidenOutcome {
    * empty — the message contradicted what the tool itself had just done).
    */
   attemptedSteps: StepName[];
+  /**
+   * True when the ladder halted on its time or call budget with steps still
+   * untried — as opposed to satisfying `minAcceptable` or genuinely running
+   * out of applicable dimensions. Callers must not present this as a
+   * completed widening pass: some dimensions were never tried on the user's
+   * behalf, so a "we tried everything" or "widening would help" message would
+   * both be wrong (SYS-20260817-003).
+   */
+  stoppedEarly: boolean;
 }
 
 export type PriorityAxis = "best_for_budget" | "cheapest" | "lowest_mileage" | "newest";
@@ -198,14 +207,29 @@ export async function widenSearchIfThin(
 
   const budgetLeft = () => Date.now() < opts.deadline && calls < maxCalls;
 
+  // Set when the ladder stops because it ran out of time or calls, NOT because
+  // it satisfied minAcceptable or exhausted the relevant dimensions. Real bug
+  // (SYS-20260817-003): `attempt` previously returned `true` on budget
+  // exhaustion, which callers read as "satisfied — stop successfully," so a
+  // silently-skipped ladder was indistinguishable from a completed one. The
+  // step also never reached `attemptedSteps`, so the downstream empty-result
+  // message would tell the user widening "would likely surface options" when
+  // the tool had in fact declined to try. Tracked explicitly and disclosed.
+  let stoppedEarly = false;
+
   /**
    * Runs one widening attempt. Accepts it only if it genuinely increases the
    * number of results the user would see — a step that changes nothing is
    * discarded silently rather than disclosed as a relaxation that bought
-   * nothing. Returns true once `minAcceptable` is satisfied.
+   * nothing. Returns true once `minAcceptable` is satisfied, or when the
+   * budget is spent (which halts the ladder but is recorded via
+   * `stoppedEarly` rather than passing as success).
    */
   async function attempt(candidateQuery: ListingsQuery, relaxation: Relaxation & { step: StepName }): Promise<boolean> {
-    if (!budgetLeft()) return true; // out of budget: stop the ladder, keep what we have
+    if (!budgetLeft()) {
+      stoppedEarly = true; // out of budget: halt, but never report this as a completed search
+      return true;
+    }
     calls += 1;
     const retry = await opts.search(candidateQuery);
     if (retry.error) return false; // a failed call must never look like "widening didn't help"
@@ -283,5 +307,5 @@ export async function widenSearchIfThin(
     if (done) break;
   }
 
-  return { data, total, query, relaxations, widened, attemptedSteps };
+  return { data, total, query, relaxations, widened, attemptedSteps, stoppedEarly };
 }

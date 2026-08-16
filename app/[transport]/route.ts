@@ -164,6 +164,14 @@ const BROAD_SHORTLIST_SIZE = 8;
  * This guard is what prevents a repeat of the real Aug 12 timeout incident.
  */
 const WIDENING_TIME_BUDGET_MS = 15_000;
+// Vercel's configured function maxDuration (see vercel.json). Used to cap the
+// widening budget so a slow primary search shortens the widening window
+// instead of risking a hard platform timeout mid-ladder.
+const VERCEL_MAX_DURATION_MS = 60_000;
+// Time held back for stage-2 per-VIN detail fetches, card assembly and the
+// response write after widening finishes — widening must not consume the
+// entire remaining window.
+const RESPONSE_ASSEMBLY_RESERVE_MS = 20_000;
 
 /**
  * Resolves the calling LLM's decoded priorityAxis into Auto.dev's single-field
@@ -663,6 +671,10 @@ const handler = createMcpHandler((server) => {
       // build an honest empty-result message (SYS-20260816-030) rather than
       // a generic one that can contradict what the tool just tried.
       let widenAttemptedSteps: StepName[] = [];
+      // True when the ladder ran out of time/call budget with steps still
+      // untried — distinct from "tried everything relevant and none helped."
+      // Must never be presented as a completed search (SYS-20260817-003).
+      let widenStoppedEarly = false;
 
       // Widen only when the result set is genuinely thin — i.e. the standard
       // shortlist can't even be filled. Deliberately NOT triggered by merely
@@ -670,6 +682,27 @@ const handler = createMcpHandler((server) => {
       // most broad searches and spend an upstream call for a marginal gain.
       // A real service error is not "thin results" and must never widen.
       if (!rawResult.error && usableCount(candidates, effectiveQuery) < SHORTLIST_SIZE) {
+        // Deadline is anchored HERE, when widening actually starts — not at
+        // request start (real bug, confirmed by code + measurement 2026-08-17,
+        // SYS-20260817-003). Anchoring at request start meant the primary
+        // search plus the model-name-correction and body-style-drop retries
+        // all consumed the widening budget before widening began: real
+        // measured latencies on exactly the slow paths that need widening
+        // were 12.6s, 22.1s and 35.0s against a 15s budget, so the ladder
+        // could be fully expired before its first call — silently, and
+        // indistinguishably from genuine scarcity.
+        //
+        // Also capped against the remaining time before Vercel's 60s
+        // maxDuration, so a slow primary search can still shorten the
+        // widening window rather than pushing the whole request into a
+        // platform timeout — it just no longer zeroes it out by default.
+        const elapsed = Date.now() - requestStartedAt;
+        const remainingBeforePlatformTimeout = Math.max(
+          0,
+          VERCEL_MAX_DURATION_MS - elapsed - RESPONSE_ASSEMBLY_RESERVE_MS,
+        );
+        const wideningBudget = Math.min(WIDENING_TIME_BUDGET_MS, remainingBeforePlatformTimeout);
+
         const widenedOutcome = await widenSearchIfThin(
           effectiveQuery,
           { data: candidates, total },
@@ -679,7 +712,7 @@ const handler = createMcpHandler((server) => {
             minAcceptable: SHORTLIST_SIZE,
             priceFlexibility: input.priceFlexibility ?? "strict",
             priorityAxis: input.priorityAxis,
-            deadline: requestStartedAt + WIDENING_TIME_BUDGET_MS,
+            deadline: Date.now() + wideningBudget,
           },
         );
         if (widenedOutcome.widened) {
@@ -689,6 +722,7 @@ const handler = createMcpHandler((server) => {
           relaxations.push(...widenedOutcome.relaxations);
         }
         widenAttemptedSteps = widenedOutcome.attemptedSteps;
+        widenStoppedEarly = widenedOutcome.stoppedEarly;
       }
 
       // Post-verification (SYS-20260812-035, redesign doc §5.4 step 6):
@@ -952,8 +986,19 @@ const handler = createMcpHandler((server) => {
         price: "price ceiling",
       };
       const uniqueAttemptedSteps = Array.from(new Set(widenAttemptedSteps));
-      const noResultsMessage =
-        uniqueAttemptedSteps.length > 0
+      // When the ladder halted on its budget with steps untried, neither
+      // standard message is truthful: claiming "more widening on those
+      // dimensions wouldn't help" overstates what was checked, and the
+      // nothing-attempted message tells the user to widen when the tool
+      // silently declined to. Say plainly that the search was cut short
+      // (SYS-20260817-003).
+      const noResultsMessage = widenStoppedEarly
+        ? uniqueAttemptedSteps.length > 0
+          ? `No vehicles matched these criteria. Automatic widening of the ${uniqueAttemptedSteps
+              .map((s) => STEP_LABELS[s])
+              .join(", ")} was tried without success, and the search was then cut short before every option could be checked — so this may not be the full picture. Trying again, or searching a different location or broader model list, may surface options.`
+          : "No vehicles matched these criteria, and the automatic widening step was cut short before it could run — so this may not be the full picture. Trying again, or widening the price range, location radius, or year range yourself, may surface options."
+        : uniqueAttemptedSteps.length > 0
           ? `No vehicles matched these criteria, even after automatically trying to widen the ${uniqueAttemptedSteps
               .map((s) => STEP_LABELS[s])
               .join(", ")} — this looks like a genuine inventory gap for this exact combination, not something more widening on those same dimensions would fix. A different location, a broader model list, or (if the budget allows) some price flexibility may help instead.`
@@ -973,12 +1018,20 @@ const handler = createMcpHandler((server) => {
           .filter((s): s is StepName => (["radius", "mileage", "year", "price"] as string[]).includes(s)),
       );
       const unsuccessfulAttemptedSteps = uniqueAttemptedSteps.filter((s) => !successfulWideningSteps.has(s));
-      const partialWideningNote =
-        cards.length > 0 && cards.length < targetCount && unsuccessfulAttemptedSteps.length > 0
-          ? `Note: Also tried widening the ${unsuccessfulAttemptedSteps
-              .map((s) => STEP_LABELS[s])
-              .join(", ")}, but that didn't turn up any additional matches.\n\n`
-          : "";
+      const isThin = cards.length > 0 && cards.length < targetCount;
+      const partialWideningNote = !isThin
+        ? ""
+        : widenStoppedEarly
+          ? unsuccessfulAttemptedSteps.length > 0
+            ? `Note: Also tried widening the ${unsuccessfulAttemptedSteps
+                .map((s) => STEP_LABELS[s])
+                .join(", ")} without additional matches, then stopped before every option could be checked — there may be more available than shown here.\n\n`
+            : `Note: The automatic widening step was cut short before it could finish, so there may be more available than shown here.\n\n`
+          : unsuccessfulAttemptedSteps.length > 0
+            ? `Note: Also tried widening the ${unsuccessfulAttemptedSteps
+                .map((s) => STEP_LABELS[s])
+                .join(", ")}, but that didn't turn up any additional matches.\n\n`
+            : "";
 
       const summary =
         serviceFailureMessage
