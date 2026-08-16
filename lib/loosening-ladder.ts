@@ -24,7 +24,12 @@
  *
  * Ladder order (cheapest/least-intrusive first, budget preserved until last):
  *   1. widen year range ±2
- *   2. widen radius to 250 miles
+ *   2. widen radius to 100 miles (2026-08-16: was 250 — real Edmunds data
+ *      shows average US distance traveled to buy a used car is 115mi
+ *      (2024), up from 52mi (2019); 250 overshot that, and risked landing
+ *      in a different state, adding tax/registration complexity the user
+ *      didn't ask for. 100 stays under the real-world average and is far
+ *      less likely to cross a state line for most ZIPs.)
  *   3. widen mileage ceiling +30%, then drop it entirely
  *   4. widen price ceiling +15% — ONLY on priceFlexibility "flexible";
  *      NEVER on "strict" (budget is sacred, per the redesign doc). This is
@@ -136,10 +141,10 @@ export async function widenSearchIfThin(
   }
 
   // Step 2 — widen radius. Only meaningful when a real location is in play.
-  if (best < opts.minAcceptable && query.zip && (query.radius ?? 50) < 250) {
+  if (best < opts.minAcceptable && query.zip && (query.radius ?? 50) < 100) {
     const done = await attempt(
-      { ...query, radius: 250 },
-      { step: "radius", detail: "Widened the search radius to 250 miles — too few close matches nearby." },
+      { ...query, radius: 100 },
+      { step: "radius", detail: "Widened the search radius to 100 miles — too few close matches nearby." },
     );
     if (done) return { data, total, query, relaxations, widened };
   }
