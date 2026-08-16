@@ -13,10 +13,18 @@ export const EDMUNDS_BASE = 'https://www.edmunds.com';
  * - Strip any character that is not a-z, 0-9, or hyphen
  * - Collapse multiple consecutive hyphens to one
  * - Trim leading/trailing hyphens
+ *
+ * String(input) wrapper (real bug found 2026-08-16, crashed live on a
+ * Porsche 911 search): rare/varied vehicles from an unanchored search can
+ * have make/model come back as a non-string type despite the parameter type
+ * declaring string — TypeScript's compile-time check can't catch a runtime
+ * data anomaly. Same bug class already found and fixed in diversity.ts,
+ * post-verify.ts, and match-score.ts this same week (2026-08-14/15) — this
+ * was the one remaining unguarded .toLowerCase() call site.
  */
 export function slugify(input: string | null | undefined): string {
   if (input == null || input === '') return '';
-  return input
+  return String(input)
     .toLowerCase()
     .trim()
     .replace(/\s+/g, '-')
