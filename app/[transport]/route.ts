@@ -758,13 +758,38 @@ const handler = createMcpHandler((server) => {
       // against the original would reject exactly the rows widening just gained
       // and silently undo it (SYS-20260816-008).
       let priceDriftDetected = false;
-      const shortlist = refetched.map((full, i) => {
+      const shortlistWithPriceCheck = refetched.map((full, i) => {
         const violations = verifyAgainstConstraints(full, effectiveQuery);
         if (violations.length === 0) return full;
         priceDriftDetected = true;
         const lean = leanShortlist[i];
         return verifyAgainstConstraints(lean, effectiveQuery).length === 0 ? lean : full;
       });
+
+      // Body-style stage-2 re-check (SYS-20260816-052): the SYS-20260816-051
+      // exclude filter runs on stage-1 lean data, but confirmed live that
+      // lean and stage-2 full-detail data can genuinely disagree on
+      // bodyStyle/type for the same VIN — a candidate can pass the lean-data
+      // exclude check and still arrive at stage 2 with a body style that
+      // doesn't match what was requested. Same root shape as the proven
+      // SYS-20260816-004/005 price-drift fix above: stage 1 isn't
+      // authoritative, stage 2 is, so re-check there too. Unlike price
+      // (which falls back to the lean value if stage-2 disagrees), a
+      // dropped-filter body-style mismatch is excluded outright per André's
+      // SYS-20260816-051 decision — known-wrong stays excluded, it doesn't
+      // get a second chance via the lean value.
+      let bodyStyleDriftDetected = false;
+      const shortlist = droppedBodyStyle
+        ? shortlistWithPriceCheck.filter((full) => {
+            const target = droppedBodyStyle!.toLowerCase();
+            const reportedStyle = full.vehicle?.bodyStyle?.toLowerCase();
+            const reportedType = full.vehicle?.type?.toLowerCase();
+            if (reportedStyle == null && reportedType == null) return true;
+            const matches = reportedStyle === target || reportedType === target;
+            if (!matches) bodyStyleDriftDetected = true;
+            return matches;
+          })
+        : shortlistWithPriceCheck;
 
       const intentInput: CardIntentInput = {
         exteriorColor: input.exteriorColor,
@@ -818,6 +843,11 @@ const handler = createMcpHandler((server) => {
       if (priceDriftDetected) {
         dataNotes.push(
           "One or more listings had updated pricing or details at the time of the detailed lookup that no longer matched your stated filters (e.g. a live price change) — the original verified data was used instead where possible.",
+        );
+      }
+      if (bodyStyleDriftDetected) {
+        dataNotes.push(
+          `One or more listings turned out not to be a genuine ${droppedBodyStyle} at the detailed lookup stage, despite passing the initial search — excluded rather than shown as a mismatch.`,
         );
       }
       if (violationRate > 0.2) {
