@@ -284,7 +284,7 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
  * exact, and fast (4.66s for 5 VINs), SYS-20260812-060.
  */
 const LEAN_SELECT_FIELDS =
-  "vehicle.vin,vehicle.year,vehicle.make,vehicle.model,vehicle.trim,retailListing.price,retailListing.miles";
+  "vehicle.vin,vehicle.year,vehicle.make,vehicle.model,vehicle.trim,vehicle.bodyStyle,vehicle.type,retailListing.price,retailListing.miles";
 
 interface LeanRow {
   "vehicle.vin"?: string;
@@ -292,6 +292,8 @@ interface LeanRow {
   "vehicle.make"?: string;
   "vehicle.model"?: string;
   "vehicle.trim"?: string;
+  "vehicle.bodyStyle"?: string;
+  "vehicle.type"?: string;
   "retailListing.price"?: number;
   "retailListing.miles"?: number;
 }
@@ -305,6 +307,8 @@ function leanRowToListing(row: LeanRow): AutoDevListing | null {
       make: row["vehicle.make"],
       model: row["vehicle.model"],
       trim: row["vehicle.trim"],
+      bodyStyle: row["vehicle.bodyStyle"],
+      type: row["vehicle.type"],
     },
     retailListing: {
       price: row["retailListing.price"],
