@@ -271,8 +271,11 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
 /**
  * Lean primary search using ?select= (design doc §5 / two-stage design,
  * SYS-20260812-060). Requests only the fields actually needed for filtering,
- * diversity, and initial scoring — vin/year/make/model/trim/price/miles —
- * for a smaller/faster payload across the full candidate pool.
+ * diversity, and initial scoring — vin/year/make/model/trim/price/miles,
+ * plus bodyStyle/type (added SYS-20260816-052, needed at this stage so the
+ * body-style hard-exclude filter has real data to check against before
+ * candidates are even selected for the shortlist, not just after the stage-2
+ * refetch) — for a smaller/faster payload across the full candidate pool.
  *
  * ?select= flattens the response to dot-keyed properties (confirmed in docs,
  * SYS-20260812-057) — adapted back into the normal nested AutoDevListing

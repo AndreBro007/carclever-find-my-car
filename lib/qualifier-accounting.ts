@@ -82,11 +82,17 @@ export function buildIntentConfirmations(input: CardIntentInput, card: CardForCo
   if (input.doors != null && card.body.doors != null) {
     confirmations.push(`${card.body.doors}-door`);
   }
-  // Body-style mismatch disclosure (SYS-20260816-050): only relevant when
-  // the filter had to be dropped (droppedBodyStyleFilter set). Checked
-  // first and returns early for this concern specifically — a genuine
-  // mismatch must never also get the plain vehicleType line below, which
-  // would read as an unqualified confirmation.
+  // Body-style confirmation when the filter had to be dropped
+  // (droppedBodyStyleFilter set). The "else if (actual)" branch below is a
+  // deliberate defensive fallback, not expected to fire in normal
+  // operation: route.ts now hard-excludes a confirmed mismatch at both
+  // stage 1 (SYS-20260816-051) and stage 2 (SYS-20260816-052) before a
+  // card is ever built here, so every card reaching this function should
+  // already be a genuine match or a genuinely unknown body style. Kept
+  // rather than removed in case an upstream change ever reintroduces a
+  // path where a mismatch slips through — if that happens, this still
+  // discloses it honestly instead of silently showing an unqualified
+  // "Confirmed: X" line.
   if (input.droppedBodyStyleFilter) {
     const target = input.droppedBodyStyleFilter.toLowerCase();
     const actual = card.body.bodyStyle ?? card.body.vehicleType;

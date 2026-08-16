@@ -600,12 +600,15 @@ const handler = createMcpHandler((server) => {
       }
 
       // Tracks the body-style value dropped by the fallback below, if any —
-      // used downstream both to prefer genuine matches when picking the
-      // shortlist and to disclose a mismatch honestly per result
-      // (SYS-20260816-050, closing the real flaw found in SYS-20260816-047:
-      // dropping the filter entirely can surface a genuinely different body
-      // style, e.g. Convertible results for a Sedan request, since some
-      // nameplates like E-Class genuinely span multiple body styles).
+      // used downstream to hard-exclude any candidate whose OWN reported
+      // body style/type doesn't match it, at both stage 1 (SYS-20260816-051)
+      // and stage 2 (SYS-20260816-052), since the two can genuinely
+      // disagree for the same VIN. Closes the real flaw found in
+      // SYS-20260816-047: dropping the filter entirely can surface a
+      // genuinely different body style, e.g. Convertible results for a
+      // Sedan request, since some nameplates like E-Class genuinely span
+      // multiple body styles. André's explicit decision (SYS-20260816-051):
+      // known-wrong data is excluded outright, not shown with a caveat.
       let droppedBodyStyle: string | undefined;
 
       // Body-style filter drop (SYS-20260816-046): vehicle.type/vehicle.bodyStyle
@@ -716,7 +719,7 @@ const handler = createMcpHandler((server) => {
       // of disclosure. If excluding mismatches leaves nothing, that falls
       // through naturally to the existing honest empty/partial-result
       // messaging (SYS-20260816-030/049) rather than showing a wrong car.
-      const orderedCandidates = droppedBodyStyle
+      const bodyStyleFilteredCandidates = droppedBodyStyle
         ? verifiedCandidates.filter((c) => {
             const target = droppedBodyStyle!.toLowerCase();
             const reportedStyle = c.vehicle?.bodyStyle?.toLowerCase();
@@ -726,7 +729,7 @@ const handler = createMcpHandler((server) => {
           })
         : verifiedCandidates;
 
-      const diversified = applyDiversity(orderedCandidates, targetCount * 2);
+      const diversified = applyDiversity(bodyStyleFilteredCandidates, targetCount * 2);
       const leanShortlist = diversified.slice(0, targetCount);
 
       // Stage 2: full detail for exactly the shortlisted vehicles, in parallel.
