@@ -618,6 +618,7 @@ const handler = createMcpHandler((server) => {
             usableCount,
             minAcceptable: SHORTLIST_SIZE,
             priceFlexibility: input.priceFlexibility ?? "strict",
+            priorityAxis: input.priorityAxis,
             deadline: requestStartedAt + WIDENING_TIME_BUDGET_MS,
           },
         );

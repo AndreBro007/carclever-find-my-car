@@ -22,18 +22,59 @@
  *      would have produced two conflicting disclosures for one situation.
  *      That step is deliberately GONE from this module.
  *
- * Ladder order (cheapest/least-intrusive first, budget preserved until last):
- *   1. widen year range ±2
- *   2. widen radius to 100 miles (2026-08-16: was 250 — real Edmunds data
- *      shows average US distance traveled to buy a used car is 115mi
- *      (2024), up from 52mi (2019); 250 overshot that, and risked landing
- *      in a different state, adding tax/registration complexity the user
- *      didn't ask for. 100 stays under the real-world average and is far
- *      less likely to cross a state line for most ZIPs.)
- *   3. widen mileage ceiling +30%, then drop it entirely
+ * BASE ORDER, researched at André's request (2026-08-16, SYS-20260816-027):
+ * the original order (year, radius, mileage, price) was inherited from an
+ * internal doc that itself conflicts with a second internal doc describing a
+ * different shipped, live-tested widget's order — neither had real research
+ * behind the year/radius/mileage relationship, and neither considered that
+ * "year ±2" can silently cross a full model redesign/generation boundary
+ * (confirmed real via research: 2022 was the first year of the Civic's
+ * 11th-gen redesign, a different platform and design from the 10th-gen 2021
+ * — SYS-20260816-026), which arguably makes year the LEAST safe step to run
+ * early, not the safest. Radius and mileage never change what the car
+ * actually IS, only how far away or how worn it is. Real base order:
+ *
+ *   1. widen radius to 100 miles (real Edmunds data: US buyers travel 115mi
+ *      on average to buy a used car in 2024, up from 52mi in 2019 — the
+ *      previous 250mi step considerably overshot that and risked landing in
+ *      a different state, adding tax/registration complexity nobody asked
+ *      for; 100 stays under the real average)
+ *   2. widen mileage ceiling +30%, then drop it entirely
+ *   3. widen year range ±2 (generation-boundary risk noted above; no
+ *      mitigation implemented yet, just moved later in the sequence)
  *   4. widen price ceiling +15% — ONLY on priceFlexibility "flexible";
- *      NEVER on "strict" (budget is sacred, per the redesign doc). This is
- *      also what keeps the SYS-20260816-004 price-ceiling fix intact.
+ *      NEVER on "strict" (budget is sacred, per the redesign doc, and this is
+ *      what keeps the SYS-20260816-004 price-ceiling fix meaningful)
+ *
+ * PRIORITY-AXIS AWARENESS (2026-08-16, SYS-20260816-028): the base order
+ * above is a single fixed sequence applied to every search, which doesn't
+ * fit this codebase's own "server stays thin, calling LLM owns intent"
+ * principle used everywhere else — priorityAxis is already a real, structured
+ * signal the host model decodes from what the user actually asked to
+ * optimize for, and until now this module ignored it entirely. Loosening the
+ * exact dimension the user said they care about most undermines the point of
+ * the search, so that dimension is moved to run LAST (tried only as a final
+ * resort, never removed outright — same "never silently drop a real match"
+ * principle as everything else here):
+ *
+ *   priorityAxis "newest"         -> year runs last
+ *   priorityAxis "lowest_mileage" -> mileage runs last
+ *   priorityAxis "cheapest"       -> price runs last (on top of already only
+ *                                    running when priceFlexibility is
+ *                                    "flexible" - widening price when the
+ *                                    user explicitly asked for the cheapest
+ *                                    option contradicts the premise of the
+ *                                    search, so this is deliberately the
+ *                                    most protected combination)
+ *   priorityAxis "best_for_budget" (default) or unset -> base order as-is
+ *
+ * goals (freeform buyer text like "reliable for a teen driver") deliberately
+ * does NOT feed into this — mapping arbitrary text to a specific widening
+ * dimension needs real semantic judgment, which is exactly what this
+ * codebase's architecture keeps server-side out of scope (decode-then-execute
+ * pattern used everywhere else in route.ts). priorityAxis is a clean fit
+ * because it's already structured and already decoded by the host model;
+ * goals is not.
  *
  * Every step taken is reported in `relaxations`, never silent
  * (SYS-20260812-011 #3). Widening only ever LOOSENS a constraint — it never
@@ -62,6 +103,8 @@ export interface WidenOutcome {
   widened: boolean;
 }
 
+export type PriorityAxis = "best_for_budget" | "cheapest" | "lowest_mileage" | "newest";
+
 export interface WidenOptions {
   /** Injected so the caller keeps its own search strategy (lean vs full). */
   search: (query: ListingsQuery) => Promise<ListingsResponse>;
@@ -75,6 +118,12 @@ export interface WidenOptions {
   minAcceptable: number;
   priceFlexibility: "strict" | "flexible";
   /**
+   * What the user is actually optimizing for. Reorders the ladder so that
+   * dimension is tried last rather than early — see PRIORITY-AXIS AWARENESS
+   * above. Optional/undefined behaves the same as "best_for_budget".
+   */
+  priorityAxis?: PriorityAxis;
+  /**
    * Absolute epoch-ms cutoff. No NEW upstream call is started past it.
    * Mandatory: vercel.json caps this route at 60s and a single lean search can
    * take 40s worst case (25s + 15s retry), so unbounded widening would
@@ -86,6 +135,28 @@ export interface WidenOptions {
 }
 
 const DEFAULT_MAX_CALLS = 3;
+
+type StepName = "radius" | "mileage" | "year" | "price";
+
+/** Base order — see BASE ORDER doc comment above for the research behind this. */
+const BASE_ORDER: StepName[] = ["radius", "mileage", "year", "price"];
+
+const AXIS_PROTECTS: Partial<Record<PriorityAxis, StepName>> = {
+  newest: "year",
+  lowest_mileage: "mileage",
+  cheapest: "price",
+};
+
+/**
+ * Returns step names in the order they should be attempted. The dimension
+ * the user's priorityAxis is optimizing for (if any) is moved to the end —
+ * still attempted as a final resort, never removed outright.
+ */
+function resolveStepOrder(priorityAxis: PriorityAxis | undefined): StepName[] {
+  const protect = priorityAxis ? AXIS_PROTECTS[priorityAxis] : undefined;
+  if (!protect) return BASE_ORDER;
+  return [...BASE_ORDER.filter((s) => s !== protect), protect];
+}
 
 export async function widenSearchIfThin(
   baseQuery: ListingsQuery,
@@ -127,9 +198,33 @@ export async function widenSearchIfThin(
     return best >= opts.minAcceptable;
   }
 
-  // Step 1 — widen year range ±2
-  if (best < opts.minAcceptable && (query.yearMin != null || query.yearMax != null)) {
+  async function runRadius(): Promise<boolean> {
+    if (!(query.zip && (query.radius ?? 50) < 100)) return false;
+    return attempt(
+      { ...query, radius: 100 },
+      { step: "radius", detail: "Widened the search radius to 100 miles — too few close matches nearby." },
+    );
+  }
+
+  async function runMileage(): Promise<boolean> {
+    if (query.mileageMax == null) return false;
+    const raised = Math.round(query.mileageMax * 1.3);
     const done = await attempt(
+      { ...query, mileageMax: raised },
+      { step: "mileage", detail: `Raised the mileage ceiling by 30% (to ${raised.toLocaleString()} mi) to find more matches.` },
+    );
+    if (done || best >= opts.minAcceptable) return done;
+
+    const { mileageMax: _dropped, ...withoutMileage } = query;
+    return attempt(withoutMileage, {
+      step: "mileage",
+      detail: "Dropped the mileage limit entirely to find more matches.",
+    });
+  }
+
+  async function runYear(): Promise<boolean> {
+    if (!(query.yearMin != null || query.yearMax != null)) return false;
+    return attempt(
       {
         ...query,
         yearMin: query.yearMin != null ? query.yearMin - 2 : undefined,
@@ -137,49 +232,31 @@ export async function widenSearchIfThin(
       },
       { step: "year_range", detail: "Widened the year range by ±2 years — too few close matches in the exact range requested." },
     );
-    if (done) return { data, total, query, relaxations, widened };
   }
 
-  // Step 2 — widen radius. Only meaningful when a real location is in play.
-  if (best < opts.minAcceptable && query.zip && (query.radius ?? 50) < 100) {
-    const done = await attempt(
-      { ...query, radius: 100 },
-      { step: "radius", detail: "Widened the search radius to 100 miles — too few close matches nearby." },
-    );
-    if (done) return { data, total, query, relaxations, widened };
-  }
-
-  // Step 3 — widen the mileage ceiling, then drop it entirely.
-  if (best < opts.minAcceptable && query.mileageMax != null) {
-    const raised = Math.round(query.mileageMax * 1.3);
-    const done = await attempt(
-      { ...query, mileageMax: raised },
-      { step: "mileage", detail: `Raised the mileage ceiling by 30% (to ${raised.toLocaleString()} mi) to find more matches.` },
-    );
-    if (done) return { data, total, query, relaxations, widened };
-
-    if (best < opts.minAcceptable) {
-      const { mileageMax: _dropped, ...withoutMileage } = query;
-      const done2 = await attempt(withoutMileage, {
-        step: "mileage",
-        detail: "Dropped the mileage limit entirely to find more matches.",
-      });
-      if (done2) return { data, total, query, relaxations, widened };
-    }
-  }
-
-  // Step 4 — price, ONLY when the user signalled flexibility. On "strict" the
-  // ceiling is never touched: that is the whole point of strict, and it is what
-  // keeps the SYS-20260816-004 over-budget-results fix meaningful.
-  if (best < opts.minAcceptable && query.priceMax != null && opts.priceFlexibility === "flexible") {
+  async function runPrice(): Promise<boolean> {
+    if (!(query.priceMax != null && opts.priceFlexibility === "flexible")) return false;
     const raised = Math.round(query.priceMax * 1.15);
-    await attempt(
+    return attempt(
       { ...query, priceMax: raised },
       {
         step: "price",
         detail: `Raised the price ceiling by 15% (to $${raised.toLocaleString()}) — you indicated some flexibility on budget.`,
       },
     );
+  }
+
+  const runners: Record<StepName, () => Promise<boolean>> = {
+    radius: runRadius,
+    mileage: runMileage,
+    year: runYear,
+    price: runPrice,
+  };
+
+  for (const step of resolveStepOrder(opts.priorityAxis)) {
+    if (best >= opts.minAcceptable) break;
+    const done = await runners[step]();
+    if (done) break;
   }
 
   return { data, total, query, relaxations, widened };
