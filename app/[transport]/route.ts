@@ -716,17 +716,37 @@ const handler = createMcpHandler((server) => {
       // NEITHER field reported is still unknown, not wrong, and stays
       // eligible rather than being excluded on missing data — same
       // unknown-isn't-false discipline, just applied to exclusion instead
-      // of disclosure. If excluding mismatches leaves nothing, that falls
-      // through naturally to the existing honest empty/partial-result
-      // messaging (SYS-20260816-030/049) rather than showing a wrong car.
+      // of disclosure.
+      //
+      // Real flaw found live 2026-08-16 (SYS-20260816-057): Auto.dev's own
+      // categorization can be wrong for genuinely correct vehicles, not just
+      // for genuinely different ones — a real Volvo V90 (a wagon) is tagged
+      // "Crossover" there, not "Wagon." For E-Class, the excluded candidates
+      // really were a different body style (a Convertible is not a Sedan) —
+      // exclusion was correct. For V90, EVERY real match got excluded
+      // because the model's own tag is wrong, not because the car is wrong
+      // — this hid a genuinely correct answer entirely. There's no reliable
+      // way to tell these two cases apart from the tag alone. So: exclusion
+      // only applies when it still leaves at least one real candidate:
+      // never let it reduce an existing, real candidate pool to nothing.
+      // If literally zero candidates in the whole pool match, the filter is
+      // not applied at all — the same "never silently drop a real match"
+      // principle already used for the widening ladder and elsewhere,
+      // extended here. Mismatched candidates surfaced this way still get
+      // their honest per-result "NOT the requested X" disclosure
+      // (qualifier-accounting.ts) rather than looking like a plain match.
+      const bodyStyleMatchFilter = (c: AutoDevListing) => {
+        const target = droppedBodyStyle!.toLowerCase();
+        const reportedStyle = c.vehicle?.bodyStyle?.toLowerCase();
+        const reportedType = c.vehicle?.type?.toLowerCase();
+        if (reportedStyle == null && reportedType == null) return true;
+        return reportedStyle === target || reportedType === target;
+      };
       const bodyStyleFilteredCandidates = droppedBodyStyle
-        ? verifiedCandidates.filter((c) => {
-            const target = droppedBodyStyle!.toLowerCase();
-            const reportedStyle = c.vehicle?.bodyStyle?.toLowerCase();
-            const reportedType = c.vehicle?.type?.toLowerCase();
-            if (reportedStyle == null && reportedType == null) return true;
-            return reportedStyle === target || reportedType === target;
-          })
+        ? (() => {
+            const filtered = verifiedCandidates.filter(bodyStyleMatchFilter);
+            return filtered.length > 0 ? filtered : verifiedCandidates;
+          })()
         : verifiedCandidates;
 
       const diversified = applyDiversity(bodyStyleFilteredCandidates, targetCount * 2);
@@ -776,22 +796,23 @@ const handler = createMcpHandler((server) => {
       // exclude check and still arrive at stage 2 with a body style that
       // doesn't match what was requested. Same root shape as the proven
       // SYS-20260816-004/005 price-drift fix above: stage 1 isn't
-      // authoritative, stage 2 is, so re-check there too. Unlike price
-      // (which falls back to the lean value if stage-2 disagrees), a
-      // dropped-filter body-style mismatch is excluded outright per André's
-      // SYS-20260816-051 decision — known-wrong stays excluded, it doesn't
-      // get a second chance via the lean value.
+      // authoritative, stage 2 is, so re-check there too.
+      //
+      // Same never-reduce-a-real-pool-to-zero fallback as stage 1
+      // (SYS-20260816-057): if excluding mismatches here would leave the
+      // shortlist empty, keep the mismatched entries rather than showing
+      // nothing — each still gets its own honest "NOT the requested X"
+      // disclosure via qualifier-accounting.ts, never a bare confirmation.
       let bodyStyleDriftDetected = false;
       const shortlist = droppedBodyStyle
-        ? shortlistWithPriceCheck.filter((full) => {
-            const target = droppedBodyStyle!.toLowerCase();
-            const reportedStyle = full.vehicle?.bodyStyle?.toLowerCase();
-            const reportedType = full.vehicle?.type?.toLowerCase();
-            if (reportedStyle == null && reportedType == null) return true;
-            const matches = reportedStyle === target || reportedType === target;
-            if (!matches) bodyStyleDriftDetected = true;
-            return matches;
-          })
+        ? (() => {
+            const filtered = shortlistWithPriceCheck.filter((full) => {
+              const matches = bodyStyleMatchFilter(full);
+              if (!matches) bodyStyleDriftDetected = true;
+              return matches;
+            });
+            return filtered.length > 0 ? filtered : shortlistWithPriceCheck;
+          })()
         : shortlistWithPriceCheck;
 
       const intentInput: CardIntentInput = {

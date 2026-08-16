@@ -83,16 +83,15 @@ export function buildIntentConfirmations(input: CardIntentInput, card: CardForCo
     confirmations.push(`${card.body.doors}-door`);
   }
   // Body-style confirmation when the filter had to be dropped
-  // (droppedBodyStyleFilter set). The "else if (actual)" branch below is a
-  // deliberate defensive fallback, not expected to fire in normal
-  // operation: route.ts now hard-excludes a confirmed mismatch at both
-  // stage 1 (SYS-20260816-051) and stage 2 (SYS-20260816-052) before a
-  // card is ever built here, so every card reaching this function should
-  // already be a genuine match or a genuinely unknown body style. Kept
-  // rather than removed in case an upstream change ever reintroduces a
-  // path where a mismatch slips through — if that happens, this still
-  // discloses it honestly instead of silently showing an unqualified
-  // "Confirmed: X" line.
+  // (droppedBodyStyleFilter set). The "else if (actual)" branch below IS
+  // reachable in normal operation (SYS-20260816-057): route.ts hard-excludes
+  // a confirmed mismatch at both stage 1 and stage 2, but ONLY when doing so
+  // still leaves at least one real candidate — if excluding would reduce a
+  // genuine candidate pool to nothing (Auto.dev's own tag can be wrong for a
+  // genuinely correct vehicle, not just a genuinely different one — a real
+  // Volvo V90 wagon is tagged "Crossover" there), the mismatch is shown
+  // rather than hidden, and this branch is exactly what discloses that
+  // honestly instead of it looking like an unqualified "Confirmed: X" line.
   if (input.droppedBodyStyleFilter) {
     const target = input.droppedBodyStyleFilter.toLowerCase();
     const actual = card.body.bodyStyle ?? card.body.vehicleType;
