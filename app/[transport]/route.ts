@@ -804,6 +804,7 @@ const handler = createMcpHandler((server) => {
       // nothing — each still gets its own honest "NOT the requested X"
       // disclosure via qualifier-accounting.ts, never a bare confirmation.
       let bodyStyleDriftDetected = false;
+      let bodyStyleFallbackUsed = false;
       const shortlist = droppedBodyStyle
         ? (() => {
             const filtered = shortlistWithPriceCheck.filter((full) => {
@@ -811,7 +812,9 @@ const handler = createMcpHandler((server) => {
               if (!matches) bodyStyleDriftDetected = true;
               return matches;
             });
-            return filtered.length > 0 ? filtered : shortlistWithPriceCheck;
+            if (filtered.length > 0) return filtered;
+            bodyStyleFallbackUsed = shortlistWithPriceCheck.length > 0;
+            return shortlistWithPriceCheck;
           })()
         : shortlistWithPriceCheck;
 
@@ -869,7 +872,11 @@ const handler = createMcpHandler((server) => {
           "One or more listings had updated pricing or details at the time of the detailed lookup that no longer matched your stated filters (e.g. a live price change) — the original verified data was used instead where possible.",
         );
       }
-      if (bodyStyleDriftDetected) {
+      if (bodyStyleFallbackUsed) {
+        dataNotes.push(
+          `None of the results could be confirmed as a genuine ${droppedBodyStyle} — Auto.dev's own data appears to mislabel this model's body style. Shown anyway since they're still the correct model, with each result's actual reported body style disclosed individually below.`,
+        );
+      } else if (bodyStyleDriftDetected) {
         dataNotes.push(
           `One or more listings turned out not to be a genuine ${droppedBodyStyle} at the detailed lookup stage, despite passing the initial search — excluded rather than shown as a mismatch.`,
         );
