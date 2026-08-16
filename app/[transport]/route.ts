@@ -2,9 +2,13 @@ import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
 import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
 import { searchListingsLean, getListingByVin, getModelFacets } from "@/lib/auto-dev-client";
-// TEMP: loosening-ladder bypassed per André's request (Aug 13) — search itself
-// needs to work correctly before any widening logic runs on top of it.
-// import { searchWithLoosening } from "@/lib/loosening-ladder";
+// Widening ladder re-enabled 2026-08-16 (SYS-20260816-008). It was bypassed on
+// Aug 13 per André's request — "search itself needs to work correctly before any
+// widening logic runs on top of it." That precondition is now met: the stage-2
+// price-ceiling bug (SYS-20260816-004) is fixed and the full A/B/C prompt suite
+// verified 9/9 the same day. Re-enabled via a rewritten, injected API rather
+// than the old call — see lib/loosening-ladder.ts header for exactly why.
+import { widenSearchIfThin } from "@/lib/loosening-ladder";
 import { verifyAgainstConstraints } from "@/lib/post-verify";
 import { parseIntent } from "@/lib/intent-parser";
 import { applyDiversity } from "@/lib/diversity";
@@ -127,6 +131,33 @@ const FindMatchingVehicleInput = z.object({
 });
 
 const SHORTLIST_SIZE = 5;
+
+/**
+ * Result-count strategy (SYS-20260816-008).
+ *
+ * Broad, exploratory searches ("SUV good for a family under 40k") get a larger
+ * shortlist than precise ones ("blue 2020 Civic EX manual"). Real reason: on a
+ * broad search the host model tends to narrow the list further in its own
+ * answer — a live Aug 16 run returned 5 good vehicles and the user was shown 3
+ * — so a set of 5 can reach the user as 2-3 and read as thin inventory when the
+ * underlying pool was in the thousands. A precise search has no such problem
+ * and padding it would only add weaker matches.
+ *
+ * Costs nothing extra upstream in the common case: the diversity step already
+ * over-fetches to SHORTLIST_SIZE * 2 candidates and then discards the surplus.
+ * Only stage-2 per-VIN detail calls scale with this, and those run in parallel.
+ */
+const BROAD_SHORTLIST_SIZE = 8;
+
+/**
+ * Absolute wall-clock budget from request start, after which NO new widening
+ * call is started. vercel.json caps this route at 60s; a single lean search can
+ * take 40s worst case (25s + 15s degraded retry). 15s keeps the pathological
+ * path bounded at roughly 15s (elapsed) + 25s (one in-flight call) + stage 2,
+ * comfortably inside 60s, while leaving normal searches (~1-3s) free to widen.
+ * This guard is what prevents a repeat of the real Aug 12 timeout incident.
+ */
+const WIDENING_TIME_BUDGET_MS = 15_000;
 
 /**
  * Resolves the calling LLM's decoded priorityAxis into Auto.dev's single-field
@@ -411,6 +442,9 @@ const handler = createMcpHandler((server) => {
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async (input) => {
+      // Anchored before any upstream work so the widening budget accounts for
+      // everything already spent (primary search, facet correction, retries).
+      const requestStartedAt = Date.now();
       const intent = parseIntent(input);
 
       // "Lowest mileage" almost always means "lowest mileage used car" in
@@ -480,6 +514,13 @@ const handler = createMcpHandler((server) => {
       let candidates = rawResult.data;
       let total = rawResult.total;
       const relaxations: Array<{ step: string; detail: string }> = [];
+
+      // The query that actually produced the rows in `candidates`. Both the
+      // model-name correction below and the widening ladder can change it, and
+      // post-verification MUST then check against THIS rather than the original
+      // baseQuery — otherwise the rows those steps just gained get stripped
+      // straight back out, silently undoing them (SYS-20260816-008).
+      let effectiveQuery: ListingsQuery = baseQuery;
       // Extended (2026-08-15) — previously only distinguished "local" vs
       // "nationwide" on ZIP validity, so a genuinely absent ZIP (no location
       // given at all — e.g. a bare state-only or fully unscoped search)
@@ -531,6 +572,7 @@ const handler = createMcpHandler((server) => {
           if (retryResult.data.length > 0) {
             candidates = retryResult.data;
             total = retryResult.total;
+            effectiveQuery = retryQuery;
             for (const c of corrections) {
               if (c.corrected) {
                 relaxations.push({
@@ -543,19 +585,63 @@ const handler = createMcpHandler((server) => {
         }
       }
 
+      // --- Result-count target (SYS-20260816-008) ---
+      // A search is "broad" when it isn't anchored to specific model names, or
+      // when the need was expressed as goals rather than exact hard filters.
+      // Those are the searches where the host model tends to narrow the answer
+      // further on its own, so they get the larger shortlist.
+      const isBroadSearch = !baseQuery.model || (input.goals != null && input.goals.length > 0);
+      const targetCount = isBroadSearch ? BROAD_SHORTLIST_SIZE : SHORTLIST_SIZE;
+
+      // How many results the user would actually SEE: post-verification AND
+      // post-diversity. Widening decisions must use this rather than the raw
+      // provider count — a query can return 100 rows that verification strips
+      // to two, which is exactly the "plenty of inventory, thin answer" case
+      // this whole mechanism exists for.
+      const usableCount = (rows: AutoDevListing[], q: ListingsQuery) =>
+        applyDiversity(
+          rows.filter((c) => verifyAgainstConstraints(c, q).length === 0),
+          targetCount,
+        ).length;
+
+      // Widen only when the result set is genuinely thin — i.e. the standard
+      // shortlist can't even be filled. Deliberately NOT triggered by merely
+      // falling short of the larger broad-search target: that would fire on
+      // most broad searches and spend an upstream call for a marginal gain.
+      // A real service error is not "thin results" and must never widen.
+      if (!rawResult.error && usableCount(candidates, effectiveQuery) < SHORTLIST_SIZE) {
+        const widenedOutcome = await widenSearchIfThin(
+          effectiveQuery,
+          { data: candidates, total },
+          {
+            search: searchListingsLean,
+            usableCount,
+            minAcceptable: SHORTLIST_SIZE,
+            priceFlexibility: input.priceFlexibility ?? "strict",
+            deadline: requestStartedAt + WIDENING_TIME_BUDGET_MS,
+          },
+        );
+        if (widenedOutcome.widened) {
+          candidates = widenedOutcome.data;
+          total = widenedOutcome.total;
+          effectiveQuery = widenedOutcome.query;
+          relaxations.push(...widenedOutcome.relaxations);
+        }
+      }
+
       // Post-verification (SYS-20260812-035, redesign doc §5.4 step 6):
       // Auto.dev can silently swallow/mishandle params and return rows that
       // don't actually satisfy a stated filter. Mechanical check only — no
       // semantic/size-class judgment, that stays the calling LLM's job.
       const verifiedCandidates = candidates.filter(
-        (c) => verifyAgainstConstraints(c, baseQuery).length === 0,
+        (c) => verifyAgainstConstraints(c, effectiveQuery).length === 0,
       );
       const violationRate = candidates.length > 0
         ? (candidates.length - verifiedCandidates.length) / candidates.length
         : 0;
 
-      const diversified = applyDiversity(verifiedCandidates, SHORTLIST_SIZE * 2);
-      const leanShortlist = diversified.slice(0, SHORTLIST_SIZE);
+      const diversified = applyDiversity(verifiedCandidates, targetCount * 2);
+      const leanShortlist = diversified.slice(0, targetCount);
 
       // Stage 2: full detail for exactly the shortlisted vehicles, in parallel.
       // Confirmed working, exact, fast (4.66s for 5 VINs), SYS-20260812-060.
@@ -581,13 +667,17 @@ const handler = createMcpHandler((server) => {
       // itself now fails the check — same "never silently drop a real match"
       // preference as the existing getListingByVin-failure fallback above,
       // but only when the lean row itself still passes.
+      // Uses effectiveQuery, not baseQuery: if the widening ladder ran, stage 1
+      // verified against the widened constraints, so stage 2 must too — checking
+      // against the original would reject exactly the rows widening just gained
+      // and silently undo it (SYS-20260816-008).
       let priceDriftDetected = false;
       const shortlist = refetched.map((full, i) => {
-        const violations = verifyAgainstConstraints(full, baseQuery);
+        const violations = verifyAgainstConstraints(full, effectiveQuery);
         if (violations.length === 0) return full;
         priceDriftDetected = true;
         const lean = leanShortlist[i];
-        return verifyAgainstConstraints(lean, baseQuery).length === 0 ? lean : full;
+        return verifyAgainstConstraints(lean, effectiveQuery).length === 0 ? lean : full;
       });
 
       const intentInput: CardIntentInput = {
