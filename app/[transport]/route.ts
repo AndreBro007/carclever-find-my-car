@@ -860,12 +860,33 @@ const handler = createMcpHandler((server) => {
               .join(", ")} — this looks like a genuine inventory gap for this exact combination, not something more widening on those same dimensions would fix. A different location, a broader model list, or (if the budget allows) some price flexibility may help instead.`
           : "No vehicles matched these criteria. Widening the price range, location radius, or year range would likely surface options.";
 
+      // Partial-success disclosure gap (SYS-20260816-049, real bug found live
+      // 2026-08-16): a widening step can be genuinely attempted and fail to
+      // help even when the search DID find some results, just fewer than the
+      // target — that case previously had no disclosure at all, since the
+      // logic above only covers the fully-empty case. `relaxations` already
+      // covers every widening step that DID help; this covers the ones that
+      // were tried and didn't, so the user isn't left wondering whether more
+      // was tried on their behalf.
+      const successfulWideningSteps = new Set(
+        relaxations
+          .map((r) => r.step)
+          .filter((s): s is StepName => (["radius", "mileage", "year", "price"] as string[]).includes(s)),
+      );
+      const unsuccessfulAttemptedSteps = uniqueAttemptedSteps.filter((s) => !successfulWideningSteps.has(s));
+      const partialWideningNote =
+        cards.length > 0 && cards.length < targetCount && unsuccessfulAttemptedSteps.length > 0
+          ? `Note: Also tried widening the ${unsuccessfulAttemptedSteps
+              .map((s) => STEP_LABELS[s])
+              .join(", ")}, but that didn't turn up any additional matches.\n\n`
+          : "";
+
       const summary =
         serviceFailureMessage
           ? disclosurePrefix + serviceFailureMessage
           : cards.length === 0
           ? disclosurePrefix + noResultsMessage
-          : disclosurePrefix + `Found ${cards.length} closely matching vehicle${cards.length === 1 ? "" : "s"}${totalPhrase}:\n\n` +
+          : disclosurePrefix + partialWideningNote + `Found ${cards.length} closely matching vehicle${cards.length === 1 ? "" : "s"}${totalPhrase}:\n\n` +
             cards
               .map((c, i) => {
                 const id = c.identity;

@@ -147,7 +147,16 @@ export interface WidenOptions {
   maxCalls?: number;
 }
 
-const DEFAULT_MAX_CALLS = 3;
+// Guarantees every dimension gets at least one real attempt regardless of
+// priorityAxis ordering (SYS-20260816-048, fixing a real bug found live
+// 2026-08-16: with the old value of 3, a `lowest_mileage` search with
+// radius+year+price all applicable could exhaust the whole budget on those
+// three before mileage — the protected, deferred-to-last dimension — was
+// ever attempted at all, silently). Worst case to guarantee the LAST
+// (protected) dimension gets a real shot: the 3 dimensions ahead of it can
+// cost up to 4 calls total (mileage alone can cost 2 — raise, then drop —
+// plus 1 each for the other two), then +1 more for the protected one = 5.
+const DEFAULT_MAX_CALLS = 5;
 
 export type StepName = "radius" | "mileage" | "year" | "price";
 
