@@ -699,22 +699,30 @@ const handler = createMcpHandler((server) => {
         ? (candidates.length - verifiedCandidates.length) / candidates.length
         : 0;
 
-      // Body-style match preference (SYS-20260816-050): when the body-style
-      // filter had to be dropped above, prefer candidates whose OWN reported
-      // body style/type genuinely matches what was originally asked for —
-      // a real Sedan, if one exists in the pool, should be picked ahead of a
-      // Convertible sharing the same nameplate. Stable sort: candidates that
-      // match keep their existing relative order, non-matches move after
-      // them but are still eligible — never silently dropped, only
-      // deprioritized, since sometimes a mismatched body style really is the
-      // only thing available and showing it (honestly disclosed downstream)
-      // beats showing nothing.
+      // Body-style hard exclude (SYS-20260816-051, replacing the SYS-20260816-050
+      // sort-preference approach): André's explicit design decision — known-
+      // wrong data should be EXCLUDED, not disclosed-and-shown. A user
+      // skimming a "Strong match" result won't necessarily read a caveat
+      // line closely; from their perspective a wrong body style is just a
+      // wrong listing, whether the cause is our tool or Auto.dev's data.
+      // This is a real, deliberate distinction from the "unknown != false"
+      // principle used elsewhere (accident history, CPO): those are
+      // genuinely AMBIGUOUS data, so disclosure-not-exclusion is correct.
+      // A reported body-style/type that explicitly disagrees with what was
+      // asked is not ambiguous — it's a confirmed mismatch. A listing with
+      // NEITHER field reported is still unknown, not wrong, and stays
+      // eligible rather than being excluded on missing data — same
+      // unknown-isn't-false discipline, just applied to exclusion instead
+      // of disclosure. If excluding mismatches leaves nothing, that falls
+      // through naturally to the existing honest empty/partial-result
+      // messaging (SYS-20260816-030/049) rather than showing a wrong car.
       const orderedCandidates = droppedBodyStyle
-        ? [...verifiedCandidates].sort((a, b) => {
+        ? verifiedCandidates.filter((c) => {
             const target = droppedBodyStyle!.toLowerCase();
-            const aMatches = a.vehicle?.bodyStyle?.toLowerCase() === target || a.vehicle?.type?.toLowerCase() === target;
-            const bMatches = b.vehicle?.bodyStyle?.toLowerCase() === target || b.vehicle?.type?.toLowerCase() === target;
-            return aMatches === bMatches ? 0 : aMatches ? -1 : 1;
+            const reportedStyle = c.vehicle?.bodyStyle?.toLowerCase();
+            const reportedType = c.vehicle?.type?.toLowerCase();
+            if (reportedStyle == null && reportedType == null) return true;
+            return reportedStyle === target || reportedType === target;
           })
         : verifiedCandidates;
 
