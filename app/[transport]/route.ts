@@ -8,7 +8,7 @@ import { searchListingsLean, getListingByVin, getModelFacets } from "@/lib/auto-
 // price-ceiling bug (SYS-20260816-004) is fixed and the full A/B/C prompt suite
 // verified 9/9 the same day. Re-enabled via a rewritten, injected API rather
 // than the old call — see lib/loosening-ladder.ts header for exactly why.
-import { widenSearchIfThin } from "@/lib/loosening-ladder";
+import { widenSearchIfThin, type StepName } from "@/lib/loosening-ladder";
 import { verifyAgainstConstraints } from "@/lib/post-verify";
 import { parseIntent } from "@/lib/intent-parser";
 import { applyDiversity } from "@/lib/diversity";
@@ -610,6 +610,11 @@ const handler = createMcpHandler((server) => {
           targetCount,
         ).length;
 
+      // Populated only if the widening block below actually runs — used to
+      // build an honest empty-result message (SYS-20260816-030) rather than
+      // a generic one that can contradict what the tool just tried.
+      let widenAttemptedSteps: StepName[] = [];
+
       // Widen only when the result set is genuinely thin — i.e. the standard
       // shortlist can't even be filled. Deliberately NOT triggered by merely
       // falling short of the larger broad-search target: that would fire on
@@ -634,6 +639,7 @@ const handler = createMcpHandler((server) => {
           effectiveQuery = widenedOutcome.query;
           relaxations.push(...widenedOutcome.relaxations);
         }
+        widenAttemptedSteps = widenedOutcome.attemptedSteps;
       }
 
       // Post-verification (SYS-20260812-035, redesign doc §5.4 step 6):
@@ -794,11 +800,35 @@ const handler = createMcpHandler((server) => {
         ? `${rawResult.error} Your search criteria look fine — this is worth retrying in a moment.`
         : null;
 
+      // Honest empty-result message (SYS-20260816-030): the old version
+      // always suggested widening radius/mileage/year, even when automatic
+      // widening had already tried exactly that and genuinely found nothing
+      // — a real, confirmed failure mode (André's live testing, Aug 16),
+      // where the message contradicted what the tool itself had just done.
+      // Now built from what actually happened: if nothing was attempted (no
+      // zip/mileageMax/yearMin to widen in the first place), the original
+      // generic suggestion still applies. If widening WAS attempted and
+      // still found nothing, say so plainly and point at genuinely untried
+      // levers instead of repeating ones already exhausted.
+      const STEP_LABELS: Record<StepName, string> = {
+        radius: "search radius",
+        mileage: "mileage ceiling",
+        year: "year range",
+        price: "price ceiling",
+      };
+      const uniqueAttemptedSteps = Array.from(new Set(widenAttemptedSteps));
+      const noResultsMessage =
+        uniqueAttemptedSteps.length > 0
+          ? `No vehicles matched these criteria, even after automatically trying to widen the ${uniqueAttemptedSteps
+              .map((s) => STEP_LABELS[s])
+              .join(", ")} — this looks like a genuine inventory gap for this exact combination, not something more widening on those same dimensions would fix. A different location, a broader model list, or (if the budget allows) some price flexibility may help instead.`
+          : "No vehicles matched these criteria. Widening the price range, location radius, or year range would likely surface options.";
+
       const summary =
         serviceFailureMessage
           ? disclosurePrefix + serviceFailureMessage
           : cards.length === 0
-          ? disclosurePrefix + "No vehicles matched these criteria. Widening the price range, location radius, or year range would likely surface options."
+          ? disclosurePrefix + noResultsMessage
           : disclosurePrefix + `Found ${cards.length} closely matching vehicle${cards.length === 1 ? "" : "s"}${totalPhrase}:\n\n` +
             cards
               .map((c, i) => {

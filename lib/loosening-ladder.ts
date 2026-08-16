@@ -101,6 +101,19 @@ export interface WidenOutcome {
   relaxations: Relaxation[];
   /** True only if a widening step actually improved the usable count. */
   widened: boolean;
+  /**
+   * Every step that was actually attempted (an upstream call was made),
+   * regardless of whether it helped. Distinct from `relaxations`, which only
+   * lists steps that DID help. Exists so a caller whose search stays empty
+   * even after this runs can say what was genuinely tried and found nothing,
+   * instead of a generic message suggesting options that were already
+   * exhausted (SYS-20260816-030 — real André-reported failure: the tool told
+   * a user "widening would likely help" on a search where widening had
+   * already run across every available dimension and genuinely found
+   * nothing, because Auto.dev's own inventory for that combination was
+   * empty — the message contradicted what the tool itself had just done).
+   */
+  attemptedSteps: StepName[];
 }
 
 export type PriorityAxis = "best_for_budget" | "cheapest" | "lowest_mileage" | "newest";
@@ -136,7 +149,7 @@ export interface WidenOptions {
 
 const DEFAULT_MAX_CALLS = 3;
 
-type StepName = "radius" | "mileage" | "year" | "price";
+export type StepName = "radius" | "mileage" | "year" | "price";
 
 /** Base order — see BASE ORDER doc comment above for the research behind this. */
 const BASE_ORDER: StepName[] = ["radius", "mileage", "year", "price"];
@@ -172,6 +185,7 @@ export async function widenSearchIfThin(
   let best = opts.usableCount(data, query);
   let calls = 0;
   let widened = false;
+  const attemptedSteps: StepName[] = [];
 
   const budgetLeft = () => Date.now() < opts.deadline && calls < maxCalls;
 
@@ -181,11 +195,12 @@ export async function widenSearchIfThin(
    * discarded silently rather than disclosed as a relaxation that bought
    * nothing. Returns true once `minAcceptable` is satisfied.
    */
-  async function attempt(candidateQuery: ListingsQuery, relaxation: Relaxation): Promise<boolean> {
+  async function attempt(candidateQuery: ListingsQuery, relaxation: Relaxation & { step: StepName }): Promise<boolean> {
     if (!budgetLeft()) return true; // out of budget: stop the ladder, keep what we have
     calls += 1;
     const retry = await opts.search(candidateQuery);
     if (retry.error) return false; // a failed call must never look like "widening didn't help"
+    attemptedSteps.push(relaxation.step);
     const count = opts.usableCount(retry.data, candidateQuery);
     if (count > best) {
       query = candidateQuery;
@@ -230,7 +245,7 @@ export async function widenSearchIfThin(
         yearMin: query.yearMin != null ? query.yearMin - 2 : undefined,
         yearMax: query.yearMax != null ? query.yearMax + 2 : undefined,
       },
-      { step: "year_range", detail: "Widened the year range by ±2 years — too few close matches in the exact range requested." },
+      { step: "year", detail: "Widened the year range by ±2 years — too few close matches in the exact range requested." },
     );
   }
 
@@ -259,5 +274,5 @@ export async function widenSearchIfThin(
     if (done) break;
   }
 
-  return { data, total, query, relaxations, widened };
+  return { data, total, query, relaxations, widened, attemptedSteps };
 }
