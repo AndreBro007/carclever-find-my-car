@@ -323,7 +323,7 @@ async function buildResultCard(
 ) {
   const verification = crossCheckVin(listing); // now local/synchronous — no API call
   const { matchScore, matchScoreLabel, breakdown } = computeMatchScore(listing, intent, verification);
-  const links = resolveLinks(listing);
+  const links = resolveLinks(listing, intent.hardConstraints.priceMax);
 
   // Suppress entirely if no usable outbound link — a result with zero
   // actionable CTAs isn't useful regardless of Match Score (SYS-20260812-023/024).
@@ -407,7 +407,9 @@ async function buildResultCard(
     ranking: { matchScore, matchScoreLabel, breakdown },
     links: {
       affiliateUrl: links.affiliateUrl,
+      affiliateFallbackUrl: links.affiliateFallbackUrl,
       dealerListingUrl: links.dealerListingUrl,
+      isCarvana: links.isCarvana,
       linkStatus: links.linkStatus,
     },
     detail: {
@@ -996,7 +998,20 @@ const handler = createMcpHandler((server) => {
                   : "price unavailable";
                 const mileageStr = l.mileage != null ? `${l.mileage.toLocaleString()} mi` : "mileage unknown";
                 const dealerStr = l.dealer ? ` — ${l.dealer}${l.city ? `, ${l.city}` : ""}${l.state ? `, ${l.state}` : ""}` : "";
-                const linkStr = c.links.affiliateUrl ?? c.links.dealerListingUrl ?? "no link available";
+                // Carvana's VIN-specific Edmunds link is confirmed always dead
+                // (SYS-20260817-001) — never constructed, so present the real
+                // Carvana link as primary instead. Every other case keeps the
+                // existing affiliateUrl-first behavior. Either way, the
+                // category-level Edmunds fallback is appended whenever
+                // available — it's the safety net for a dead/unpredictable
+                // primary link, not conditional on one having failed.
+                const primaryLinkStr = c.links.isCarvana && c.links.dealerListingUrl
+                  ? `${c.links.dealerListingUrl} (view on Carvana)`
+                  : c.links.affiliateUrl ?? c.links.dealerListingUrl ?? null;
+                const fallbackLinkStr = c.links.affiliateFallbackUrl
+                  ? ` · Check similar options on Edmunds: ${c.links.affiliateFallbackUrl}`
+                  : "";
+                const linkStr = (primaryLinkStr ?? c.links.affiliateFallbackUrl ?? "no link available") + (primaryLinkStr ? fallbackLinkStr : "");
                 const historyLine = c.history.state === "known_issues" ? `\n   ⚠️ ${c.history.note}` : "";
                 // Qualifier accounting: only for fields the user actually
                 // asked about (c.intentConfirmations is already scoped to
@@ -1044,7 +1059,7 @@ const handler = createMcpHandler((server) => {
     "resolve_dealer_url",
     {
       description:
-        "Resolves a usable link for viewing or purchasing a specific vehicle, given its VIN, make, model, and year. Prefers the Edmunds pricing link; falls back to the dealer's own listing if usable.",
+        "Resolves a usable link for viewing or purchasing a specific vehicle, given its VIN, make, model, and year. Prefers the Edmunds pricing link; falls back to the dealer's own listing if usable (for Carvana-sourced vehicles, the real Carvana link is preferred instead — the VIN-specific Edmunds link is never available for Carvana inventory). The response also always includes affiliateFallbackUrl, a live Edmunds category-search link for the same make/model that never dead-ends, useful to offer alongside the primary link or if it turns out to be stale.",
       inputSchema: {
         vin: z.string().describe("The vehicle's 17-character VIN."),
         make: z.string().describe("Vehicle manufacturer, e.g. Toyota."),
@@ -1054,6 +1069,11 @@ const handler = createMcpHandler((server) => {
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ vin, make, model, year }) => {
+      // No retailListing data available in this call path (only VIN/make/
+      // model/year are passed in), so Carvana detection here always
+      // evaluates false — that's fine, it only affects which link is
+      // preferred as primary, and affiliateFallbackUrl is unaffected either
+      // way.
       const links = resolveLinks({ vin, vehicle: { make, model, year } } as AutoDevListing);
 
       if (links.linkStatus === "none-available") {
@@ -1067,7 +1087,9 @@ const handler = createMcpHandler((server) => {
         };
       }
 
-      const primary = links.affiliateUrl ?? links.dealerListingUrl!;
+      const primary = links.isCarvana && links.dealerListingUrl
+        ? links.dealerListingUrl
+        : links.affiliateUrl ?? links.dealerListingUrl ?? links.affiliateFallbackUrl!;
       return {
         content: [{ type: "text" as const, text: primary }],
         structuredContent: links,
