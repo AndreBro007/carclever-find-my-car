@@ -128,7 +128,7 @@ const FindMatchingVehicleInput = z.object({
   transmission: z.enum(["Automatic", "Manual"]).optional().describe("Automatic or Manual. A real, verified hard filter — always use this field when the user names a transmission type."),
   exteriorColor: z.string().optional().describe("Named exterior color, e.g. Blue, Red, Black, Silver. A real, verified hard filter on the actual data — always use this field when the user names an exterior color, never skip it or leave it unfiltered."),
   interiorColor: z.string().optional().describe("Named interior color, e.g. Black, Tan, Gray. A real, verified hard filter on the actual data, exactly like exteriorColor — always use this field when the user names an interior color. Do not skip it, and do not substitute checking each result's interior color manually after an unfiltered search — that produces an incomplete result set."),
-  vehicleType: z.string().optional().describe("Finer body classification than bodyType, e.g. Crossover, SUV, Sedan, Wagon, Minivan, Performance/Sports, Hybrid, Hatchback, Coupe, Luxury, Electric. Confirmed conflict with luxury models: vehicleType \"Sedan\" or \"Wagon\" combined with a luxury sedan/wagon (e.g. Mercedes E-Class, Audi A6, Volvo V90) silently returns zero, because that listing is tagged Luxury there instead — even though the car exists and bodyType finds it fine. Confirmed NOT to have this conflict: \"Coupe\" and \"Hatchback\" both work correctly with luxury models (e.g. Lexus RC, Audi A3). For a plain body-style request, prefer bodyType — it never has this conflict. If a Sedan or Wagon request involves a premium/luxury make or model, use bodyType instead of vehicleType for that value specifically."),
+  vehicleType: z.string().optional().describe("Finer body classification than bodyType, e.g. Crossover, SUV, Sedan, Wagon, Minivan, Performance/Sports, Hybrid, Hatchback, Coupe, Luxury, Electric. This field's tagging can be genuinely inconsistent per model in the underlying data (e.g. a Volvo V90 wagon is tagged Crossover, not Wagon or Luxury) — if combined with a specific model and it returns zero, the tool automatically retries without the body-style filter and discloses that. For a plain body-style request with no specific model, bodyType is the more reliable choice."),
   doors: z.number().optional().describe("Exact door count, e.g. 2 or 4."),
   cylinders: z.number().optional().describe("Engine cylinder COUNT — a discrete number, distinct from engine displacement in liters (e.g. '2.5L', '3.5L'), which is NOT filterable. 'V8' means 8. 'V6' means 6. 'four-cylinder' or 'I4' means 4. This is a real, verified hard filter on the actual data — always use this field for a stated cylinder configuration. Do not treat it as unfilterable, and do not substitute checking each result's engine text manually after an unfiltered search — that produces an incomplete result set."),
   used: z.boolean().optional().describe("true for used vehicles only, false for new vehicles only. Omit to search both. Automatically set to true when priorityAxis is 'lowest_mileage' unless the user explicitly asked for new."),
@@ -596,6 +596,34 @@ const handler = createMcpHandler((server) => {
               }
             }
           }
+        }
+      }
+
+      // Body-style filter drop (SYS-20260816-046): vehicle.type/vehicle.bodyStyle
+      // tagging is genuinely inconsistent per model, not a clean rule that can
+      // be predicted or substituted for — confirmed live: Volvo V90 (a wagon)
+      // is actually tagged "Crossover" in the real data, not "Wagon" or
+      // "Luxury" as an earlier hypothesis this same day assumed. Retrying with
+      // a DIFFERENT specific body-style value would just be guessing again.
+      // When a specific model is already named, the model itself already
+      // implies its own body style, so the body-style filter is redundant
+      // confirmation that can backfire on inconsistent tagging — safer to
+      // drop it entirely than to guess at a replacement. Runs after the
+      // model-name-correction attempt above has already had its chance, and
+      // only if still at zero. One retry, never a loop, always disclosed.
+      if (total === 0 && candidates.length === 0 && effectiveQuery.model && (effectiveQuery.bodyType || effectiveQuery.vehicleType)) {
+        const droppedStyle = effectiveQuery.bodyType ?? effectiveQuery.vehicleType;
+        const { bodyType: _droppedBodyType, vehicleType: _droppedVehicleType, ...withoutBodyStyle } = effectiveQuery;
+        const retryResult = await searchListingsLean(withoutBodyStyle);
+
+        if (retryResult.data.length > 0) {
+          candidates = retryResult.data;
+          total = retryResult.total;
+          effectiveQuery = withoutBodyStyle;
+          relaxations.push({
+            step: "body_style_filter_dropped",
+            detail: `Dropped the body-style filter ("${droppedStyle}") after it returned zero results for the requested model — the model already implies its own body style, and body-style tagging can be inconsistent for some vehicles.`,
+          });
         }
       }
 
