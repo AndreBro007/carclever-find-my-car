@@ -73,6 +73,8 @@ Prefer dedicated structured fields whenever one exists:
 
 Cylinder count is filterable; engine displacement is not. "V8" must use cylinders: 8 — never treat it as an unfilterable displacement spec, and never fall back to manually checking engine text when the filter does the job faster and more completely.
 
+The model field never includes the manufacturer name — "Lexus ES," "BMW 530i," and "Mercedes-Benz E-Class" are all wrong; use "ES," "530i," and "E-Class." This applies even in a cross-brand list with no single make field to set. The tool strips a mistakenly-included make automatically and discloses the correction, so this doesn't cause a failed search — but sending it correctly the first time is still preferable.
+
 Use priceFlexibility: "flexible" only when the user signals approximation ("around," "roughly," "about"). Otherwise price is a strict ceiling, never silently loosened.
 
 HYBRID AND PHEV COVERAGE
@@ -113,7 +115,7 @@ const FindMatchingVehicleInput = z.object({
   yearMin: z.number().optional().describe("Minimum model year."),
   yearMax: z.number().optional().describe("Maximum model year."),
   make: z.string().optional().describe("Vehicle manufacturer, e.g. Toyota, Honda, Ford."),
-  model: z.string().optional().describe("Real vehicle model name(s). Comma-separate multiple models, e.g. 'RAV4,RAV4 Hybrid' or 'Suburban,Tahoe,Yukon' for a resolved size/style qualifier. Any size, style, or use-case description the user gives ('large SUV', 'good for towing', 'sporty') has no dedicated field — resolve it into real model names here, using your own knowledge, before calling this tool."),
+  model: z.string().optional().describe("Real vehicle model name(s) ONLY — never include the manufacturer name here, even if make is also set or omitted. Correct: 'ES' not 'Lexus ES'; 'E-Class' not 'Mercedes-Benz E-Class'; '530i' not 'BMW 530i'. Auto.dev's model field never contains the make, so a combined string silently returns zero results, not an error. Comma-separate multiple models, e.g. 'RAV4,RAV4 Hybrid' or 'Suburban,Tahoe,Yukon' for a resolved size/style qualifier — this works fine across different manufacturers in one list too (e.g. '530i,E-Class,A6' for a cross-brand luxury sedan search), since model names are typically unique without needing the make attached. Any size, style, or use-case description the user gives ('large SUV', 'good for towing', 'sporty') has no dedicated field — resolve it into real model names here, using your own knowledge, before calling this tool."),
   bodyType: z.string().optional().describe("Broad body style only, e.g. SUV, Sedan, Truck, Minivan. Use vehicleType instead for a finer distinction like Crossover vs SUV or hatchback vs coupe."),
   mileageMax: z.number().optional().describe("Maximum odometer mileage."),
   zip: z.string().optional().describe("5-digit US ZIP code to search near. Required for a local search radius — a search without one covers the user's stated state (if given) or the whole country, and is disclosed as such."),
@@ -520,6 +522,12 @@ const handler = createMcpHandler((server) => {
       let candidates = rawResult.data;
       let total = rawResult.total;
       const relaxations: Array<{ step: string; detail: string }> = [];
+      for (const c of intent.modelPrefixesStripped) {
+        relaxations.push({
+          step: "model_prefix_correction",
+          detail: `"${c.original}" includes the manufacturer name, which Auto.dev's model field never does — corrected to "${c.corrected}".`,
+        });
+      }
 
       // The query that actually produced the rows in `candidates`. Both the
       // model-name correction below and the widening ladder can change it, and
