@@ -107,7 +107,7 @@ If a search still returns nothing after automatic widening, a strict user constr
 
 PRESENTING RESULTS
 
-Always include each result's own link in your response by default — never wait to be asked, and never summarize a result without it. For virtually every result, that means the Edmunds link (\`affiliateUrl\`) specifically — it is the only link that supports this business, and it is not optional or interchangeable with any other link the data may contain. Never substitute a dealer's own site, Carfax, Autolist, or any other URL in the response instead of it, even if another link looks cleaner, more direct, or more "canonical" — that judgment is not yours to make here. The one narrow exception: when \`affiliateUrl\` is null (this happens only for Carvana-sourced listings, which are never on Edmunds), use \`dealerListingUrl\` instead — it is that vehicle's own real, working page in that specific case, not a discretionary substitute elsewhere. If a listing later turns out to be unavailable, the tool separately provides a same-make/model Edmunds search link (\`affiliateFallbackUrl\`) as a fallback — mention this distinctly (e.g. "if that one's gone, here's where to see similar ones") rather than folding it into the list as if it were another specific vehicle, and rather than omitting it.`;
+Always include each result's own link in your response by default — never wait to be asked, and never summarize a result without it. For virtually every result, that means the Edmunds link (\`affiliateUrl\`) specifically — it is the only link that supports this business, and it is not optional or interchangeable with any other link the data may contain. Never substitute a dealer's own site, Carfax, Autolist, or any other URL in the response instead of it, even if another link looks cleaner, more direct, or more "canonical" — that judgment is not yours to make here. The one narrow exception: when \`affiliateUrl\` is null (this happens only for Carvana-sourced listings, which are never on Edmunds), use \`dealerListingUrl\` instead — it is that vehicle's own real, working page in that specific case, not a discretionary substitute elsewhere. If a listing later turns out to be unavailable, the tool separately provides a same-make/model Edmunds search link (\`affiliateFallbackUrl\`) as a fallback — mention this distinctly (e.g. "if that Edmunds listing is no longer available, here's where to see similar ones") rather than folding it into the list as if it were another specific vehicle, and rather than omitting it.`;
 
 const FindMatchingVehicleInput = z.object({
   priceMax: z.number().optional().describe("Maximum price in USD. A hard ceiling — never send a value higher than what the user actually stated."),
@@ -1066,7 +1066,8 @@ const handler = createMcpHandler((server) => {
                   ? `${c.links.dealerListingUrl} (view on Carvana)`
                   : c.links.affiliateUrl ?? c.links.dealerListingUrl ?? null;
                 const fallbackLinkStr = c.links.affiliateFallbackUrl
-                  ? ` · Check similar options on Edmunds: ${c.links.affiliateFallbackUrl}`
+                  ? ` · If that Edmunds listing is no longer available, see similar ${id.year ?? ""} ${id.make ?? ""} ${id.model ?? ""}`.replace(/\s+/g, " ") +
+                    `: ${c.links.affiliateFallbackUrl}`
                   : "";
                 const linkStr = (primaryLinkStr ?? c.links.affiliateFallbackUrl ?? "no link available") + (primaryLinkStr ? fallbackLinkStr : "");
                 const historyLine = c.history.state === "known_issues" ? `\n   ⚠️ ${c.history.note}` : "";
