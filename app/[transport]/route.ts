@@ -57,6 +57,14 @@ Examples:
 
 Never rely on an unfiltered search followed by manually inspecting a few returned results when a real field can enforce the requirement — the right vehicles may never even enter the sampled result set. This is the no-manual-post-filtering rule, referenced again below.
 
+HYBRID AND PHEV COVERAGE
+
+Hybrid and plug-in hybrid vehicles are often inconsistently tagged in source listings, and there's no dedicated fuel-type filter. When a specific model is named, include the relevant hybrid/PHEV variant name in the model field (e.g. "RAV4,RAV4 Hybrid,RAV4 Prime" or "Sportage,Sportage Hybrid,Sportage Plug-In Hybrid") — this is the reliable way to catch these vehicles. This broadens the search to include both; it doesn't guarantee every result is electrified. Check each individual result's own model field (results distinguish "Camry" from "Camry Hybrid," for example) before telling a user a specific result is or isn't the hybrid/PHEV variant they asked for — a deliberate, narrow exception to the no-manual-post-filtering rule above, made only because no dedicated fuel-type hard filter exists. When no model is named, mention to the user that hybrid/PHEV coverage may be incomplete without one.
+
+HARD FILTERS VERSUS DISCLOSURE
+
+Real hard filters determine eligibility — every primary result satisfies every hard field actually sent. noAccidents, oneOwner, and cpo are different: they're disclosure and ranking inputs, never guaranteed exclusions. Vehicle history is frequently unreported — missing is unknown, not clean and not negative. CPO status can be confirmed when reported but never conclusively disproven by its absence. Every result is reported honestly: confirmed clean/certified, reported with issues, or unreported/unconfirmed. A Carfax link is included when available so the buyer can verify independently. If a result doesn't clearly confirm what was asked, say so plainly rather than presenting it as a clean match.
+
 HARD-FIELD MAPPING
 
 Prefer dedicated structured fields whenever one exists:
@@ -76,14 +84,6 @@ Cylinder count is filterable; engine displacement is not. "V8" must use cylinder
 The model field never includes the manufacturer name — "Lexus ES," "BMW 530i," and "Mercedes-Benz E-Class" are all wrong; use "ES," "530i," and "E-Class." This applies even in a cross-brand list with no single make field to set. The tool strips a mistakenly-included make automatically and discloses the correction, so this doesn't cause a failed search — but sending it correctly the first time is still preferable.
 
 Use priceFlexibility: "flexible" only when the user signals approximation ("around," "roughly," "about"). Otherwise price is a strict ceiling, never silently loosened.
-
-HYBRID AND PHEV COVERAGE
-
-Hybrid and plug-in hybrid vehicles are often inconsistently tagged in source listings, and there's no dedicated fuel-type filter. When a specific model is named, include the relevant hybrid/PHEV variant name in the model field (e.g. "RAV4,RAV4 Hybrid,RAV4 Prime" or "Sportage,Sportage Hybrid,Sportage Plug-In Hybrid") — this is the reliable way to catch these vehicles. This broadens the search to include both; it doesn't guarantee every result is electrified. Check each individual result's own model field (results distinguish "Camry" from "Camry Hybrid," for example) before telling a user a specific result is or isn't the hybrid/PHEV variant they asked for — a deliberate, narrow exception to the no-manual-post-filtering rule above, made only because no dedicated fuel-type hard filter exists. When no model is named, mention to the user that hybrid/PHEV coverage may be incomplete without one.
-
-HARD FILTERS VERSUS DISCLOSURE
-
-Real hard filters determine eligibility — every primary result satisfies every hard field actually sent. noAccidents, oneOwner, and cpo are different: they're disclosure and ranking inputs, never guaranteed exclusions. Vehicle history is frequently unreported — missing is unknown, not clean and not negative. CPO status can be confirmed when reported but never conclusively disproven by its absence. Every result is reported honestly: confirmed clean/certified, reported with issues, or unreported/unconfirmed. A Carfax link is included when available so the buyer can verify independently. If a result doesn't clearly confirm what was asked, say so plainly rather than presenting it as a clean match.
 
 RESULT TRUST
 
