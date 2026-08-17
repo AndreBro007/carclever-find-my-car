@@ -793,6 +793,13 @@ const handler = createMcpHandler((server) => {
 
       const diversified = applyDiversity(bodyStyleFilteredCandidates, targetCount * 2);
       const leanShortlist = diversified.slice(0, targetCount);
+      // Held in reserve for stage-2 backfill (SYS-20260817-013) if body-style
+      // exclusion leaves the shortlist short — these already passed stage-1
+      // lean verification and the stage-1 body-style filter, they just
+      // haven't had a stage-2 full-detail check yet. Capped at targetCount
+      // spares (diversified is built to targetCount*2), so backfill is
+      // bounded by construction — never an open-ended search for more.
+      const spareLean = diversified.slice(targetCount, targetCount * 2);
 
       // Stage 2: full detail for exactly the shortlisted vehicles, in parallel.
       // Confirmed working, exact, fast (4.66s for 5 VINs), SYS-20260812-060.
@@ -822,14 +829,25 @@ const handler = createMcpHandler((server) => {
       // verified against the widened constraints, so stage 2 must too — checking
       // against the original would reject exactly the rows widening just gained
       // and silently undo it (SYS-20260816-008).
-      let priceDriftDetected = false;
-      const shortlistWithPriceCheck = refetched.map((full, i) => {
-        const violations = verifyAgainstConstraints(full, effectiveQuery);
-        if (violations.length === 0) return full;
-        priceDriftDetected = true;
-        const lean = leanShortlist[i];
-        return verifyAgainstConstraints(lean, effectiveQuery).length === 0 ? lean : full;
-      });
+      //
+      // Factored into a helper (SYS-20260817-013) so the exact same
+      // price-drift-aware refetch logic can run a second time on the spare
+      // pool during backfill, instead of duplicating this block.
+      function priceCheckedRefetch(refetchedRows: AutoDevListing[], leanRows: AutoDevListing[]) {
+        let anyDrift = false;
+        const checked = refetchedRows.map((full, i) => {
+          const violations = verifyAgainstConstraints(full, effectiveQuery);
+          if (violations.length === 0) return full;
+          anyDrift = true;
+          const lean = leanRows[i];
+          return verifyAgainstConstraints(lean, effectiveQuery).length === 0 ? lean : full;
+        });
+        return { checked, anyDrift };
+      }
+
+      const { checked: shortlistWithPriceCheck, anyDrift: priceDriftFromPrimary } =
+        priceCheckedRefetch(refetched, leanShortlist);
+      let priceDriftDetected = priceDriftFromPrimary;
 
       // Body-style stage-2 re-check (SYS-20260816-052): the SYS-20260816-051
       // exclude filter runs on stage-1 lean data, but confirmed live that
@@ -840,25 +858,69 @@ const handler = createMcpHandler((server) => {
       // SYS-20260816-004/005 price-drift fix above: stage 1 isn't
       // authoritative, stage 2 is, so re-check there too.
       //
+      // Backfill (SYS-20260817-013): previously, any candidate excluded here
+      // was just gone — the shortlist arrived short of targetCount with no
+      // attempt to replace it, even though real, un-tried candidates were
+      // already sitting in `spareLean`. Confirmed live (Volvo V90, Mercedes
+      // E-Class): 3 results shown against a 5-result target, real inventory
+      // available. Now: excluded slots are backfilled from the spare pool,
+      // one bounded round, before ever falling back to showing mismatches.
+      // If a genuine match exists in the spares, the user sees a genuine
+      // match instead of a "shown anyway, wrong body style" caveat — a
+      // strictly better outcome, and consistent with the project's standing
+      // preference for a true result over a false one wherever possible.
+      //
       // Same never-reduce-a-real-pool-to-zero fallback as stage 1
-      // (SYS-20260816-057): if excluding mismatches here would leave the
-      // shortlist empty, keep the mismatched entries rather than showing
-      // nothing — each still gets its own honest "NOT the requested X"
-      // disclosure via qualifier-accounting.ts, never a bare confirmation.
+      // (SYS-20260816-057): only once BOTH the primary shortlist AND the
+      // backfill attempt fail to produce any genuine match at all does this
+      // fall back to showing the mismatched entries rather than nothing —
+      // each still gets its own honest "NOT the requested X" disclosure via
+      // qualifier-accounting.ts, never a bare confirmation.
       let bodyStyleDriftDetected = false;
       let bodyStyleFallbackUsed = false;
-      const shortlist = droppedBodyStyle
-        ? (() => {
-            const filtered = shortlistWithPriceCheck.filter((full) => {
-              const matches = bodyStyleMatchFilter(full);
-              if (!matches) bodyStyleDriftDetected = true;
-              return matches;
-            });
-            if (filtered.length > 0) return filtered;
-            bodyStyleFallbackUsed = shortlistWithPriceCheck.length > 0;
-            return shortlistWithPriceCheck;
-          })()
-        : shortlistWithPriceCheck;
+      const shortlist = await (async () => {
+        if (!droppedBodyStyle) return shortlistWithPriceCheck;
+
+        const primaryMatches = shortlistWithPriceCheck.filter((full) => {
+          const matches = bodyStyleMatchFilter(full);
+          if (!matches) bodyStyleDriftDetected = true;
+          return matches;
+        });
+
+        const shortfall = targetCount - primaryMatches.length;
+        if (shortfall <= 0 || spareLean.length === 0) {
+          if (primaryMatches.length > 0) return primaryMatches;
+          bodyStyleFallbackUsed = shortlistWithPriceCheck.length > 0;
+          return shortlistWithPriceCheck;
+        }
+
+        // One bounded backfill round: fetch stage-2 detail for the spare
+        // pool (already capped to targetCount by construction above), same
+        // price-drift-aware refetch as the primary shortlist.
+        const spareFullDetail = await Promise.all(
+          spareLean.map((lean) => getListingByVin(lean.vin)),
+        );
+        const spareRefetched = spareLean.map((lean, i) => spareFullDetail[i] ?? lean);
+        const { checked: spareChecked, anyDrift: spareDrift } = priceCheckedRefetch(
+          spareRefetched,
+          spareLean,
+        );
+        if (spareDrift) priceDriftDetected = true;
+
+        const backfillMatches = spareChecked
+          .filter((full) => {
+            const matches = bodyStyleMatchFilter(full);
+            if (!matches) bodyStyleDriftDetected = true; // spares excluded too — still worth disclosing
+            return matches;
+          })
+          .slice(0, shortfall);
+
+        const combined = [...primaryMatches, ...backfillMatches];
+        if (combined.length > 0) return combined;
+
+        bodyStyleFallbackUsed = shortlistWithPriceCheck.length > 0;
+        return shortlistWithPriceCheck;
+      })();
 
       const intentInput: CardIntentInput = {
         exteriorColor: input.exteriorColor,
