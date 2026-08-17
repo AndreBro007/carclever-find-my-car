@@ -48,7 +48,6 @@ The tool's structured fields define what can be filtered directly. Before callin
 
 Examples:
 - "Seven-seat SUV" → bodyType: "SUV" and seatsMinPreference: 7 — no lifestyle/suitability judgment implied beyond seat count, so a model list isn't required here
-- "Manual Miata" → make: "Mazda", model: "MX-5 Miata", transmission: "Manual"
 - "V8 F-150" → make: "Ford", model: "F-150", cylinders: 8
 - "Reliable teen car" → relevant hard fields plus goals such as reliability, safety, manageable size, and low running cost, AND a resolved model list of appropriate models (e.g. Corolla, Civic, Mazda3, Impreza, Fit, Prius) — goals alone do not substitute for this
 - "Large SUV" → resolve to an appropriate model list because no size-class field exists
