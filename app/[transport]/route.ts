@@ -994,13 +994,42 @@ const handler = createMcpHandler((server) => {
         price: "price ceiling",
       };
       const uniqueAttemptedSteps = Array.from(new Set(widenAttemptedSteps));
+
+      // Non-geographic ZIP check (SYS-20260817-005): a real, confirmed bug —
+      // some valid, real US ZIPs (PO-Box-only downtown ZIPs, federal
+      // buildings, some university/military ZIPs) can't be geocoded to a
+      // meaningful search radius, and Auto.dev silently returns zero rather
+      // than erroring. Without this check, that reads exactly like a
+      // genuine inventory gap and gets reported as one — a confidently
+      // wrong diagnosis. Live-confirmed: zip 77001 (Houston, PO-Box-only)
+      // returns 0 total for ANY make/model, while every neighboring zip
+      // (77002/77004/77024/77030) returns ~690.
+      //
+      // Deliberately NOT a general geocoding solution — André's explicit
+      // direction: most users type a real, geographic ZIP; this needs an
+      // easy, cheap check with honest feedback, not an attempt to resolve
+      // or correct the bad ZIP itself. One extra lightweight call, firing
+      // only in the already-rare true-zero-after-widening case, using the
+      // same unfiltered-except-location shape and 100mi radius as the
+      // widening ladder's own max radius step for consistency. A make/
+      // model/price-agnostic control query isolates whether the ZIP itself
+      // is the problem, rather than this specific search being genuinely
+      // thin.
+      let zipLikelyInvalid = false;
+      if (cards.length === 0 && !rawResult.error && rawZip) {
+        const control = await searchListingsLean({ zip: rawZip, radius: 100, limit: 1 });
+        zipLikelyInvalid = !control.error && control.total === 0;
+      }
+
       // When the ladder halted on its budget with steps untried, neither
       // standard message is truthful: claiming "more widening on those
       // dimensions wouldn't help" overstates what was checked, and the
       // nothing-attempted message tells the user to widen when the tool
       // silently declined to. Say plainly that the search was cut short
       // (SYS-20260817-003).
-      const noResultsMessage = widenStoppedEarly
+      const noResultsMessage = zipLikelyInvalid
+        ? `No vehicles matched these criteria, and a broader check found zero listings of ANY kind near ZIP ${rawZip} — this looks like the ZIP itself may not be resolving to a valid searchable location (for example, some ZIPs are PO-Box-only with no real street addresses nearby) rather than a genuine inventory gap. Double-checking the ZIP, or trying a nearby one, is more likely to help than widening price, year, or model.`
+        : widenStoppedEarly
         ? uniqueAttemptedSteps.length > 0
           ? `No vehicles matched these criteria. Automatic widening of the ${uniqueAttemptedSteps
               .map((s) => STEP_LABELS[s])
