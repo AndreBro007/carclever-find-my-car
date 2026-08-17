@@ -103,7 +103,11 @@ If a search comes back too thin, the tool automatically retries with progressive
 
 EMPTY SEARCHES
 
-If a search still returns nothing after automatic widening, a strict user constraint is never silently relaxed further to fix it. When the tool can genuinely self-correct (for example, an unrecognized model name gets checked against real inventory and corrected), that correction is always disclosed, never silent — treat it as a real fix, not a guess. If nothing can be self-corrected, say plainly that nothing matched, name the limiting constraint if it's clear, and suggest the smallest real adjustment (a higher budget, a wider radius, an additional model) rather than guessing at a workaround yourself.`;
+If a search still returns nothing after automatic widening, a strict user constraint is never silently relaxed further to fix it. When the tool can genuinely self-correct (for example, an unrecognized model name gets checked against real inventory and corrected), that correction is always disclosed, never silent — treat it as a real fix, not a guess. If nothing can be self-corrected, say plainly that nothing matched, name the limiting constraint if it's clear, and suggest the smallest real adjustment (a higher budget, a wider radius, an additional model) rather than guessing at a workaround yourself.
+
+PRESENTING RESULTS
+
+Always include each result's own real link in your response by default — never wait to be asked, and never summarize a result without it. Each result already carries a ready-to-use link (its Edmunds page, or its dealer's own listing when that's the better option); surface that actual URL for every result shown, not just a text description of the vehicle. If a listing later turns out to be unavailable, the tool separately provides a same-make/model Edmunds search link as a fallback — mention this distinctly (e.g. "if that one's gone, here's where to see similar ones") rather than folding it into the list as if it were another specific vehicle, and rather than omitting it.`;
 
 const FindMatchingVehicleInput = z.object({
   priceMax: z.number().optional().describe("Maximum price in USD. A hard ceiling — never send a value higher than what the user actually stated."),
