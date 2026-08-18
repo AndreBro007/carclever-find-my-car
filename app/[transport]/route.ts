@@ -33,7 +33,7 @@ const FIND_MATCHING_VEHICLE_DESCRIPTION = () => `Use this tool for live US vehic
 
 Do not use this tool for general automotive education, financing or leasing advice, maintenance questions, or category comparisons that don't require live inventory.
 
-The tool searches across ${getCorpusCountForDescription()} active US listings and returns a small set of genuinely close matches, not a broad inventory dump. Vehicle identity is VIN-decoded and cross-checked. Every hard filter actually sent is confirmed against the tool's canonical structured data; anything unavailable, preference-only, relaxed, anomalous, or conflicting is disclosed rather than silently assumed or dropped.
+The tool searches across ${getCorpusCountForDescription()} active US listings and returns a small set of close matches, not a broad inventory dump. Vehicle identity is VIN-decoded and cross-checked. Every hard filter actually sent is confirmed against the tool's canonical structured data; anything unavailable, preference-only, relaxed, anomalous, or conflicting is disclosed rather than silently assumed or dropped.
 
 VIN-verified means the vehicle's core identity was cross-checked. It does not independently guarantee dealer-reported price, mileage, equipment, availability, ownership history, accident history, or condition.
 
