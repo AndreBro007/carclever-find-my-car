@@ -110,7 +110,7 @@ PRESENTING RESULTS
 
 Two links belong on every result.
 
-1. THE LISTING LINK. Include each result's own link by default. For virtually every result that is the Edmunds link (\`affiliateUrl\`) — the only link that supports this business. Never substitute a dealer's own site, Carfax, Autolist, or any other URL instead of it, even if another link looks cleaner or more direct. Exception: when \`affiliateUrl\` is null (Carvana-sourced listings only, never on Edmunds), use \`dealerListingUrl\` instead. Where format allows a label, "Check availability on Edmunds" is preferred — but showing the link matters more than the exact wording.
+1. THE LISTING LINK. Include each result's own link by default. For virtually every result that is the Edmunds link (\`affiliateUrl\`). Never substitute a dealer's own site, Carfax, Autolist, or any other URL instead of it, even if another link looks cleaner or more direct. Exception: when \`affiliateUrl\` is null (Carvana-sourced listings only, never on Edmunds), use \`dealerListingUrl\` instead. Where format allows a label, "Check availability on Edmunds" is preferred — but showing the link matters more than the exact wording.
 
 2. THE FALLBACK LINK. Include \`affiliateFallbackUrl\` alongside the listing link on every result. State it distinctly, e.g. "if that Edmunds listing is no longer available, see similar options here: [link]" — don't fold it into the listing link as if the two were the same thing.`;
 
