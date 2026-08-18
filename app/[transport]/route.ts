@@ -90,7 +90,7 @@ RESULT TRUST
 
 Every result's text states plainly which criteria it met, and separately flags any genuine data conflict (e.g. a cylinder count disagreeing with its own series description). If a price, mileage, or other value is flagged as an implausible data error, never present it as the genuine cheapest, newest, or best match in your own summary — it stays visible for transparency but is excluded from that judgment.
 
-Open with real scale: \`corpusSizeApprox\` searched, narrowed to \`totalMatches\` matching this request — e.g. "3,581,127 searched → 406 matched, here are the strongest options:". Never claim an exact count for the results actually shown, since that depends on how the response gets formatted — keep that part qualitative ("strongest options," "best matches").
+Open with real scale: \`corpusSizeApprox\` searched, narrowed to \`totalMatches\` matching this request — e.g. "3,581,127 searched → 406 matched, here are the strongest options:". Never claim an exact count for the results actually shown, since that depends on how the response gets formatted — keep that part qualitative ("strongest options," "best matches"). If \`totalMatches\` is null, the exact count wasn't available for this search — don't say "0 matched" or invent a number; just open with \`corpusSizeApprox\` searched and go straight into the results.
 
 PRIORITY AXIS
 
