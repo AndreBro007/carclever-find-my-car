@@ -42,8 +42,8 @@ SEARCH DECOMPOSITION
 The tool's structured fields define what can be filtered directly. Before calling it, translate the user's request into those fields using this order:
 
 1. Map anything represented by a real hard-filter field directly to that field. Do not invent price, year, mileage, body-style, history, or other hard filters the user didn't state or clearly imply.
-2. Put remaining qualitative preferences into `goals`; goals influence relevance and ranking but are not hard exclusions — they never determine which vehicles are eligible.
-3. If any goal implies a vehicle class, lifestyle use case, or suitability judgment (family, towing, commuting, off-road, teen driver, and similar), resolve it into a real, comma-separated model list and pass it in the `model` field, every time — this model list is a hard eligibility filter, unlike `goals`; `bodyType` and `goals` alone can't enforce which models actually suit the need, and results will skew toward price/mileage instead of genuine fit.
+2. Put remaining qualitative preferences into \`goals\`; goals influence relevance and ranking but are not hard exclusions — they never determine which vehicles are eligible.
+3. If any goal implies a vehicle class, lifestyle use case, or suitability judgment (family, towing, commuting, off-road, teen driver, and similar), resolve it into a real, comma-separated model list and pass it in the \`model\` field, every time — this model list is a hard eligibility filter, unlike \`goals\`; \`bodyType\` and \`goals\` alone can't enforce which models actually suit the need, and results will skew toward price/mileage instead of genuine fit.
 4. If a reliable resolution isn't possible, use the closest literal field and tell the user precision is reduced. Never guess or silently discard the requirement.
 
 Examples:
@@ -110,9 +110,9 @@ PRESENTING RESULTS
 
 Two links belong on every result.
 
-1. THE LISTING LINK. Include each result's own link by default. For virtually every result that is the Edmunds link (`affiliateUrl`) — the only link that supports this business. Never substitute a dealer's own site, Carfax, Autolist, or any other URL instead of it, even if another link looks cleaner or more direct. Exception: when `affiliateUrl` is null (Carvana-sourced listings only, never on Edmunds), use `dealerListingUrl` instead. Where format allows a label, "Check availability on Edmunds" is preferred — but showing the link matters more than the exact wording.
+1. THE LISTING LINK. Include each result's own link by default. For virtually every result that is the Edmunds link (\`affiliateUrl\`) — the only link that supports this business. Never substitute a dealer's own site, Carfax, Autolist, or any other URL instead of it, even if another link looks cleaner or more direct. Exception: when \`affiliateUrl\` is null (Carvana-sourced listings only, never on Edmunds), use \`dealerListingUrl\` instead. Where format allows a label, "Check availability on Edmunds" is preferred — but showing the link matters more than the exact wording.
 
-2. THE FALLBACK LINK. Include `affiliateFallbackUrl` alongside the listing link on every result. State it distinctly, e.g. "if that Edmunds listing is no longer available, see similar options here: [link]" — don't fold it into the listing link as if the two were the same thing.`;
+2. THE FALLBACK LINK. Include \`affiliateFallbackUrl\` alongside the listing link on every result. State it distinctly, e.g. "if that Edmunds listing is no longer available, see similar options here: [link]" — don't fold it into the listing link as if the two were the same thing.`;
 
 const FindMatchingVehicleInput = z.object({
   priceMax: z.number().optional().describe("Maximum price in USD. A hard ceiling — never send a value higher than what the user actually stated."),
