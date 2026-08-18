@@ -18,6 +18,7 @@ import { resolveLinks } from "@/lib/link-resolution";
 import { getValidatedPhotos } from "@/lib/photos";
 import { sanitizeDealerName } from "@/lib/dealer-name";
 import { applyKnownHybridOverride, formatFuelTypeForDisplay } from "@/lib/fuel-type";
+import { decodeNhtsaElectrification, nhtsaIndicatesElectrified, type NhtsaElectrificationResult } from "@/lib/nhtsa-client";
 import { getCorpusCountForDescription, initCorpusCount } from "@/lib/corpus-count";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting, type CardIntentInput } from "@/lib/qualifier-accounting";
@@ -345,6 +346,7 @@ async function buildResultCard(
   listing: AutoDevListing,
   intent: ReturnType<typeof parseIntent>,
   intentInput: CardIntentInput,
+  nhtsa?: NhtsaElectrificationResult | null,
 ) {
   const verification = crossCheckVin(listing); // now local/synchronous — no API call
   const { matchScore, matchScoreLabel, breakdown } = computeMatchScore(listing, intent, verification);
@@ -358,6 +360,15 @@ async function buildResultCard(
   const rl = listing.retailListing;
 
   const normalizedFuel = applyKnownHybridOverride(v?.year, v?.make, v?.model, v?.fuel);
+  // NHTSA (SYS-20260819-002): Auto.dev's fuel field has no electrification
+  // signal at all, so the model-name allowlist above is a best-effort
+  // partial mitigation, not a complete fix. When NHTSA's authoritative
+  // decode says electrified and Auto.dev/the allowlist both missed it,
+  // trust NHTSA — it's manufacturer-submitted data, not another guess.
+  const finalNormalizedFuel =
+    normalizedFuel === "gasoline" && nhtsaIndicatesElectrified(nhtsa)
+      ? (nhtsa!.electrificationLevel!.toLowerCase().includes("phev") ? "plug_in_hybrid" : "hybrid")
+      : normalizedFuel;
   const historySummary = buildHistorySummary(listing);
   const cpoSummary = buildCpoSummary(listing);
   const seatsSummary = buildSeatsSummary(listing, intent.semantic.seatsMin);
@@ -371,6 +382,8 @@ async function buildResultCard(
   const badges: string[] = [];
   if (verification.hardConstraintStatus === "verified_match") badges.push("vin-verified");
   if (verification.hardConstraintStatus === "failed") badges.push("vin-conflicting");
+  if (nhtsa?.makeConflict) badges.push("nhtsa-make-conflict");
+  if (nhtsa && nhtsaIndicatesElectrified(nhtsa) && normalizedFuel === "gasoline") badges.push("nhtsa-electrification-confirmed");
   if (intent.semantic.goals.length > 0) badges.push("inferred-match");
   if (historySummary.state === "known_issues") badges.push("history-issues-reported");
   if (cpoSummary.state === "confirmed_cpo") badges.push("cpo-confirmed");
@@ -450,7 +463,7 @@ async function buildResultCard(
       historyUsageType: listing.history?.usageType ?? null,
       historyPersonalUse: listing.history?.personalUse ?? null,
       titleStatus: rl?.titleStatus ?? null,
-      fuelTypeDisplay: formatFuelTypeForDisplay(normalizedFuel, v?.fuel),
+      fuelTypeDisplay: formatFuelTypeForDisplay(finalNormalizedFuel, v?.fuel),
     },
     badges,
   };
@@ -826,6 +839,21 @@ const handler = createMcpHandler((server) => {
       );
       const refetched = leanShortlist.map((lean, i) => fullDetail[i] ?? lean);
 
+      // NHTSA electrification check (SYS-20260819-002): same shortlist stage
+      // as the full-detail refetch above, run in parallel, never blocks the
+      // search — a failed/slow NHTSA call just means that one result keeps
+      // relying on Auto.dev's own (known-incomplete) fuel field, same as
+      // before this feature existed.
+      const nhtsaResults = await Promise.all(
+        refetched.map((listing) => decodeNhtsaElectrification(listing.vin, listing.vehicle?.make)),
+      );
+      // Keyed by VIN, not index — backfill spares (spareLean, added later if
+      // body-style exclusion leaves the shortlist short) never went through
+      // this lookup, so a positional zip would silently misalign. Cards for
+      // any VIN not in this map simply get `undefined`, same as before this
+      // feature existed.
+      const nhtsaByVin = new Map(refetched.map((listing, i) => [listing.vin, nhtsaResults[i]]));
+
       // Post-refetch re-verification (SYS-20260816-004): getListingByVin is a
       // separate, independent Auto.dev fetch and can return a price (or other
       // hard-constraint fields) that differs from the already-verified stage-1
@@ -956,7 +984,7 @@ const handler = createMcpHandler((server) => {
       };
 
       const cards = (
-        await Promise.all(shortlist.map((listing) => buildResultCard(listing, intent, intentInput)))
+        await Promise.all(shortlist.map((listing) => buildResultCard(listing, intent, intentInput, nhtsaByVin.get(listing.vin))))
       ).filter((c): c is NonNullable<typeof c> => c !== null);
 
       // Match Score ordering is only correct for the default best_for_budget
