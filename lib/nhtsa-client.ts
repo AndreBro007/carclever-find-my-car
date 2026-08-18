@@ -98,7 +98,7 @@ export async function decodeNhtsaElectrification(
  * True when NHTSA's electrification data indicates a genuine hybrid or
  * plug-in hybrid, regardless of what Auto.dev's own fuel field says.
  */
-export function nhtsaIndicatesElectrified(result: NhtsaElectrificationResult | null): boolean {
+export function nhtsaIndicatesElectrified(result: NhtsaElectrificationResult | null | undefined): boolean {
   if (!result) return false;
   const level = (result.electrificationLevel ?? "").toLowerCase();
   return level.includes("hev") || level.includes("phev") || level.includes("hybrid") || level.includes("electric");
