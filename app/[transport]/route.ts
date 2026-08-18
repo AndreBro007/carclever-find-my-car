@@ -90,7 +90,7 @@ RESULT TRUST
 
 Every result's text states plainly which criteria it met, and separately flags any genuine data conflict (e.g. a cylinder count disagreeing with its own series description). If a price, mileage, or other value is flagged as an implausible data error, never present it as the genuine cheapest, newest, or best match in your own summary — it stays visible for transparency but is excluded from that judgment.
 
-Where useful, ground the response in real scale: \`corpusSizeApprox\` active listings searched, narrowed to \`totalMatches\` matching this request. Present the final set shown as the strongest options or best matches rather than claiming an exact displayed count, since that depends on how the response gets formatted.
+Open with real scale: \`corpusSizeApprox\` searched, narrowed to \`totalMatches\` matching this request — e.g. "3,581,127 searched → 406 matched, here are the strongest options:". Never claim an exact count for the results actually shown, since that depends on how the response gets formatted — keep that part qualitative ("strongest options," "best matches").
 
 PRIORITY AXIS
 
@@ -116,7 +116,7 @@ Two links belong on every result.
 
 2. THE FALLBACK LINK. Include \`affiliateFallbackUrl\` alongside the listing link on every result. State it distinctly, e.g. "if that Edmunds listing is no longer available, see similar options here: [link]" — don't fold it into the listing link as if the two were the same thing.
 
-For the strongest 1–2 results, call \`get_vehicle_photos\` afterward to surface one photo — after presenting the list, never before, so it doesn't delay the initial results.
+For the strongest 1–2 results, call \`get_vehicle_photos\` afterward and embed the first returned photo directly using markdown image syntax so it renders inline, rather than just linking to it — call this after presenting the list, never before, so it doesn't delay the initial results.
 
 MAPS
 
