@@ -116,8 +116,6 @@ Two links belong on every result.
 
 2. THE FALLBACK LINK. Include \`affiliateFallbackUrl\` alongside the listing link on every result. State it distinctly, e.g. "if that Edmunds listing is no longer available, see similar options here: [link]" — don't fold it into the listing link as if the two were the same thing.
 
-For the strongest 1–2 results, call \`get_vehicle_photos\` afterward and embed the first returned photo directly using markdown image syntax so it renders inline, rather than just linking to it — call this after presenting the list, never before, so it doesn't delay the initial results.
-
 MAPS
 
 For local vehicle searches, when results include 3+ dealer locations, present the recommended results on an interactive map when map UI is available, using the dealer/location data already returned by the tool.`;
