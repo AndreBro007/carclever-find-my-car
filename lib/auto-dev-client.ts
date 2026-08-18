@@ -157,7 +157,14 @@ export interface ListingsQuery {
 
 export interface ListingsResponse {
   data: AutoDevListing[];
-  total: number;
+  /**
+   * `null` means Auto.dev returned results but omitted `total` — confirmed
+   * live (2026-08-19) that `vehicle.doors` as a filter causes Auto.dev to
+   * drop `total` from the response entirely, even though `data` is correct.
+   * Previously coerced to `0` here, which route.ts then presented as a false
+   * "0 matched" alongside real results. Must stay distinct from a genuine 0.
+   */
+  total: number | null;
   // Real shape confirmed live (2026-08-15): each facet group is a dict of
   // "Label (count)" strings mapped to a ready-made drill-down URL — NOT the
   // clean {value,count}[] this type previously assumed. e.g.
@@ -238,7 +245,11 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
 
   const outcome = await autoDevFetch<ListingsResponse>(`/listings?${params.toString()}`);
   if (outcome.ok) {
-    return { data: outcome.data.data ?? [], total: outcome.data.total ?? 0, facets: outcome.data.facets };
+    return {
+      data: outcome.data.data ?? [],
+      total: typeof outcome.data.total === "number" ? outcome.data.total : null,
+      facets: outcome.data.facets,
+    };
   }
 
   // Degrade rather than fail outright: on a timeout, retry once with a smaller,
@@ -330,7 +341,10 @@ export async function searchListingsLean(query: ListingsQuery): Promise<Listings
     const listings = (outcome.data.data ?? [])
       .map(leanRowToListing)
       .filter((l): l is AutoDevListing => l !== null);
-    return { data: listings, total: outcome.data.total ?? 0 };
+    return {
+      data: listings,
+      total: typeof outcome.data.total === "number" ? outcome.data.total : null,
+    };
   }
 
   if (outcome.reason === "timeout") {
