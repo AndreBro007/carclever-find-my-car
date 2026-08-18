@@ -95,7 +95,7 @@ export interface Relaxation {
 
 export interface WidenOutcome {
   data: AutoDevListing[];
-  total: number;
+  total: number | null;
   /** The query that actually produced `data`. Callers MUST verify against this, not the original. */
   query: ListingsQuery;
   relaxations: Relaxation[];
@@ -191,7 +191,7 @@ function resolveStepOrder(priorityAxis: PriorityAxis | undefined): StepName[] {
 
 export async function widenSearchIfThin(
   baseQuery: ListingsQuery,
-  current: { data: AutoDevListing[]; total: number },
+  current: { data: AutoDevListing[]; total: number | null },
   opts: WidenOptions,
 ): Promise<WidenOutcome> {
   const relaxations: Relaxation[] = [];
@@ -238,6 +238,9 @@ export async function widenSearchIfThin(
     if (count > best) {
       query = candidateQuery;
       data = retry.data;
+      // Preserve null (genuinely unknown, e.g. Auto.dev drops `total` under
+      // vehicle.doors) rather than coercing — matches count is used for the
+      // widening decision itself (via `best`/`count` above), never `total`.
       total = retry.total;
       best = count;
       widened = true;
