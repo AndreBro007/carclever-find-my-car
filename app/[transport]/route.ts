@@ -722,7 +722,13 @@ const handler = createMcpHandler((server) => {
 
         const widenedOutcome = await widenSearchIfThin(
           effectiveQuery,
-          { data: candidates, total },
+          // Widening only needs a number to compare against MIN_ACCEPTABLE —
+          // when Auto.dev's total is missing (e.g. vehicle.doors filter, SYS-20260819-001),
+          // candidates.length is the best available proxy for that decision.
+          // This fallback is local to the widening check only; the real
+          // `total` variable (possibly still null) is untouched below and
+          // still reported honestly to the user unless widening actually fires.
+          { data: candidates, total: total ?? candidates.length },
           {
             search: searchListingsLean,
             usableCount,
