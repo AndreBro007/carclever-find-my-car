@@ -29,7 +29,7 @@ initCorpusCount();
 // (Sky redesign, approved July 26, 2026) — same architecture principle
 // Find My Car already uses (calling LLM owns intent, server stays thin and
 // deterministic), just with more explicit coaching for known data quirks.
-const FIND_MATCHING_VEHICLE_DESCRIPTION = () => `Use this tool for any live vehicle search — explicit ("Honda CR-V under $35k near 90210"), superlative ("cheapest," "newest," "lowest mileage"), detailed-spec (price, make/model, year, mileage, color, drivetrain, transmission, cylinders, seating), or open-ended buyer need ("reliable for a teen driver," "good for towing," "good for commuting," "good for a family"). This tool resolves what a need actually implies — reliability, size, safety, running cost, capability — into the right real search, even when nothing in the request names a specific car. If a search comes back too thin, it automatically widens the least-restrictive constraint first, protects whatever the user said matters most, and always discloses exactly what changed — see AUTOMATIC WIDENING below; don't retry a thin search yourself.
+const FIND_MATCHING_VEHICLE_DESCRIPTION = () => `Use this tool for live US vehicle-inventory searches when the user wants current vehicles for sale or a shortlist — whether the request is explicit ("Honda CR-V under $35k near 90210"), superlative ("cheapest," "newest," "lowest mileage"), detailed-spec (price, make/model, year, mileage, color, drivetrain, transmission, cylinders, seating), or open-ended buyer need ("reliable for a teen driver," "good for towing," "good for commuting," "good for a family"). This tool resolves what a need actually implies — reliability, size, safety, running cost, capability — into the right real search, even when nothing in the request names a specific car. If a search comes back too thin, it automatically widens the least-restrictive constraint first, protects whatever the user said matters most, and always discloses exactly what changed — see AUTOMATIC WIDENING below; don't retry a thin search yourself.
 
 Do not use this tool for general automotive education, financing or leasing advice, maintenance questions, or category comparisons that don't require live inventory.
 
@@ -41,9 +41,9 @@ SEARCH DECOMPOSITION
 
 The tool's structured fields define what can be filtered directly. Before calling it, translate the user's request into those fields using this order:
 
-1. Map anything represented by a real hard-filter field directly to that field.
-2. Put remaining qualitative preferences into \`goals\`; goals influence relevance and ranking but are not hard exclusions — they never determine which vehicles are eligible.
-3. If any goal implies a vehicle class, lifestyle use case, or suitability judgment (family, towing, commuting, off-road, teen driver, and similar), resolve it into a real, comma-separated model list yourself, every time — \`bodyType\` and \`goals\` alone can't enforce which models actually suit the need, and results will skew toward price/mileage instead of genuine fit.
+1. Map anything represented by a real hard-filter field directly to that field. Do not invent price, year, mileage, body-style, history, or other hard filters the user didn't state or clearly imply.
+2. Put remaining qualitative preferences into `goals`; goals influence relevance and ranking but are not hard exclusions — they never determine which vehicles are eligible.
+3. If any goal implies a vehicle class, lifestyle use case, or suitability judgment (family, towing, commuting, off-road, teen driver, and similar), resolve it into a real, comma-separated model list and pass it in the `model` field, every time — this model list is a hard eligibility filter, unlike `goals`; `bodyType` and `goals` alone can't enforce which models actually suit the need, and results will skew toward price/mileage instead of genuine fit.
 4. If a reliable resolution isn't possible, use the closest literal field and tell the user precision is reduced. Never guess or silently discard the requirement.
 
 Examples:
@@ -96,7 +96,7 @@ Set priorityAxis based on what the user is actually optimizing for: "cheapest"/"
 
 LOCATION HANDLING
 
-A ZIP anchors a local search. Validate a user-provided ZIP before calling — if it's invalid or not a real US ZIP, ask for a corrected one rather than substituting another location yourself. A named city with no ZIP has no dedicated field on this tool — if the city/state is unambiguous, resolve it to a real, representative central ZIP yourself and disclose the ZIP used, the same way you'd resolve "large SUV" into real model names. If the city or state is ambiguous (Portland, Springfield, Columbus, and similar), ask which one before searching rather than guessing. A named state with no ZIP searches that whole state — disclosed to the user as broader than a local search, never presented as if it were local. No location at all searches nationwide — same disclosure. Never silently narrow or widen scope without saying so.
+A ZIP anchors a local search, defaulting to a 50-mile radius when none is specified; if results are thin it may widen to 100 miles automatically, disclosed in the result — see AUTOMATIC WIDENING. Validate a user-provided ZIP before calling — if it's invalid or not a real US ZIP, ask for a corrected one rather than substituting another location yourself. A named city with no ZIP has no dedicated field on this tool — if the city/state is unambiguous, resolve it to a real, representative central ZIP yourself and disclose the ZIP used, the same way you'd resolve "large SUV" into real model names. If the city or state is ambiguous (Portland, Springfield, Columbus, and similar), ask which one before searching rather than guessing. A named state with no ZIP searches that whole state — disclosed to the user as broader than a local search, never presented as if it were local. No location at all searches nationwide — same disclosure. Never silently narrow or widen scope without saying so.
 
 AUTOMATIC WIDENING
 
@@ -110,9 +110,9 @@ PRESENTING RESULTS
 
 Two links belong on every result.
 
-1. THE LISTING LINK. Include each result's own link by default. For virtually every result that is the Edmunds link (\`affiliateUrl\`) — the only link that supports this business. Never substitute a dealer's own site, Carfax, Autolist, or any other URL instead of it, even if another link looks cleaner or more direct. Exception: when \`affiliateUrl\` is null (Carvana-sourced listings only, never on Edmunds), use \`dealerListingUrl\` instead. Where format allows a label, "Check availability on Edmunds" is preferred — but showing the link matters more than the exact wording.
+1. THE LISTING LINK. Include each result's own link by default. For virtually every result that is the Edmunds link (`affiliateUrl`) — the only link that supports this business. Never substitute a dealer's own site, Carfax, Autolist, or any other URL instead of it, even if another link looks cleaner or more direct. Exception: when `affiliateUrl` is null (Carvana-sourced listings only, never on Edmunds), use `dealerListingUrl` instead. Where format allows a label, "Check availability on Edmunds" is preferred — but showing the link matters more than the exact wording.
 
-2. THE FALLBACK LINK. Include \`affiliateFallbackUrl\` alongside the listing link on every result. State it distinctly, e.g. "if that Edmunds listing is no longer available, see similar options here: [link]" — don't fold it into the listing link as if the two were the same thing.`;
+2. THE FALLBACK LINK. Include `affiliateFallbackUrl` alongside the listing link on every result. State it distinctly, e.g. "if that Edmunds listing is no longer available, see similar options here: [link]" — don't fold it into the listing link as if the two were the same thing.`;
 
 const FindMatchingVehicleInput = z.object({
   priceMax: z.number().optional().describe("Maximum price in USD. A hard ceiling — never send a value higher than what the user actually stated."),
