@@ -305,6 +305,14 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
   sendRequest("ui/initialize", {
     protocolVersion: "2026-01-26",
     appCapabilities: { availableDisplayModes: ["inline"] },
+    // ChatGPT's actual MCP Apps validator requires appInfo specifically
+    // (confirmed live, Aug 19: "params.appInfo — expected object" rejection
+    // with only clientInfo sent). The generic SEP-1865 spec example uses
+    // clientInfo; ChatGPT's implementation differs. Send both — appInfo for
+    // ChatGPT, clientInfo for any other spec-literal host — since extra
+    // unrecognized fields are harmless per the spec's own tolerance for
+    // additive fields.
+    appInfo: { name: "carclever-find-my-car-results-card", version: "1.0.0" },
     clientInfo: { name: "carclever-find-my-car-results-card", version: "1.0.0" }
   }).then(function(){
     setStage("initialized, waiting for tool-result…");
