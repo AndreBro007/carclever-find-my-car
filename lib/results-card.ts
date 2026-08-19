@@ -279,6 +279,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     var listingType = c.condition && c.condition.cpo ? "CPO" : (c.condition && c.condition.inventoryType ? c.condition.inventoryType.toUpperCase() : "LISTING");
     var drivetrain = c.powertrain && c.powertrain.drivetrain;
     var vinVerified = badges.indexOf("vin-verified") !== -1;
+    var exteriorColor = c.detail && c.detail.exteriorColor;
     var photo = proxiedPhoto(media.primaryImage);
     var isCarvana = links.isCarvana;
     var primaryUrl = isCarvana ? links.dealerListingUrl : (links.affiliateUrl || links.dealerListingUrl);
@@ -344,7 +345,19 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
         '<h3 class="cc-title">' + esc(title) + "</h3>" +
         matchRow +
         '<div class="cc-price">' + esc(money(listing.price)) + "</div>" +
-        '<div class="cc-facts">' + esc(miles(listing.mileage)) + (location ? " \\u00b7 " + esc(location) : "") + (drivetrain ? " \\u00b7 " + esc(drivetrain) : "") + (vinVerified ? " \\u00b7 VIN \\u2713" : "") + "</div>" +
+        (function(){
+          var extras = [];
+          // Exterior color only when there's no photo to show it visually
+          // — redundant next to a real photo, genuinely useful as a
+          // fallback when the visual channel is missing (André's call,
+          // Aug 19: photo already tells the color story better than text
+          // when present).
+          if (!photo && exteriorColor) extras.push(esc(exteriorColor));
+          if (drivetrain) extras.push(esc(drivetrain));
+          if (vinVerified) extras.push("VIN \\u2713");
+          var extrasStr = extras.length ? " \\u00b7 " + extras.join(" \\u00b7 ") : "";
+          return '<div class="cc-facts">' + esc(miles(listing.mileage)) + (location ? " \\u00b7 " + esc(location) : "") + extrasStr + "</div>";
+        })() +
         (listing.dealer ? '<div class="cc-dealer">' + esc(listing.dealer) + "</div>" : "") +
         (chips ? '<div class="cc-chips">' + chips + "</div>" : "") +
         ctaBlock +
