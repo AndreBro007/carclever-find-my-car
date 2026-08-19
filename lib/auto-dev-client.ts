@@ -341,9 +341,16 @@ export async function searchListingsLean(query: ListingsQuery): Promise<Listings
     const listings = (outcome.data.data ?? [])
       .map(leanRowToListing)
       .filter((l): l is AutoDevListing => l !== null);
+    // Second Auto.dev total-metadata bug (SYS-20260819-007): with a zip +
+    // year-range + multi-word model together, Auto.dev returns a genuine
+    // but wrong total (0, or lower than the real row count) rather than
+    // omitting the field. total < actual rows is logically impossible for
+    // a real count, so treat it the same as the missing-field case: unknown.
+    const rawTotal = typeof outcome.data.total === "number" ? outcome.data.total : null;
+    const total = rawTotal != null && rawTotal < listings.length ? null : rawTotal;
     return {
       data: listings,
-      total: typeof outcome.data.total === "number" ? outcome.data.total : null,
+      total,
     };
   }
 
