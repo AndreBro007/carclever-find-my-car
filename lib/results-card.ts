@@ -36,58 +36,75 @@ export function buildResultsCardHtml(): string {
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <style>
 :root{
-  --cc-bg-0:#08182d;
-  --cc-bg-1:#0b2444;
-  --cc-card:#101827;
-  --cc-card-2:#121d2f;
-  --cc-border:rgba(255,255,255,.11);
-  --cc-text:#f7f9fc;
-  --cc-muted:#a8b5c8;
-  --cc-subtle:#74849b;
-  --cc-green:#34d399;
-  --cc-green-bg:rgba(52,211,153,.12);
-  --cc-amber:#f4c96b;
-  --cc-amber-bg:rgba(244,201,107,.12);
-  --cc-button:#f8fafc;
-  --cc-button-text:#0b1320;
+  /* color-scheme lets light-dark() below follow the iframe's actual
+     rendered scheme (host-controlled) automatically — one set of rules,
+     no separate light/dark build, per André's "don't have to as long as
+     it works in both" ask. Palette matches the flagship CarClever app's
+     card language (slate/navy dark, white/slate-100 light; amber "match"
+     pill + green score text; blue dealer-name link) rather than the
+     original green-badge placeholder palette. */
+  color-scheme: light dark;
+  --cc-shell-bg-a: light-dark(#eef2f8, #0b2444);
+  --cc-shell-bg-b: light-dark(#f8fafc, #08182d);
+  --cc-shell-border: light-dark(rgba(15,23,42,.08), rgba(255,255,255,.07));
+  --cc-card-a: light-dark(#ffffff, #121d2f);
+  --cc-card-b: light-dark(#ffffff, #101827);
+  --cc-card-border: light-dark(rgba(15,23,42,.10), rgba(255,255,255,.11));
+  --cc-text: light-dark(#0b1320, #f7f9fc);
+  --cc-muted: light-dark(#5b6b82, #a8b5c8);
+  --cc-subtle: light-dark(#8592a6, #74849b);
+  --cc-brand: light-dark(#2b4f7a, #dbe8f8);
+  --cc-link: light-dark(#2563eb, #7db4ff);
+  /* Amber "match" pill + green score number, matching the flagship's
+     STRONG DEAL badge / green DEAL SCORE digits rather than a solid
+     green pill. */
+  --cc-amber: light-dark(#a5670a, #f4c96b);
+  --cc-amber-bg: light-dark(rgba(244,201,107,.22), rgba(244,201,107,.14));
+  --cc-amber-border: light-dark(rgba(165,103,10,.30), rgba(244,201,107,.35));
+  --cc-green: light-dark(#0f9d58, #34d399);
+  --cc-green-bg: light-dark(rgba(15,157,88,.12), rgba(52,211,153,.12));
+  --cc-green-border: light-dark(rgba(15,157,88,.22), rgba(52,211,153,.20));
+  --cc-button-bg: light-dark(#0b1320, #f8fafc);
+  --cc-button-text: light-dark(#f8fafc, #0b1320);
+  --cc-photo-bg: light-dark(#e5e9f0, #1a2638);
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif);color:var(--color-text-primary,var(--cc-text))}
 #cc-root{padding:2px}
 .cc-shell{
   color:var(--cc-text);
-  background:linear-gradient(135deg,var(--cc-bg-1),var(--cc-bg-0) 68%);
-  border:1px solid rgba(255,255,255,.07);
+  background:linear-gradient(135deg,var(--cc-shell-bg-a),var(--cc-shell-bg-b) 68%);
+  border:1px solid var(--cc-shell-border);
   border-radius:16px;
   padding:12px 0 10px;
   overflow:hidden;
 }
 .cc-header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding:0 14px 10px}
-.cc-brand{font-size:10.5px;font-weight:700;letter-spacing:.02em;color:#dbe8f8;margin-bottom:4px}
-.cc-scale{font-size:13.5px;line-height:1.2;font-weight:700;letter-spacing:-.02em}
+.cc-brand{font-size:10.5px;font-weight:700;letter-spacing:.02em;color:var(--cc-brand);margin-bottom:4px}
+.cc-scale{font-size:13.5px;line-height:1.2;font-weight:700;letter-spacing:-.02em;color:var(--cc-text)}
 .cc-sub{font-size:10px;color:var(--cc-subtle);white-space:nowrap;padding-bottom:1px}
 .cc-carousel{display:flex;gap:9px;overflow-x:auto;padding:1px 14px 8px;scrollbar-width:none}
 .cc-carousel::-webkit-scrollbar{display:none}
-.cc-card{flex:0 0 min(76vw,240px);background:linear-gradient(180deg,var(--cc-card-2),var(--cc-card));border:1px solid var(--cc-border);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 18px rgba(0,0,0,.18)}
-.cc-photo-wrap{height:120px;position:relative;overflow:hidden;background:#1a2638}
+.cc-card{flex:0 0 min(76vw,240px);background:linear-gradient(180deg,var(--cc-card-a),var(--cc-card-b));border:1px solid var(--cc-card-border);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 18px rgba(0,0,0,.10)}
+.cc-photo-wrap{height:120px;position:relative;overflow:hidden;background:var(--cc-photo-bg)}
 .cc-photo{width:100%;height:100%;object-fit:cover;display:block}
-.cc-photo-fallback{display:flex;align-items:center;justify-content:center;height:100%;color:var(--cc-subtle);font-size:11px;background:linear-gradient(135deg,#263b57,#121c2b)}
+.cc-photo-fallback{display:flex;align-items:center;justify-content:center;height:100%;color:var(--cc-subtle);font-size:11px;background:var(--cc-photo-bg)}
 .cc-badges{position:absolute;top:8px;left:8px;right:8px;display:flex;justify-content:space-between;gap:6px}
-.cc-type,.cc-match{border-radius:999px;border:1px solid rgba(255,255,255,.16);font-size:9.5px;line-height:1;padding:4px 7px;font-weight:700}
-.cc-type{background:rgba(8,18,31,.82);color:#edf4fc;text-transform:uppercase;letter-spacing:.04em}
-.cc-match{background:rgba(12,40,32,.9);border-color:rgba(52,211,153,.35);color:#b9f4d8}
-.cc-match.is-closest{background:rgba(58,45,18,.92);border-color:rgba(244,201,107,.35);color:#ffe4a4}
+.cc-type{border-radius:999px;border:1px solid rgba(255,255,255,.16);font-size:9.5px;line-height:1;padding:4px 7px;font-weight:700;background:rgba(8,18,31,.82);color:#edf4fc;text-transform:uppercase;letter-spacing:.04em}
 .cc-body{padding:10px 10px 9px;display:flex;flex-direction:column;flex:1;min-width:0}
-.cc-title{font-size:13.5px;line-height:1.2;font-weight:700;margin:0 0 6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:32px}
-.cc-price{font-size:20px;line-height:1;font-weight:800;letter-spacing:-.03em}
+.cc-title{font-size:13.5px;line-height:1.2;font-weight:700;margin:0 0 6px;color:var(--cc-text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:32px}
+.cc-match-row{display:flex;align-items:center;gap:6px;margin-bottom:7px}
+.cc-match{border-radius:6px;font-size:9.5px;line-height:1;padding:4px 7px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;background:var(--cc-amber-bg);border:1px solid var(--cc-amber-border);color:var(--cc-amber)}
+.cc-score{font-size:11px;font-weight:800;color:var(--cc-green)}
+.cc-price{font-size:20px;line-height:1;font-weight:800;letter-spacing:-.03em;color:var(--cc-text)}
 .cc-facts{font-size:10.5px;color:var(--cc-muted);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cc-dealer{font-size:10px;color:var(--cc-subtle);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc-dealer{font-size:10px;color:var(--cc-link);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cc-chips{display:flex;gap:5px;flex-wrap:nowrap;overflow:hidden;margin-top:7px;min-height:20px}
-.cc-chip{display:inline-flex;align-items:center;height:20px;padding:0 6px;border-radius:6px;background:var(--cc-green-bg);border:1px solid rgba(52,211,153,.2);color:#c8f6df;font-size:9.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cc-chip.is-unverified{background:var(--cc-amber-bg);border-color:rgba(244,201,107,.22);color:#f5ddb0}
+.cc-chip{display:inline-flex;align-items:center;height:20px;padding:0 6px;border-radius:6px;background:var(--cc-green-bg);border:1px solid var(--cc-green-border);color:var(--cc-green);font-size:9.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc-chip.is-unverified{background:var(--cc-amber-bg);border-color:var(--cc-amber-border);color:var(--cc-amber)}
 .cc-cta{margin-top:auto;padding-top:8px}
-.cc-primary{all:unset;box-sizing:border-box;cursor:pointer;width:100%;min-height:36px;border-radius:9px;background:var(--cc-button);color:var(--cc-button-text);display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 10px;font-size:11px;font-weight:800}
-.cc-provider{font-size:9.2px;font-weight:700;color:#4c5f79}
+.cc-primary{all:unset;box-sizing:border-box;cursor:pointer;width:100%;min-height:36px;border-radius:9px;background:var(--cc-button-bg);color:var(--cc-button-text);display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 10px;font-size:11px;font-weight:800}
+.cc-provider{font-size:9.2px;font-weight:700;color:var(--cc-subtle)}
 .cc-footer{display:flex;justify-content:space-between;gap:12px;padding:6px 14px 0;color:#788aa4;font-size:8.8px;line-height:1.3}
 .cc-loading{padding:20px 14px;font-size:12px;color:var(--cc-subtle)}
 .cc-loading-stage{padding:2px 14px 0;font-size:10px;color:#4c5f79}
@@ -191,10 +208,16 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
   }
 
   function scaleHeaderText(meta){
+    // corpusSizeApprox is already human-formatted prose from the server
+    // (e.g. "3.6 million" or the fallback "several million") — not a raw
+    // number, confirmed against lib/corpus-count.ts. Use it as-is; only
+    // totalMatches is a real number that needs compactNum. Running
+    // corpusSizeApprox through the numeric formatter was the cause of the
+    // "NaN searched" bug found live (Aug 19).
     var searched = meta && meta.corpusSizeApprox;
     var matched = meta && typeof meta.totalMatches === "number" ? meta.totalMatches : null;
-    if (searched != null && matched != null) return compactNum(searched) + " searched \\u2192 " + compactNum(matched) + " matched";
-    if (searched != null) return compactNum(searched) + " live listings searched";
+    if (searched != null && matched != null) return searched + " searched \\u2192 " + compactNum(matched) + " matched";
+    if (searched != null) return searched + " live listings searched";
     return "Best matches for your search";
   }
 
@@ -220,8 +243,11 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     }).join("");
 
     var closest = badges.indexOf("nhtsa-electrification-confirmed") !== -1 ? false : false; // reserved for future "closest match" signal from server
-    var matchBadge = ranking.matchScore != null
-      ? '<span class="cc-match' + (closest ? " is-closest" : "") + '">' + esc(ranking.matchScore) + " " + esc(ranking.matchScoreLabel || "Match") + "</span>"
+    // Matches the flagship app's badge language (amber "STRONG DEAL"-style
+    // label + a separate green score number) rather than one combined pill —
+    // per André's request to align look/colours/fonts across CarClever apps.
+    var matchRow = ranking.matchScore != null
+      ? '<div class="cc-match-row"><span class="cc-match">' + esc(ranking.matchScoreLabel || (closest ? "Closest match" : "Match")) + '</span><span class="cc-score">' + esc(ranking.matchScore) + '/100</span></div>'
       : "";
 
     var photoBlock = photo
@@ -234,10 +260,11 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 
     return '<article class="cc-card">' +
       '<div class="cc-photo-wrap">' + photoBlock +
-        '<div class="cc-badges"><span class="cc-type">' + esc(listingType) + "</span>" + matchBadge + "</div>" +
+        '<div class="cc-badges"><span class="cc-type">' + esc(listingType) + "</span></div>" +
       "</div>" +
       '<div class="cc-body">' +
         '<h3 class="cc-title">' + esc(title) + "</h3>" +
+        matchRow +
         '<div class="cc-price">' + esc(money(listing.price)) + "</div>" +
         '<div class="cc-facts">' + esc(miles(listing.mileage)) + (location ? " \\u00b7 " + esc(location) : "") + "</div>" +
         (listing.dealer ? '<div class="cc-dealer">' + esc(listing.dealer) + "</div>" : "") +
