@@ -95,7 +95,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 .cc-header-left{min-width:0}
 .cc-header-center{text-align:center;color:var(--cc-subtle);font-size:11.5px;white-space:nowrap}
 .cc-header-right{display:flex;justify-content:flex-end}
-.cc-header-logo{width:22px;height:22px;border-radius:50%;display:block}
+.cc-header-logo{width:28px;height:28px;border-radius:50%;display:block}
 .cc-brand{font-size:10.5px;font-weight:700;letter-spacing:.02em;color:var(--cc-brand);margin-bottom:4px}
 .cc-scale{font-size:13.5px;line-height:1.2;font-weight:700;letter-spacing:-.02em;color:var(--cc-text)}
 .cc-carousel{display:flex;gap:9px;overflow-x:auto;padding:1px 14px 8px;scrollbar-width:none}
@@ -109,13 +109,14 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 .cc-card{flex:0 0 min(76vw,240px);background:linear-gradient(180deg,var(--cc-card-a),var(--cc-card-b));border:1px solid var(--cc-card-border);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 18px rgba(0,0,0,.10)}
 .cc-photo-wrap{height:120px;position:relative;overflow:hidden;background:var(--cc-photo-bg)}
 .cc-photo{width:100%;height:100%;object-fit:cover;display:block}
-.cc-photo-fallback{display:flex;align-items:center;justify-content:center;height:100%;color:var(--cc-subtle);font-size:11px;background:var(--cc-photo-bg)}
+.cc-photo-fallback{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;height:100%;color:var(--cc-subtle);font-size:10.5px;background:var(--cc-photo-bg)}
 .cc-badges{position:absolute;top:8px;left:8px;right:8px;display:flex;justify-content:space-between;gap:6px}
 .cc-type{border-radius:999px;border:1px solid rgba(255,255,255,.16);font-size:9.5px;line-height:1;padding:4px 7px;font-weight:700;background:rgba(8,18,31,.82);color:#edf4fc;text-transform:uppercase;letter-spacing:.04em}
 .cc-body{padding:10px 10px 9px;display:flex;flex-direction:column;flex:1;min-width:0}
 .cc-title{font-size:13.5px;line-height:1.2;font-weight:700;margin:0 0 6px;color:var(--cc-text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:32px}
 .cc-match-row{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:7px}
 .cc-match{border-radius:6px;font-size:9.5px;line-height:1;padding:4px 7px;font-weight:700;text-transform:uppercase;letter-spacing:.03em}
+.cc-fuel{font-size:9.5px;font-weight:700;color:var(--cc-subtle);text-transform:uppercase;letter-spacing:.03em}
 .cc-match.is-strong{background:var(--cc-match-strong-bg);border:1px solid var(--cc-match-strong-border);color:var(--cc-match-strong-text)}
 .cc-match.is-good{background:var(--cc-match-good-bg);border:1px solid var(--cc-match-good-border);color:var(--cc-match-good-text)}
 .cc-match.is-fair{background:var(--cc-match-fair-bg);border:1px solid var(--cc-match-fair-border);color:var(--cc-match-fair-text)}
@@ -127,7 +128,9 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 .cc-chip{display:inline-flex;align-items:center;height:20px;padding:0 6px;border-radius:6px;background:var(--cc-green-bg);border:1px solid var(--cc-green-border);color:var(--cc-green);font-size:9.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cc-chip.is-unverified{background:var(--cc-amber-bg);border-color:var(--cc-amber-border);color:var(--cc-amber)}
 .cc-cta{margin-top:auto;padding-top:8px}
-.cc-primary{all:unset;box-sizing:border-box;cursor:pointer;width:100%;min-height:36px;border-radius:9px;background:var(--cc-button-bg);color:var(--cc-button-text);display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 10px;font-size:11px;font-weight:800}
+.cc-dealer-link{all:unset;display:block;box-sizing:border-box;width:100%;cursor:pointer;text-align:center;margin-top:6px;font-size:10px;color:var(--cc-link)}
+.cc-dealer-link:hover{text-decoration:underline}
+.cc-primary{all:unset;box-sizing:border-box;cursor:pointer;width:100%;min-height:36px;border-radius:9px;background:var(--cc-button-bg);color:var(--cc-button-text);display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 10px;font-size:11.5px;font-weight:600;letter-spacing:.005em}
 .cc-provider{font-size:9.2px;font-weight:700;color:var(--cc-subtle)}
 .cc-footer{display:flex;justify-content:space-between;gap:12px;padding:6px 14px 0;color:var(--cc-subtle);font-size:10.5px;line-height:1.3}
 .cc-loading{padding:20px 14px;font-size:12px;color:var(--cc-subtle)}
@@ -226,6 +229,17 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     if (!url) return null;
     return APP_ORIGIN + "/api/img-proxy?u=" + encodeURIComponent(url);
   }
+  // Small inline SVG car glyph used whenever a photo is missing or fails
+  // to load — no extra network request, no third-party asset/licensing
+  // question. Exposed on window so the inline onerror="" attribute (which
+  // runs outside this closure) can call it directly.
+  var PHOTO_FALLBACK_SVG = '<svg viewBox="0 0 64 40" width="40" height="25" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M6 28h52M10 28l4-11c1-3 3-4 6-4h24c3 0 5 1 6 4l4 11" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="30" r="4.5" stroke="currentColor" stroke-width="2.4"/><circle cx="46" cy="30" r="4.5" stroke="currentColor" stroke-width="2.4"/></svg>';
+  window.__ccPhotoFallback = function(imgEl){
+    var div = document.createElement("div");
+    div.className = "cc-photo cc-photo-fallback";
+    div.innerHTML = PHOTO_FALLBACK_SVG + "<span>Photo unavailable</span>";
+    imgEl.replaceWith(div);
+  };
   function openLink(url){
     if (!url) return;
     sendRequest("ui/open-link", { url: url }).catch(function(){ /* host declined or failed; nothing else to do */ });
@@ -286,16 +300,43 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
       : ranking.matchScore >= 90 ? "strong"
       : ranking.matchScore >= 80 ? "good"
       : "fair";
-    var matchRow = matchTier
-      ? '<div class="cc-match-row"><span class="cc-match is-' + matchTier + '">' + esc(ranking.matchScoreLabel || (closest ? "Closest match" : "Match")) + "</span></div>"
+    // Fuel type: real, already-computed field (c.detail.fuelTypeDisplay,
+    // includes the NHTSA electrification cross-check), placed where the
+    // raw score number used to sit — André's request, and fuel type is a
+    // real decision factor. Suppressed only for plain "Gasoline" (the
+    // unremarkable default) to avoid clutter; shown for anything else
+    // (Hybrid, Plug-In Hybrid, Electric, Diesel).
+    var fuelDisplay = c.detail && c.detail.fuelTypeDisplay;
+    var fuelBadge = fuelDisplay && String(fuelDisplay).toLowerCase() !== "gasoline"
+      ? '<span class="cc-fuel">' + esc(fuelDisplay) + "</span>"
+      : "";
+    var matchRow = (matchTier || fuelBadge)
+      ? '<div class="cc-match-row">' +
+          (matchTier ? '<span class="cc-match is-' + matchTier + '">' + esc(ranking.matchScoreLabel || (closest ? "Closest match" : "Match")) + "</span>" : "<span></span>") +
+          fuelBadge +
+        "</div>"
       : "";
 
+    // Inline SVG placeholder (see window.__ccPhotoFallback above) instead
+    // of plain grey text when no photo is present or a photo URL fails to
+    // load after render.
     var photoBlock = photo
-      ? '<img class="cc-photo" src="' + esc(photo) + '" alt="' + esc(title) + '" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement(\\'div\\'),{className:\\'cc-photo cc-photo-fallback\\',textContent:\\'Photo unavailable\\'}))"/>'
-      : '<div class="cc-photo cc-photo-fallback">Photo unavailable</div>';
+      ? '<img class="cc-photo" src="' + esc(photo) + '" alt="' + esc(title) + '" loading="lazy" onerror="window.__ccPhotoFallback(this)"/>'
+      : '<div class="cc-photo cc-photo-fallback">' + PHOTO_FALLBACK_SVG + "<span>Photo unavailable</span></div>";
+
+    // Secondary "view on dealer site" link — real, already-resolved field
+    // (listing.resolvedDestination), offered alongside the primary Edmunds
+    // CTA rather than replacing it, since some buyers prefer going direct
+    // to the dealer's own page. Only shown when it's a distinct URL from
+    // the primary CTA (skips the Carvana case, where dealerListingUrl
+    // already IS the primary).
+    var dealerSiteUrl = listing.resolvedDestination;
+    var dealerLinkBlock = (dealerSiteUrl && dealerSiteUrl !== primaryUrl)
+      ? '<button type="button" class="cc-dealer-link" data-url="' + esc(dealerSiteUrl) + '">See dealer listing</button>'
+      : "";
 
     var ctaBlock = primaryUrl
-      ? '<div class="cc-cta"><button type="button" class="cc-primary" data-url="' + esc(primaryUrl) + '"><span>' + esc(ctaLabel) + '</span><span class="cc-provider">' + esc(providerLabel) + "</span></button></div>"
+      ? '<div class="cc-cta"><button type="button" class="cc-primary" data-url="' + esc(primaryUrl) + '"><span>' + esc(ctaLabel) + '</span><span class="cc-provider">' + esc(providerLabel) + "</span></button>" + dealerLinkBlock + "</div>"
       : "";
 
     return '<article class="cc-card">' +
@@ -339,10 +380,10 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
           : "") +
       "</div>" +
       '<footer class="cc-footer"><span>Swipe or use arrows for more \\u2192</span><span>' +
-      (hasAffiliate ? "Dealer links via Edmunds \\u00b7 Paid link" : "Current dealer listings") +
+      (hasAffiliate ? "Dealer links via Edmunds \\u00b7 Affiliate link" : "Current dealer listings") +
       "</span></footer></section>";
     root.innerHTML = html;
-    root.querySelectorAll(".cc-primary").forEach(function(btn){
+    root.querySelectorAll(".cc-primary, .cc-dealer-link").forEach(function(btn){
       btn.addEventListener("click", function(){ openLink(btn.getAttribute("data-url")); });
     });
     // Prev/next nav for screens without swipe/trackpad gestures - same
