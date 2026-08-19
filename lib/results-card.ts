@@ -88,10 +88,10 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
   background:linear-gradient(135deg,var(--cc-shell-bg-a),var(--cc-shell-bg-b) 68%);
   border:1px solid var(--cc-shell-border);
   border-radius:16px;
-  padding:12px 0 10px;
+  padding:8px 0 10px;
   overflow:hidden;
 }
-.cc-header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;padding:9px 14px 8px}
+.cc-header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;padding:5px 14px 6px}
 .cc-header-left{min-width:0}
 .cc-header-center{text-align:center;color:var(--cc-subtle);font-size:11.5px;white-space:nowrap}
 .cc-header-right{display:flex;align-items:center;gap:6px;justify-content:flex-end}
@@ -234,14 +234,13 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
   // to load — no extra network request, no third-party asset/licensing
   // question. Exposed on window so the inline onerror="" attribute (which
   // runs outside this closure) can call it directly.
-  // Filled silhouette (body + faded window band + wheels) rather than a
-  // thin wireframe outline — reads as an intentional, branded placeholder
-  // rather than a "broken image" icon.
-  var PHOTO_FALLBACK_SVG = '<svg viewBox="0 0 100 60" width="54" height="32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
-    '<path d="M8 42c0-3 2-5 5-6l6-14c2-5 6-8 12-8h30c6 0 10 3 12 8l6 14c3 1 5 3 5 6v5c0 2-2 4-4 4h-4c-1 4-4 7-8 7s-7-3-8-7H40c-1 4-4 7-8 7s-7-3-8-7h-4c-2 0-4-2-4-4v-5z" fill="currentColor" opacity=".38"/>' +
-    '<path d="M23 22h54l-5-11c-1-3-4-5-8-5H36c-4 0-7 2-8 5z" fill="currentColor" opacity=".6"/>' +
-    '<circle cx="28" cy="46" r="7" fill="currentColor"/>' +
-    '<circle cx="72" cy="46" r="7" fill="currentColor"/>' +
+  // Standard "no image" convention (camera body + slashed lens) rather
+  // than a car silhouette — more universally recognized as "no photo"
+  // than a custom icon, per André's request.
+  var PHOTO_FALLBACK_SVG = '<svg viewBox="0 0 24 24" width="30" height="30" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+    '<path d="M4 7h2.2l1-1.6c.3-.5.9-.9 1.5-.9h6.6c.6 0 1.2.4 1.5.9l1 1.6H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>' +
+    '<circle cx="12" cy="13.5" r="3.5" stroke="currentColor" stroke-width="1.6"/>' +
+    '<path d="M2.5 2.5l19 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>' +
   "</svg>";
   window.__ccPhotoFallback = function(imgEl){
     var div = document.createElement("div");
