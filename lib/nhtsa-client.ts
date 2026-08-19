@@ -46,6 +46,18 @@ export interface NhtsaElectrificationResult {
   modelYear: string | null;
   /** True when NHTSA reports Make disagreeing with what the listing claims. */
   makeConflict: boolean;
+  /** True when NHTSA's model string disagrees with what the listing claims
+   * (loose/prefix-tolerant compare, same reasoning as post-verify.ts's
+   * model matching — cross-API model-family naming varies, e.g. "F250
+   * Super Duty" vs "Super Duty F-250"). */
+  modelConflict: boolean;
+  /** Answers the powertrain.type:"unknown" gap (SYS-20260819 testing,
+   * Test 5) — NHTSA's own cylinder/drivetrain read, independent of
+   * Auto.dev's field. Cross-checked, not blindly trusted; disagreement is
+   * surfaced, never silently overrides Auto.dev's own display value. */
+  engineCylinders: string | null;
+  driveType: string | null;
+  cylindersConflict: boolean;
 }
 
 /**
@@ -57,6 +69,8 @@ export interface NhtsaElectrificationResult {
 export async function decodeNhtsaElectrification(
   vin: string,
   claimedMake?: string | null,
+  claimedModel?: string | null,
+  claimedCylinders?: number | null,
 ): Promise<NhtsaElectrificationResult | null> {
   try {
     const res = await fetch(`${NHTSA_BASE_URL}/${encodeURIComponent(vin)}?format=json`, {
@@ -75,17 +89,36 @@ export async function decodeNhtsaElectrification(
     if (errorCode !== "0") return null;
 
     const make: string | null = r.Make || null;
+    const model: string | null = r.Model || null;
+    const engineCylinders: string | null = r.EngineCylinders || null;
+
     const makeConflict =
       !!claimedMake && !!make && claimedMake.trim().toUpperCase() !== make.trim().toUpperCase();
+    // Prefix-tolerant, same reasoning as post-verify.ts/match-score.ts —
+    // cross-API model-family naming varies (SYS-20260812-039), exact
+    // equality would produce false conflicts on genuinely matching cars.
+    const modelConflict =
+      !!claimedModel &&
+      !!model &&
+      !model.trim().toUpperCase().startsWith(claimedModel.trim().toUpperCase()) &&
+      !claimedModel.trim().toUpperCase().startsWith(model.trim().toUpperCase());
+    const cylindersConflict =
+      claimedCylinders != null &&
+      engineCylinders != null &&
+      Number(engineCylinders) !== claimedCylinders;
 
     return {
       electrificationLevel: r.ElectrificationLevel || null,
       fuelTypePrimary: r.FuelTypePrimary || null,
       fuelTypeSecondary: r.FuelTypeSecondary || null,
       make,
-      model: r.Model || null,
+      model,
       modelYear: r.ModelYear || null,
       makeConflict,
+      modelConflict,
+      engineCylinders,
+      driveType: r.DriveType || null,
+      cylindersConflict,
     };
   } catch {
     // Timeout, network error, or malformed JSON — never let this block or
