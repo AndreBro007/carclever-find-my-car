@@ -128,11 +128,12 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 .cc-chip{display:inline-flex;align-items:center;height:20px;padding:0 6px;border-radius:6px;background:var(--cc-green-bg);border:1px solid var(--cc-green-border);color:var(--cc-green);font-size:9.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cc-chip.is-unverified{background:var(--cc-amber-bg);border-color:var(--cc-amber-border);color:var(--cc-amber)}
 .cc-cta{margin-top:auto;padding-top:8px}
-.cc-dealer-link{all:unset;display:block;box-sizing:border-box;width:100%;cursor:pointer;text-align:center;margin-top:6px;font-size:10px;color:var(--cc-link)}
-.cc-dealer-link:hover{text-decoration:underline}
 .cc-primary{all:unset;box-sizing:border-box;cursor:pointer;width:100%;min-height:36px;border-radius:9px;background:var(--cc-button-bg);color:var(--cc-button-text);display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 10px;font-size:11.5px;font-weight:600;letter-spacing:.005em}
 .cc-provider{font-size:9.2px;font-weight:700;color:var(--cc-subtle)}
 .cc-footer{display:flex;justify-content:space-between;gap:12px;padding:6px 14px 0;color:var(--cc-subtle);font-size:10.5px;line-height:1.3}
+.cc-footer-center{text-align:center;padding:4px 14px 2px}
+.cc-similar-link{all:unset;cursor:pointer;font-size:11.5px;font-weight:700;color:var(--cc-link)}
+.cc-similar-link:hover{text-decoration:underline}
 .cc-loading{padding:20px 14px;font-size:12px;color:var(--cc-subtle)}
 .cc-loading-stage{padding:2px 14px 0;font-size:10px;color:#4c5f79}
 </style>
@@ -324,19 +325,8 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
       ? '<img class="cc-photo" src="' + esc(photo) + '" alt="' + esc(title) + '" loading="lazy" onerror="window.__ccPhotoFallback(this)"/>'
       : '<div class="cc-photo cc-photo-fallback">' + PHOTO_FALLBACK_SVG + "<span>Photo unavailable</span></div>";
 
-    // Secondary "view on dealer site" link — real, already-resolved field
-    // (listing.resolvedDestination), offered alongside the primary Edmunds
-    // CTA rather than replacing it, since some buyers prefer going direct
-    // to the dealer's own page. Only shown when it's a distinct URL from
-    // the primary CTA (skips the Carvana case, where dealerListingUrl
-    // already IS the primary).
-    var dealerSiteUrl = listing.resolvedDestination;
-    var dealerLinkBlock = (dealerSiteUrl && dealerSiteUrl !== primaryUrl)
-      ? '<button type="button" class="cc-dealer-link" data-url="' + esc(dealerSiteUrl) + '">See dealer listing</button>'
-      : "";
-
     var ctaBlock = primaryUrl
-      ? '<div class="cc-cta"><button type="button" class="cc-primary" data-url="' + esc(primaryUrl) + '"><span>' + esc(ctaLabel) + '</span><span class="cc-provider">' + esc(providerLabel) + "</span></button>" + dealerLinkBlock + "</div>"
+      ? '<div class="cc-cta"><button type="button" class="cc-primary" data-url="' + esc(primaryUrl) + '"><span>' + esc(ctaLabel) + '</span><span class="cc-provider">' + esc(providerLabel) + "</span></button></div>"
       : "";
 
     return '<article class="cc-card">' +
@@ -370,7 +360,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
         '<div class="cc-header-left"><div class="cc-brand">CarClever \\u00b7 Find My Car</div>' +
         '<div class="cc-scale">' + esc(scaleHeaderText(meta)) + "</div></div>" +
         '<div class="cc-header-center">Top ' + visible.length + " shown</div>" +
-        '<div class="cc-header-right"><img class="cc-header-logo" src="' + APP_ORIGIN + '/cc-logo-round.png" alt="CarClever" width="22" height="22"/></div>' +
+        '<div class="cc-header-right"><img class="cc-header-logo" src="' + APP_ORIGIN + '/cc-logo-round.png" alt="CarClever" width="28" height="28"/></div>' +
       "</header>" +
       '<div class="cc-carousel-wrap">' +
         '<div class="cc-carousel" id="cc-carousel">' + visible.map(cardHtml).join("") + "</div>" +
@@ -379,11 +369,24 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
             '<button type="button" class="cc-nav cc-nav-next" id="cc-nav-next" aria-label="Next">\\u203a</button>'
           : "") +
       "</div>" +
+      // The center of the footer sits empty between the swipe hint and the
+      // paid-link disclosure — real, useful space. Uses the fallback link
+      // already resolved for the top-shown result (a live Edmunds category
+      // search for that make/model that never dead-ends, per
+      // SYS-20260817-002) as an escape hatch for exactly the case André
+      // hit live: a specific listing not actually carried on Edmunds.
+      // Styled to stand out more than the flanking text, per his request.
+      (function(){
+        var fallback = visible[0] && visible[0].links && visible[0].links.affiliateFallbackUrl;
+        return fallback
+          ? '<div class="cc-footer-center"><button type="button" class="cc-similar-link" data-url="' + esc(fallback) + '">Similar options on Edmunds</button></div>'
+          : "";
+      })() +
       '<footer class="cc-footer"><span>Swipe or use arrows for more \\u2192</span><span>' +
       (hasAffiliate ? "Dealer links via Edmunds \\u00b7 Affiliate link" : "Current dealer listings") +
       "</span></footer></section>";
     root.innerHTML = html;
-    root.querySelectorAll(".cc-primary, .cc-dealer-link").forEach(function(btn){
+    root.querySelectorAll(".cc-primary, .cc-similar-link").forEach(function(btn){
       btn.addEventListener("click", function(){ openLink(btn.getAttribute("data-url")); });
     });
     // Prev/next nav for screens without swipe/trackpad gestures - same
