@@ -90,13 +90,23 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 .cc-provider{font-size:9.2px;font-weight:700;color:#4c5f79}
 .cc-footer{display:flex;justify-content:space-between;gap:12px;padding:6px 14px 0;color:#788aa4;font-size:8.8px;line-height:1.3}
 .cc-loading{padding:20px 14px;font-size:12px;color:var(--cc-subtle)}
+.cc-loading-stage{padding:2px 14px 0;font-size:10px;color:#4c5f79}
 </style>
 </head>
 <body>
-<div id="cc-root"><div class="cc-loading">Loading results…</div></div>
+<div id="cc-root"><div class="cc-loading">Loading results…</div><div class="cc-loading-stage" id="cc-stage">connecting…</div></div>
 <script>
 (function(){
   "use strict";
+  // Catch any uncaught script error and surface it visibly on screen —
+  // otherwise a JS exception before the handshake even starts would leave
+  // the widget silently stuck on "Loading results…" with zero diagnostic
+  // trail anywhere, the exact failure mode this whole block exists to rule
+  // out.
+  window.addEventListener("error", function(e){
+    var stageEl = document.getElementById("cc-stage");
+    if (stageEl) stageEl.textContent = "script error: " + (e && e.message);
+  });
   var APP_ORIGIN = ${JSON.stringify(APP_ORIGIN)};
   var nextId = 1;
   var pending = {};
@@ -118,6 +128,19 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
   function logDiag(msg){
     try { sendNotification("notifications/message", { level: "info", data: "[find-my-car-widget] " + msg }); }
     catch(e) { /* best-effort only */ }
+  }
+  // Real limitation found live (Aug 19): notifications/message delivery to
+  // ChatGPT isn't confirmed to surface anywhere a developer can actually
+  // see it. So the current handshake stage is ALSO shown directly in the
+  // widget's own DOM — visible on screen, no DevTools/host-log access
+  // needed at all. This is the primary diagnostic now; notifications/
+  // message stays as a free secondary channel in case a host does surface it.
+  var currentStage = "connecting…";
+  function setStage(text){
+    currentStage = text;
+    logDiag(text);
+    var el = document.getElementById("cc-stage");
+    if (el) el.textContent = text;
   }
   var gotToolResult = false;
 
@@ -261,8 +284,10 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
   function showFallback(reason){
     var root = document.getElementById("cc-root");
     if (gotToolResult) return; // race: result arrived just as the timeout fired
-    root.innerHTML = '<div class="cc-loading">See results below.</div>';
-    logDiag("fallback shown: " + reason);
+    // Visible, on-screen diagnosis — no DevTools access required to read it.
+    root.innerHTML = '<div class="cc-loading">See results below.</div>' +
+      '<div class="cc-loading-stage">Card widget stopped at: "' + currentStage + '" (' + reason + ')</div>';
+    logDiag("fallback shown: " + reason + ", last stage: " + currentStage);
   }
 
   // Hard timeout: never hang the "Loading results…" state indefinitely. If
@@ -276,20 +301,20 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
   // Handshake: ui/initialize -> wait for host response -> notify initialized.
   // Host then sends ui/notifications/tool-input followed by
   // ui/notifications/tool-result, per SEP-1865 lifecycle.
-  logDiag("sending ui/initialize");
+  setStage("sending ui/initialize…");
   sendRequest("ui/initialize", {
     protocolVersion: "2026-01-26",
     appCapabilities: { availableDisplayModes: ["inline"] },
     clientInfo: { name: "carclever-find-my-car-results-card", version: "1.0.0" }
   }).then(function(){
-    logDiag("ui/initialize acknowledged, sending initialized notification");
+    setStage("initialized, waiting for tool-result…");
     sendNotification("ui/notifications/initialized", {});
   }).catch(function(err){
     // Host didn't complete the handshake as expected — leave the timeout
     // fallback above to fire; the host's own text/structuredContent
     // fallback is still shown in the conversation regardless of what
     // happens in this iframe.
-    logDiag("ui/initialize failed: " + (err && err.message));
+    setStage("ui/initialize request failed: " + (err && err.message));
   });
 
   var origRender = render;
