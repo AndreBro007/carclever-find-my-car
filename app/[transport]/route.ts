@@ -22,6 +22,7 @@ import { decodeNhtsaElectrification, nhtsaIndicatesElectrified, type NhtsaElectr
 import { getCorpusCountForDescription, initCorpusCount } from "@/lib/corpus-count";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting, type CardIntentInput } from "@/lib/qualifier-accounting";
+import { RESULTS_CARD_RESOURCE_URI, buildResultsCardHtml } from "@/lib/results-card";
 
 initCorpusCount();
 
@@ -110,6 +111,8 @@ EMPTY SEARCHES
 If a search still returns nothing after automatic widening, a strict user constraint is never silently relaxed further to fix it. When the tool can genuinely self-correct (for example, an unrecognized model name gets checked against real inventory and corrected), that correction is always disclosed, never silent — treat it as a real fix, not a guess. If nothing can be self-corrected, say plainly that nothing matched, name the limiting constraint if it's clear, and suggest the smallest real adjustment (a higher budget, a wider radius, an additional model) rather than guessing at a workaround yourself.
 
 PRESENTING RESULTS
+
+If a visual result card was already rendered above this response (MCP Apps-capable hosts only), it already shows each result's photo, price, mileage, match score, and its own click-through link — don't restate those details in text. On hosts without a rendered card, or in addition to it, still follow everything below in full; the two links and count text remain required since not every host renders the card.
 
 Two links belong on every result.
 
@@ -482,12 +485,51 @@ async function buildResultCard(
 }
 
 const handler = createMcpHandler((server) => {
+  // MCP Apps (SEP-1865) result-card widget — a STATIC resource, registered
+  // once. Real per-search data is delivered to it client-side via
+  // ui/notifications/tool-result (see lib/results-card.ts); this server-side
+  // registration never re-renders per request. Hosts that don't support MCP
+  // Apps ignore this entirely and fall back to the tool's normal
+  // content/structuredContent response below, unchanged.
+  server.registerResource(
+    "find-my-car-results-card",
+    RESULTS_CARD_RESOURCE_URI,
+    {
+      title: "CarClever - Find My Car results",
+      description: "Compact vehicle result carousel: photo, price, mileage, match score, one Edmunds click-through CTA per card.",
+      mimeType: "text/html;profile=mcp-app",
+      _meta: {
+        ui: {
+          // Photo domains vary per dealer/Auto.dev listing and can't be
+          // enumerated — photos are proxied through our own first-party
+          // origin instead (see app/api/img-proxy/route.ts), so only this
+          // one domain needs declaring here.
+          csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
+          prefersBorder: false,
+        },
+      },
+    },
+    async (uri: URL) => ({
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: "text/html;profile=mcp-app",
+          text: buildResultsCardHtml(),
+        },
+      ],
+    }),
+  );
+
   server.registerTool(
     "find_matching_vehicle",
     {
       description: FIND_MATCHING_VEHICLE_DESCRIPTION(),
       inputSchema: FindMatchingVehicleInput.shape,
       annotations: { readOnlyHint: true, openWorldHint: true },
+      // Per SEP-1865: hosts that don't support MCP Apps ignore this field
+      // and the tool behaves exactly as before (text/structuredContent
+      // only) — this is additive, not a replacement path.
+      _meta: { ui: { resourceUri: RESULTS_CARD_RESOURCE_URI } },
     },
     async (input) => {
       // Anchored before any upstream work so the widening budget accounts for
