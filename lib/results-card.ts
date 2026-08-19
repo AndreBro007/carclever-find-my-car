@@ -82,9 +82,15 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 .cc-header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding:0 14px 10px}
 .cc-brand{font-size:10.5px;font-weight:700;letter-spacing:.02em;color:var(--cc-brand);margin-bottom:4px}
 .cc-scale{font-size:13.5px;line-height:1.2;font-weight:700;letter-spacing:-.02em;color:var(--cc-text)}
-.cc-sub{font-size:10px;color:var(--cc-subtle);white-space:nowrap;padding-bottom:1px}
+.cc-sub{font-size:11.5px;color:var(--cc-subtle);white-space:nowrap;padding-bottom:1px}
 .cc-carousel{display:flex;gap:9px;overflow-x:auto;padding:1px 14px 8px;scrollbar-width:none}
 .cc-carousel::-webkit-scrollbar{display:none}
+.cc-carousel-wrap{position:relative}
+.cc-nav{position:absolute;top:50%;transform:translateY(-50%);width:26px;height:26px;border-radius:999px;border:1px solid var(--cc-card-border);background:var(--cc-card-a);color:var(--cc-text);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.18);font-size:13px;line-height:1;opacity:.92}
+.cc-nav:hover{opacity:1}
+.cc-nav-prev{left:4px}
+.cc-nav-next{right:4px}
+.cc-nav[disabled]{opacity:.25;cursor:default}
 .cc-card{flex:0 0 min(76vw,240px);background:linear-gradient(180deg,var(--cc-card-a),var(--cc-card-b));border:1px solid var(--cc-card-border);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 18px rgba(0,0,0,.10)}
 .cc-photo-wrap{height:120px;position:relative;overflow:hidden;background:var(--cc-photo-bg)}
 .cc-photo{width:100%;height:100%;object-fit:cover;display:block}
@@ -93,19 +99,19 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 .cc-type{border-radius:999px;border:1px solid rgba(255,255,255,.16);font-size:9.5px;line-height:1;padding:4px 7px;font-weight:700;background:rgba(8,18,31,.82);color:#edf4fc;text-transform:uppercase;letter-spacing:.04em}
 .cc-body{padding:10px 10px 9px;display:flex;flex-direction:column;flex:1;min-width:0}
 .cc-title{font-size:13.5px;line-height:1.2;font-weight:700;margin:0 0 6px;color:var(--cc-text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:32px}
-.cc-match-row{display:flex;align-items:center;gap:6px;margin-bottom:7px}
+.cc-match-row{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:7px}
 .cc-match{border-radius:6px;font-size:9.5px;line-height:1;padding:4px 7px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;background:var(--cc-amber-bg);border:1px solid var(--cc-amber-border);color:var(--cc-amber)}
 .cc-score{font-size:11px;font-weight:800;color:var(--cc-green)}
 .cc-price{font-size:20px;line-height:1;font-weight:800;letter-spacing:-.03em;color:var(--cc-text)}
 .cc-facts{font-size:10.5px;color:var(--cc-muted);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cc-dealer{font-size:10px;color:var(--cc-link);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc-dealer{font-size:10px;color:var(--cc-link);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:capitalize}
 .cc-chips{display:flex;gap:5px;flex-wrap:nowrap;overflow:hidden;margin-top:7px;min-height:20px}
 .cc-chip{display:inline-flex;align-items:center;height:20px;padding:0 6px;border-radius:6px;background:var(--cc-green-bg);border:1px solid var(--cc-green-border);color:var(--cc-green);font-size:9.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cc-chip.is-unverified{background:var(--cc-amber-bg);border-color:var(--cc-amber-border);color:var(--cc-amber)}
 .cc-cta{margin-top:auto;padding-top:8px}
 .cc-primary{all:unset;box-sizing:border-box;cursor:pointer;width:100%;min-height:36px;border-radius:9px;background:var(--cc-button-bg);color:var(--cc-button-text);display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 10px;font-size:11px;font-weight:800}
 .cc-provider{font-size:9.2px;font-weight:700;color:var(--cc-subtle)}
-.cc-footer{display:flex;justify-content:space-between;gap:12px;padding:6px 14px 0;color:#788aa4;font-size:8.8px;line-height:1.3}
+.cc-footer{display:flex;justify-content:space-between;gap:12px;padding:6px 14px 0;color:var(--cc-subtle);font-size:10.5px;line-height:1.3}
 .cc-loading{padding:20px 14px;font-size:12px;color:var(--cc-subtle)}
 .cc-loading-stage{padding:2px 14px 0;font-size:10px;color:#4c5f79}
 </style>
@@ -231,6 +237,8 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     var title = [id.year, id.make, id.model, id.trim].filter(Boolean).join(" ");
     var location = [listing.city, listing.state].filter(Boolean).join(", ");
     var listingType = c.condition && c.condition.cpo ? "CPO" : (c.condition && c.condition.inventoryType ? c.condition.inventoryType.toUpperCase() : "LISTING");
+    var drivetrain = c.powertrain && c.powertrain.drivetrain;
+    var vinVerified = badges.indexOf("vin-verified") !== -1;
     var photo = proxiedPhoto(media.primaryImage);
     var isCarvana = links.isCarvana;
     var primaryUrl = isCarvana ? links.dealerListingUrl : (links.affiliateUrl || links.dealerListingUrl);
@@ -266,7 +274,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
         '<h3 class="cc-title">' + esc(title) + "</h3>" +
         matchRow +
         '<div class="cc-price">' + esc(money(listing.price)) + "</div>" +
-        '<div class="cc-facts">' + esc(miles(listing.mileage)) + (location ? " \\u00b7 " + esc(location) : "") + "</div>" +
+        '<div class="cc-facts">' + esc(miles(listing.mileage)) + (location ? " \\u00b7 " + esc(location) : "") + (drivetrain ? " \\u00b7 " + esc(drivetrain) : "") + (vinVerified ? " \\u00b7 VIN \\u2713" : "") + "</div>" +
         (listing.dealer ? '<div class="cc-dealer">' + esc(listing.dealer) + "</div>" : "") +
         (chips ? '<div class="cc-chips">' + chips + "</div>" : "") +
         ctaBlock +
@@ -288,14 +296,39 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
       '<header class="cc-header"><div><div class="cc-brand">CarClever \\u00b7 Find My Car</div>' +
       '<div class="cc-scale">' + esc(scaleHeaderText(meta)) + "</div></div>" +
       '<div class="cc-sub">Top ' + visible.length + " shown</div></header>" +
-      '<div class="cc-carousel">' + visible.map(cardHtml).join("") + "</div>" +
-      '<footer class="cc-footer"><span>Swipe for more \\u2192</span><span>' +
+      '<div class="cc-carousel-wrap">' +
+        '<div class="cc-carousel" id="cc-carousel">' + visible.map(cardHtml).join("") + "</div>" +
+        (visible.length > 1
+          ? '<button type="button" class="cc-nav cc-nav-prev" id="cc-nav-prev" aria-label="Previous">\\u2039</button>' +
+            '<button type="button" class="cc-nav cc-nav-next" id="cc-nav-next" aria-label="Next">\\u203a</button>'
+          : "") +
+      "</div>" +
+      '<footer class="cc-footer"><span>Swipe or use arrows for more \\u2192</span><span>' +
       (hasAffiliate ? "Dealer links via Edmunds \\u00b7 Paid link" : "Current dealer listings") +
       "</span></footer></section>";
     root.innerHTML = html;
     root.querySelectorAll(".cc-primary").forEach(function(btn){
       btn.addEventListener("click", function(){ openLink(btn.getAttribute("data-url")); });
     });
+    // Prev/next nav for screens without swipe/trackpad gestures - same
+    // carousel, just an alternate way to scroll it. Cheap, no library.
+    var carousel = document.getElementById("cc-carousel");
+    var prevBtn = document.getElementById("cc-nav-prev");
+    var nextBtn = document.getElementById("cc-nav-next");
+    if (carousel && prevBtn && nextBtn) {
+      var scrollStep = function(){
+        var firstCard = carousel.querySelector(".cc-card");
+        return firstCard ? firstCard.getBoundingClientRect().width + 9 : 240;
+      };
+      prevBtn.addEventListener("click", function(){ carousel.scrollBy({ left: -scrollStep(), behavior: "smooth" }); });
+      nextBtn.addEventListener("click", function(){ carousel.scrollBy({ left: scrollStep(), behavior: "smooth" }); });
+      var updateNavState = function(){
+        prevBtn.disabled = carousel.scrollLeft <= 4;
+        nextBtn.disabled = carousel.scrollLeft >= carousel.scrollWidth - carousel.clientWidth - 4;
+      };
+      carousel.addEventListener("scroll", updateNavState);
+      updateNavState();
+    }
     reportSize();
   }
 
