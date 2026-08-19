@@ -111,6 +111,16 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
   function sendNotification(method, params){
     window.parent.postMessage({ jsonrpc: "2.0", method: method, params: params || {} }, "*");
   }
+  // Diagnostic logging via the spec's own log channel (notifications/message)
+  // so a host-side rendering issue is debuggable from the host's own tool/
+  // widget logs, without needing to dig into iframe-scoped DevTools console
+  // context. Cheap, always-on, no PII.
+  function logDiag(msg){
+    try { sendNotification("notifications/message", { level: "info", data: "[find-my-car-widget] " + msg }); }
+    catch(e) { /* best-effort only */ }
+  }
+  var gotToolResult = false;
+
   window.addEventListener("message", function(event){
     var data = event.data;
     if (!data || typeof data !== "object") return;
@@ -122,6 +132,8 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
       return;
     }
     if (data.method === "ui/notifications/tool-result") {
+      gotToolResult = true;
+      logDiag("tool-result received, rendering");
       renderResult(data.params || {});
     }
   });
@@ -246,20 +258,45 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     sendNotification("ui/notifications/size-changed", { width: document.body.scrollWidth, height: h });
   }
 
+  function showFallback(reason){
+    var root = document.getElementById("cc-root");
+    if (gotToolResult) return; // race: result arrived just as the timeout fired
+    root.innerHTML = '<div class="cc-loading">See results below.</div>';
+    logDiag("fallback shown: " + reason);
+  }
+
+  // Hard timeout: never hang the "Loading results…" state indefinitely. If
+  // the handshake or tool-result notification doesn't arrive within a few
+  // seconds, fall back to a plain, non-blocking message — the host's own
+  // text/structuredContent response is unaffected either way and remains
+  // the real source of truth for the user.
+  var HANDSHAKE_TIMEOUT_MS = 6000;
+  var timeoutId = setTimeout(function(){ showFallback("handshake/tool-result timeout after " + HANDSHAKE_TIMEOUT_MS + "ms"); }, HANDSHAKE_TIMEOUT_MS);
+
   // Handshake: ui/initialize -> wait for host response -> notify initialized.
   // Host then sends ui/notifications/tool-input followed by
   // ui/notifications/tool-result, per SEP-1865 lifecycle.
+  logDiag("sending ui/initialize");
   sendRequest("ui/initialize", {
     protocolVersion: "2026-01-26",
     appCapabilities: { availableDisplayModes: ["inline"] },
     clientInfo: { name: "carclever-find-my-car-results-card", version: "1.0.0" }
   }).then(function(){
+    logDiag("ui/initialize acknowledged, sending initialized notification");
     sendNotification("ui/notifications/initialized", {});
-  }).catch(function(){
-    // Host didn't complete the handshake as expected — leave the loading
-    // state; the host's own text/structuredContent fallback is still shown
-    // in the conversation regardless of what happens in this iframe.
+  }).catch(function(err){
+    // Host didn't complete the handshake as expected — leave the timeout
+    // fallback above to fire; the host's own text/structuredContent
+    // fallback is still shown in the conversation regardless of what
+    // happens in this iframe.
+    logDiag("ui/initialize failed: " + (err && err.message));
   });
+
+  var origRender = render;
+  render = function(structuredContent){
+    clearTimeout(timeoutId);
+    origRender(structuredContent);
+  };
 })();
 </script>
 </body>

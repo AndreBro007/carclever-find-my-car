@@ -536,7 +536,7 @@ const handler = createMcpHandler((server) => {
     {
       description: FIND_MATCHING_VEHICLE_DESCRIPTION(),
       inputSchema: FindMatchingVehicleInput.shape,
-      annotations: { readOnlyHint: true, openWorldHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: true, destructiveHint: false },
       // Per SEP-1865: hosts that don't support MCP Apps ignore this field
       // and the tool behaves exactly as before (text/structuredContent
       // only) — this is additive, not a replacement path.
@@ -1297,7 +1297,7 @@ const handler = createMcpHandler((server) => {
       description:
         "Fetches additional photos for a specific vehicle by VIN. Lazy/non-blocking — call this after showing initial search results, never before. Each photo is validated independently; a single broken image never affects the rest of the gallery or the vehicle's match quality.",
       inputSchema: { vin: z.string().describe("The vehicle's 17-character VIN, from a prior find_matching_vehicle result.") },
-      annotations: { readOnlyHint: true, openWorldHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: true, destructiveHint: false },
     },
     async ({ vin }) => {
       const photos = await getValidatedPhotos(vin, 5);
@@ -1324,7 +1324,7 @@ const handler = createMcpHandler((server) => {
         model: z.string().describe("Vehicle model name, e.g. Camry."),
         year: z.number().describe("Model year."),
       },
-      annotations: { readOnlyHint: true, openWorldHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: true, destructiveHint: false },
     },
     async ({ vin, make, model, year }) => {
       // No retailListing data available in this call path (only VIN/make/
