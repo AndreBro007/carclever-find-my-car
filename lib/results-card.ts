@@ -64,6 +64,18 @@ export function buildResultsCardHtml(): string {
   --cc-green: light-dark(#0f9d58, #34d399);
   --cc-green-bg: light-dark(rgba(15,157,88,.12), rgba(52,211,153,.12));
   --cc-green-border: light-dark(rgba(15,157,88,.22), rgba(52,211,153,.20));
+  /* Tiered match-quality colors — score-driven internally, not shown as a
+     raw number (see .cc-match variants below and cardHtml's tier logic).
+     Green >=90, amber 80-89, red/rose <80. */
+  --cc-match-strong-bg: light-dark(rgba(15,157,88,.14), rgba(52,211,153,.14));
+  --cc-match-strong-border: light-dark(rgba(15,157,88,.26), rgba(52,211,153,.32));
+  --cc-match-strong-text: light-dark(#0f7a45, #6ee7b7);
+  --cc-match-good-bg: light-dark(rgba(244,201,107,.22), rgba(244,201,107,.14));
+  --cc-match-good-border: light-dark(rgba(165,103,10,.30), rgba(244,201,107,.35));
+  --cc-match-good-text: light-dark(#a5670a, #f4c96b);
+  --cc-match-fair-bg: light-dark(rgba(225,87,87,.14), rgba(248,113,113,.14));
+  --cc-match-fair-border: light-dark(rgba(190,50,50,.26), rgba(248,113,113,.32));
+  --cc-match-fair-text: light-dark(#b23b3b, #fca5a5);
   --cc-button-bg: light-dark(#0b1320, #f8fafc);
   --cc-button-text: light-dark(#f8fafc, #0b1320);
   --cc-photo-bg: light-dark(#e5e9f0, #1a2638);
@@ -79,10 +91,13 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
   padding:12px 0 10px;
   overflow:hidden;
 }
-.cc-header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding:0 14px 10px}
+.cc-header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;padding:8px 14px 10px}
+.cc-header-left{min-width:0}
+.cc-header-center{text-align:center;color:var(--cc-subtle);font-size:11.5px;white-space:nowrap}
+.cc-header-right{display:flex;justify-content:flex-end}
+.cc-header-logo{width:22px;height:22px;border-radius:50%;display:block}
 .cc-brand{font-size:10.5px;font-weight:700;letter-spacing:.02em;color:var(--cc-brand);margin-bottom:4px}
 .cc-scale{font-size:13.5px;line-height:1.2;font-weight:700;letter-spacing:-.02em;color:var(--cc-text)}
-.cc-sub{font-size:11.5px;color:var(--cc-subtle);white-space:nowrap;padding-bottom:1px}
 .cc-carousel{display:flex;gap:9px;overflow-x:auto;padding:1px 14px 8px;scrollbar-width:none}
 .cc-carousel::-webkit-scrollbar{display:none}
 .cc-carousel-wrap{position:relative}
@@ -100,7 +115,10 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 .cc-body{padding:10px 10px 9px;display:flex;flex-direction:column;flex:1;min-width:0}
 .cc-title{font-size:13.5px;line-height:1.2;font-weight:700;margin:0 0 6px;color:var(--cc-text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:32px}
 .cc-match-row{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:7px}
-.cc-match{border-radius:6px;font-size:9.5px;line-height:1;padding:4px 7px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;background:var(--cc-amber-bg);border:1px solid var(--cc-amber-border);color:var(--cc-amber)}
+.cc-match{border-radius:6px;font-size:9.5px;line-height:1;padding:4px 7px;font-weight:700;text-transform:uppercase;letter-spacing:.03em}
+.cc-match.is-strong{background:var(--cc-match-strong-bg);border:1px solid var(--cc-match-strong-border);color:var(--cc-match-strong-text)}
+.cc-match.is-good{background:var(--cc-match-good-bg);border:1px solid var(--cc-match-good-border);color:var(--cc-match-good-text)}
+.cc-match.is-fair{background:var(--cc-match-fair-bg);border:1px solid var(--cc-match-fair-border);color:var(--cc-match-fair-text)}
 .cc-score{font-size:11px;font-weight:800;color:var(--cc-green)}
 .cc-price{font-size:20px;line-height:1;font-weight:800;letter-spacing:-.03em;color:var(--cc-text)}
 .cc-facts{font-size:10.5px;color:var(--cc-muted);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -251,11 +269,25 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     }).join("");
 
     var closest = badges.indexOf("nhtsa-electrification-confirmed") !== -1 ? false : false; // reserved for future "closest match" signal from server
-    // Matches the flagship app's badge language (amber "STRONG DEAL"-style
-    // label + a separate green score number) rather than one combined pill —
-    // per André's request to align look/colours/fonts across CarClever apps.
-    var matchRow = ranking.matchScore != null
-      ? '<div class="cc-match-row"><span class="cc-match">' + esc(ranking.matchScoreLabel || (closest ? "Closest match" : "Match")) + '</span><span class="cc-score">' + esc(ranking.matchScore) + '/100</span></div>'
+    // Aug 19 revision: dropped the raw "91/100" number. Real reason, not
+    // just a style preference — SYS-20260817-032 is a confirmed, logged
+    // bug where matchScore frequently converges to an identical value
+    // across structurally different vehicles (independently observed
+    // twice in prior testing). Displaying that number here would show the
+    // same score on every card in a result set, which looks broken/
+    // suspicious to a user even when the underlying match quality genuinely
+    // differs — same "don't invent precision the data doesn't support"
+    // principle already applied elsewhere (totalMatches, corpus counts).
+    // Score is still used internally to pick a color tier (green/amber/
+    // red), so it isn't wasted, just not shown as a literal digit. Revert
+    // is a one-line change once SYS-20260817-032's differentiation fix
+    // ships — see TASKS.md.
+    var matchTier = ranking.matchScore == null ? null
+      : ranking.matchScore >= 90 ? "strong"
+      : ranking.matchScore >= 80 ? "good"
+      : "fair";
+    var matchRow = matchTier
+      ? '<div class="cc-match-row"><span class="cc-match is-' + matchTier + '">' + esc(ranking.matchScoreLabel || (closest ? "Closest match" : "Match")) + "</span></div>"
       : "";
 
     var photoBlock = photo
@@ -293,9 +325,12 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     var visible = results.slice(0, 5);
     var hasAffiliate = visible.some(function(c){ return c.links && c.links.affiliateUrl; });
     var html = '<section class="cc-shell">' +
-      '<header class="cc-header"><div><div class="cc-brand">CarClever \\u00b7 Find My Car</div>' +
-      '<div class="cc-scale">' + esc(scaleHeaderText(meta)) + "</div></div>" +
-      '<div class="cc-sub">Top ' + visible.length + " shown</div></header>" +
+      '<header class="cc-header">' +
+        '<div class="cc-header-left"><div class="cc-brand">CarClever \\u00b7 Find My Car</div>' +
+        '<div class="cc-scale">' + esc(scaleHeaderText(meta)) + "</div></div>" +
+        '<div class="cc-header-center">Top ' + visible.length + " shown</div>" +
+        '<div class="cc-header-right"><img class="cc-header-logo" src="' + APP_ORIGIN + '/cc-logo-round.png" alt="CarClever" width="22" height="22"/></div>' +
+      "</header>" +
       '<div class="cc-carousel-wrap">' +
         '<div class="cc-carousel" id="cc-carousel">' + visible.map(cardHtml).join("") + "</div>" +
         (visible.length > 1
