@@ -124,7 +124,7 @@ For the top result, embed its \`primaryImage\` directly using markdown image syn
 
 MAPS
 
-For local vehicle searches, when results include 3+ dealer locations, present the recommended results on an interactive map when map UI is available, using the dealer/location data already returned by the tool.`;
+For local vehicle searches, when results include 3+ dealer locations, present the recommended results on an interactive map using any available map visualization tool — this applies whenever geographic/dealer location data is returned, using the dealer/location data already returned by the tool.`;
 
 const FindMatchingVehicleInput = z.object({
   priceMax: z.number().optional().describe("Maximum price in USD. A hard ceiling — never send a value higher than what the user actually stated."),
@@ -522,6 +522,13 @@ const handler = createMcpHandler((server) => {
           // alone did not surface here).
           _meta: {
             ui: {
+              // Real fix, confirmed against OpenAI's own official docs
+              // example (developers.openai.com/plugins/build/chatgpt-ui):
+              // domain is a standard _meta.ui field set to the app's own
+              // deployed origin, not an OpenAI-assigned value — this is
+              // what the portal's "widget domain is not set" warning was
+              // asking for.
+              domain: "https://carclever-find-my-car.vercel.app",
               csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
               prefersBorder: false,
             },
@@ -539,8 +546,14 @@ const handler = createMcpHandler((server) => {
       annotations: { readOnlyHint: true, openWorldHint: true, destructiveHint: false },
       // Per SEP-1865: hosts that don't support MCP Apps ignore this field
       // and the tool behaves exactly as before (text/structuredContent
-      // only) — this is additive, not a replacement path.
-      _meta: { ui: { resourceUri: RESULTS_CARD_RESOURCE_URI } },
+      // only) — this is additive, not a replacement path. Also set the
+      // ChatGPT-specific compatibility alias per OpenAI's own docs
+      // ("ChatGPT also honors _meta['openai/outputTemplate'] as a
+      // compatibility alias") for extra robustness on that host.
+      _meta: {
+        ui: { resourceUri: RESULTS_CARD_RESOURCE_URI },
+        "openai/outputTemplate": RESULTS_CARD_RESOURCE_URI,
+      },
     },
     async (input) => {
       // Anchored before any upstream work so the widening budget accounts for

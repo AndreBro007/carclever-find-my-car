@@ -123,7 +123,9 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 .cc-score{font-size:11px;font-weight:800;color:var(--cc-green)}
 .cc-price{font-size:20px;line-height:1;font-weight:800;letter-spacing:-.03em;color:var(--cc-text)}
 .cc-facts{font-size:10.5px;color:var(--cc-muted);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cc-dealer{font-size:10px;color:var(--cc-link);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:capitalize}
+.cc-dealer-row{display:flex;align-items:baseline;justify-content:space-between;gap:6px;margin-top:3px;min-width:0}
+.cc-dealer{font-size:10px;color:var(--cc-link);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:capitalize;min-width:0}
+.cc-carfax-link{all:unset;cursor:pointer;font-size:9.5px;font-weight:700;color:var(--cc-link);text-decoration:underline;white-space:nowrap;flex-shrink:0}
 .cc-chips{display:flex;gap:5px;flex-wrap:nowrap;overflow:hidden;margin-top:7px;min-height:20px}
 .cc-chip{display:inline-flex;align-items:center;height:20px;padding:0 6px;border-radius:6px;background:var(--cc-green-bg);border:1px solid var(--cc-green-border);color:var(--cc-green);font-size:9.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cc-chip.is-unverified{background:var(--cc-amber-bg);border-color:var(--cc-amber-border);color:var(--cc-amber)}
@@ -280,6 +282,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     var drivetrain = c.powertrain && c.powertrain.drivetrain;
     var vinVerified = badges.indexOf("vin-verified") !== -1;
     var exteriorColor = c.detail && c.detail.exteriorColor;
+    var carfaxUrl = c.detail && c.detail.carfaxUrl;
     var photo = proxiedPhoto(media.primaryImage);
     var isCarvana = links.isCarvana;
     var primaryUrl = isCarvana ? links.dealerListingUrl : (links.affiliateUrl || links.dealerListingUrl);
@@ -321,7 +324,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
       : "";
     var matchRow = (matchTier || fuelBadge)
       ? '<div class="cc-match-row">' +
-          (matchTier ? '<span class="cc-match is-' + matchTier + '">' + esc(ranking.matchScoreLabel || (closest ? "Closest match" : "Match")) + "</span>" : "<span></span>") +
+          (matchTier ? '<span class="cc-match is-' + matchTier + '">' + esc(closest ? "Closest match" : (matchTier === "strong" ? "Strong Match" : matchTier === "good" ? "Good Match" : "Fair Match")) + "</span>" : "<span></span>") +
           fuelBadge +
         "</div>"
       : "";
@@ -358,7 +361,12 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
           var extrasStr = extras.length ? " \\u00b7 " + extras.join(" \\u00b7 ") : "";
           return '<div class="cc-facts">' + esc(miles(listing.mileage)) + (location ? " \\u00b7 " + esc(location) : "") + extrasStr + "</div>";
         })() +
-        (listing.dealer ? '<div class="cc-dealer">' + esc(listing.dealer) + "</div>" : "") +
+        (listing.dealer || carfaxUrl
+          ? '<div class="cc-dealer-row">' +
+              (listing.dealer ? '<span class="cc-dealer">' + esc(listing.dealer) + "</span>" : "<span></span>") +
+              (carfaxUrl ? '<button type="button" class="cc-carfax-link" data-url="' + esc(carfaxUrl) + '">Carfax report</button>' : "") +
+            "</div>"
+          : "") +
         (chips ? '<div class="cc-chips">' + chips + "</div>" : "") +
         ctaBlock +
       "</div>" +
@@ -399,14 +407,14 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
           ? '<button type="button" class="cc-similar-link" data-url="' + esc(fallback) + '">Similar options on Edmunds</button>'
           : "<span></span>";
         return '<footer class="cc-footer">' +
-          "<span>Swipe or use arrows for more \\u2192</span>" +
+          "<span>Swipe \\u2192</span>" +
           similarLink +
-          '<span class="cc-footer-right">' + (hasAffiliate ? "Dealer links via Edmunds \\u00b7 Affiliate link" : "Current dealer listings") + "</span>" +
+          '<span class="cc-footer-right">' + (hasAffiliate ? "Edmunds affiliate links" : "Current dealer listings") + "</span>" +
         "</footer>";
       })() +
       "</section>";
     root.innerHTML = html;
-    root.querySelectorAll(".cc-primary, .cc-similar-link").forEach(function(btn){
+    root.querySelectorAll(".cc-primary, .cc-similar-link, .cc-carfax-link").forEach(function(btn){
       btn.addEventListener("click", function(){ openLink(btn.getAttribute("data-url")); });
     });
     // Prev/next nav for screens without swipe/trackpad gestures - same
