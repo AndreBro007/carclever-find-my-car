@@ -91,12 +91,12 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
   padding:12px 0 10px;
   overflow:hidden;
 }
-.cc-header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;padding:8px 14px 10px}
+.cc-header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;padding:9px 14px 8px}
 .cc-header-left{min-width:0}
 .cc-header-center{text-align:center;color:var(--cc-subtle);font-size:11.5px;white-space:nowrap}
-.cc-header-right{display:flex;justify-content:flex-end}
-.cc-header-logo{width:28px;height:28px;border-radius:50%;display:block}
-.cc-brand{font-size:10.5px;font-weight:700;letter-spacing:.02em;color:var(--cc-brand);margin-bottom:4px}
+.cc-header-right{display:flex;align-items:center;gap:6px;justify-content:flex-end}
+.cc-header-logo{width:22px;height:22px;border-radius:50%;display:block;flex-shrink:0}
+.cc-brand{font-size:10px;font-weight:700;letter-spacing:.02em;color:var(--cc-brand);white-space:nowrap}
 .cc-scale{font-size:13.5px;line-height:1.2;font-weight:700;letter-spacing:-.02em;color:var(--cc-text)}
 .cc-carousel{display:flex;gap:9px;overflow-x:auto;padding:1px 14px 8px;scrollbar-width:none}
 .cc-carousel::-webkit-scrollbar{display:none}
@@ -109,7 +109,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 .cc-card{flex:0 0 min(76vw,240px);background:linear-gradient(180deg,var(--cc-card-a),var(--cc-card-b));border:1px solid var(--cc-card-border);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 18px rgba(0,0,0,.10)}
 .cc-photo-wrap{height:120px;position:relative;overflow:hidden;background:var(--cc-photo-bg)}
 .cc-photo{width:100%;height:100%;object-fit:cover;display:block}
-.cc-photo-fallback{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;height:100%;color:var(--cc-subtle);font-size:10.5px;background:var(--cc-photo-bg)}
+.cc-photo-fallback{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;height:100%;color:light-dark(#7186ab,#6f8db8);font-size:10px;font-weight:600;background:linear-gradient(160deg,light-dark(#eef2f9,#182842),light-dark(#e1e7f3,#0f1c30))}
 .cc-badges{position:absolute;top:8px;left:8px;right:8px;display:flex;justify-content:space-between;gap:6px}
 .cc-type{border-radius:999px;border:1px solid rgba(255,255,255,.16);font-size:9.5px;line-height:1;padding:4px 7px;font-weight:700;background:rgba(8,18,31,.82);color:#edf4fc;text-transform:uppercase;letter-spacing:.04em}
 .cc-body{padding:10px 10px 9px;display:flex;flex-direction:column;flex:1;min-width:0}
@@ -130,9 +130,9 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 .cc-cta{margin-top:auto;padding-top:8px}
 .cc-primary{all:unset;box-sizing:border-box;cursor:pointer;width:100%;min-height:36px;border-radius:9px;background:var(--cc-button-bg);color:var(--cc-button-text);display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 10px;font-size:11.5px;font-weight:600;letter-spacing:.005em}
 .cc-provider{font-size:9.2px;font-weight:700;color:var(--cc-subtle)}
-.cc-footer{display:flex;justify-content:space-between;gap:12px;padding:6px 14px 0;color:var(--cc-subtle);font-size:10.5px;line-height:1.3}
-.cc-footer-center{text-align:center;padding:4px 14px 2px}
-.cc-similar-link{all:unset;cursor:pointer;font-size:11.5px;font-weight:700;color:var(--cc-link)}
+.cc-footer{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;padding:8px 14px 0;color:var(--cc-subtle);font-size:10.5px;line-height:1.3}
+.cc-footer-right{text-align:right}
+.cc-similar-link{all:unset;cursor:pointer;font-size:10.5px;font-weight:700;color:var(--cc-link);white-space:nowrap}
 .cc-similar-link:hover{text-decoration:underline}
 .cc-loading{padding:20px 14px;font-size:12px;color:var(--cc-subtle)}
 .cc-loading-stage{padding:2px 14px 0;font-size:10px;color:#4c5f79}
@@ -234,7 +234,15 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
   // to load — no extra network request, no third-party asset/licensing
   // question. Exposed on window so the inline onerror="" attribute (which
   // runs outside this closure) can call it directly.
-  var PHOTO_FALLBACK_SVG = '<svg viewBox="0 0 64 40" width="40" height="25" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M6 28h52M10 28l4-11c1-3 3-4 6-4h24c3 0 5 1 6 4l4 11" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="30" r="4.5" stroke="currentColor" stroke-width="2.4"/><circle cx="46" cy="30" r="4.5" stroke="currentColor" stroke-width="2.4"/></svg>';
+  // Filled silhouette (body + faded window band + wheels) rather than a
+  // thin wireframe outline — reads as an intentional, branded placeholder
+  // rather than a "broken image" icon.
+  var PHOTO_FALLBACK_SVG = '<svg viewBox="0 0 100 60" width="54" height="32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+    '<path d="M8 42c0-3 2-5 5-6l6-14c2-5 6-8 12-8h30c6 0 10 3 12 8l6 14c3 1 5 3 5 6v5c0 2-2 4-4 4h-4c-1 4-4 7-8 7s-7-3-8-7H40c-1 4-4 7-8 7s-7-3-8-7h-4c-2 0-4-2-4-4v-5z" fill="currentColor" opacity=".38"/>' +
+    '<path d="M23 22h54l-5-11c-1-3-4-5-8-5H36c-4 0-7 2-8 5z" fill="currentColor" opacity=".6"/>' +
+    '<circle cx="28" cy="46" r="7" fill="currentColor"/>' +
+    '<circle cx="72" cy="46" r="7" fill="currentColor"/>' +
+  "</svg>";
   window.__ccPhotoFallback = function(imgEl){
     var div = document.createElement("div");
     div.className = "cc-photo cc-photo-fallback";
@@ -357,10 +365,9 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     var hasAffiliate = visible.some(function(c){ return c.links && c.links.affiliateUrl; });
     var html = '<section class="cc-shell">' +
       '<header class="cc-header">' +
-        '<div class="cc-header-left"><div class="cc-brand">CarClever \\u00b7 Find My Car</div>' +
-        '<div class="cc-scale">' + esc(scaleHeaderText(meta)) + "</div></div>" +
+        '<div class="cc-header-left"><div class="cc-scale">' + esc(scaleHeaderText(meta)) + "</div></div>" +
         '<div class="cc-header-center">Top ' + visible.length + " shown</div>" +
-        '<div class="cc-header-right"><img class="cc-header-logo" src="' + APP_ORIGIN + '/cc-logo-round.png" alt="CarClever" width="28" height="28"/></div>' +
+        '<div class="cc-header-right"><img class="cc-header-logo" src="' + APP_ORIGIN + '/cc-logo-round.png" alt="CarClever" width="22" height="22"/><span class="cc-brand">CarClever</span></div>' +
       "</header>" +
       '<div class="cc-carousel-wrap">' +
         '<div class="cc-carousel" id="cc-carousel">' + visible.map(cardHtml).join("") + "</div>" +
@@ -369,22 +376,23 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
             '<button type="button" class="cc-nav cc-nav-next" id="cc-nav-next" aria-label="Next">\\u203a</button>'
           : "") +
       "</div>" +
-      // The center of the footer sits empty between the swipe hint and the
-      // paid-link disclosure — real, useful space. Uses the fallback link
-      // already resolved for the top-shown result (a live Edmunds category
-      // search for that make/model that never dead-ends, per
-      // SYS-20260817-002) as an escape hatch for exactly the case André
-      // hit live: a specific listing not actually carried on Edmunds.
-      // Styled to stand out more than the flanking text, per his request.
+      // Collapsed to one grid row (was three stacked rows) - real, useful
+      // space saved per André's request. Uses the fallback link already
+      // resolved for the top-shown result (a live Edmunds category search
+      // for that make/model that never dead-ends, per SYS-20260817-002) as
+      // an escape hatch for a listing not actually carried on Edmunds.
       (function(){
         var fallback = visible[0] && visible[0].links && visible[0].links.affiliateFallbackUrl;
-        return fallback
-          ? '<div class="cc-footer-center"><button type="button" class="cc-similar-link" data-url="' + esc(fallback) + '">Similar options on Edmunds</button></div>'
-          : "";
+        var similarLink = fallback
+          ? '<button type="button" class="cc-similar-link" data-url="' + esc(fallback) + '">Similar options on Edmunds</button>'
+          : "<span></span>";
+        return '<footer class="cc-footer">' +
+          "<span>Swipe or use arrows for more \\u2192</span>" +
+          similarLink +
+          '<span class="cc-footer-right">' + (hasAffiliate ? "Dealer links via Edmunds \\u00b7 Affiliate link" : "Current dealer listings") + "</span>" +
+        "</footer>";
       })() +
-      '<footer class="cc-footer"><span>Swipe or use arrows for more \\u2192</span><span>' +
-      (hasAffiliate ? "Dealer links via Edmunds \\u00b7 Affiliate link" : "Current dealer listings") +
-      "</span></footer></section>";
+      "</section>";
     root.innerHTML = html;
     root.querySelectorAll(".cc-primary, .cc-similar-link").forEach(function(btn){
       btn.addEventListener("click", function(){ openLink(btn.getAttribute("data-url")); });
