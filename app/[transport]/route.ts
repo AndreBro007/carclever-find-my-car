@@ -383,6 +383,8 @@ async function buildResultCard(
   if (verification.hardConstraintStatus === "verified_match") badges.push("vin-verified");
   if (verification.hardConstraintStatus === "failed") badges.push("vin-conflicting");
   if (nhtsa?.makeConflict) badges.push("nhtsa-make-conflict");
+  if (nhtsa?.modelConflict) badges.push("nhtsa-model-conflict");
+  if (nhtsa?.cylindersConflict) badges.push("nhtsa-cylinders-conflict");
   if (nhtsa && nhtsaIndicatesElectrified(nhtsa) && normalizedFuel === "gasoline") badges.push("nhtsa-electrification-confirmed");
   if (intent.semantic.goals.length > 0) badges.push("inferred-match");
   if (historySummary.state === "known_issues") badges.push("history-issues-reported");
@@ -845,7 +847,14 @@ const handler = createMcpHandler((server) => {
       // relying on Auto.dev's own (known-incomplete) fuel field, same as
       // before this feature existed.
       const nhtsaResults = await Promise.all(
-        refetched.map((listing) => decodeNhtsaElectrification(listing.vin, listing.vehicle?.make)),
+        refetched.map((listing) =>
+          decodeNhtsaElectrification(
+            listing.vin,
+            listing.vehicle?.make,
+            listing.vehicle?.model,
+            listing.vehicle?.cylinders,
+          ),
+        ),
       );
       // Keyed by VIN, not index — backfill spares (spareLean, added later if
       // body-style exclusion leaves the shortlist short) never went through
