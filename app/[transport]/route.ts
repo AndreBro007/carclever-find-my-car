@@ -515,6 +515,17 @@ const handler = createMcpHandler((server) => {
           uri: uri.href,
           mimeType: "text/html;profile=mcp-app",
           text: buildResultsCardHtml(),
+          // Per SEP-1865, CSP/prefersBorder must be present on the
+          // resources/read response's content item itself, not only on the
+          // static registration config above — confirmed via a live check
+          // against the deployed endpoint (the registration-level _meta
+          // alone did not surface here).
+          _meta: {
+            ui: {
+              csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
+              prefersBorder: false,
+            },
+          },
         },
       ],
     }),
