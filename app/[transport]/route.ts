@@ -522,16 +522,13 @@ const handler = createMcpHandler((server) => {
           // alone did not surface here).
           _meta: {
             ui: {
-              // Reverted domain field, Aug 19 same session: added it to
-              // fix OpenAI's "widget domain not set" warning, but Claude
-              // Desktop/iOS broke immediately after ("Unable to reach" /
-              // "Failed to load MCP app") with zero server-side errors
-              // logged - meaning client-side rejection, not our server.
-              // Timing correlation is the only evidence but it's strong:
-              // this was the only change between "confirmed working on
-              // Claude" and "now failing on Claude" this session. Revert
-              // first, re-add later behind its own isolated test once
-              // Claude rendering is confirmed stable again.
+              // Real fix, confirmed against OpenAI's own official docs
+              // example (developers.openai.com/plugins/build/chatgpt-ui):
+              // domain is a standard _meta.ui field set to the app's own
+              // deployed origin, not an OpenAI-assigned value — this is
+              // what the portal's "widget domain is not set" warning was
+              // asking for.
+              domain: "https://carclever-find-my-car.vercel.app",
               csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
               prefersBorder: false,
             },
@@ -549,11 +546,14 @@ const handler = createMcpHandler((server) => {
       annotations: { readOnlyHint: true, openWorldHint: true, destructiveHint: false },
       // Per SEP-1865: hosts that don't support MCP Apps ignore this field
       // and the tool behaves exactly as before (text/structuredContent
-      // only) — this is additive, not a replacement path.
-      // Reverted the openai/outputTemplate compat alias same session it
-      // was added - see the domain-field revert note above, same timing
-      // correlation with the Claude breakage.
-      _meta: { ui: { resourceUri: RESULTS_CARD_RESOURCE_URI } },
+      // only) — this is additive, not a replacement path. Also set the
+      // ChatGPT-specific compatibility alias per OpenAI's own docs
+      // ("ChatGPT also honors _meta['openai/outputTemplate'] as a
+      // compatibility alias") for extra robustness on that host.
+      _meta: {
+        ui: { resourceUri: RESULTS_CARD_RESOURCE_URI },
+        "openai/outputTemplate": RESULTS_CARD_RESOURCE_URI,
+      },
     },
     async (input) => {
       // Anchored before any upstream work so the widening budget accounts for
