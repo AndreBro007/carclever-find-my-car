@@ -367,7 +367,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
               (carfaxUrl ? '<button type="button" class="cc-carfax-link" data-url="' + esc(carfaxUrl) + '">Carfax report</button>' : "") +
             "</div>"
           : "") +
-        (chips ? '<div class="cc-chips">' + chips + "</div>" : "") +
+        "" +
         ctaBlock +
       "</div>" +
     "</article>";
@@ -470,7 +470,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
   // ui/notifications/tool-result, per SEP-1865 lifecycle.
   setStage("sending ui/initialize…");
   sendRequest("ui/initialize", {
-    protocolVersion: "2026-01-26",
+    protocolVersion: "2026-07-28",
     appCapabilities: { availableDisplayModes: ["inline"] },
     // ChatGPT's actual MCP Apps validator requires appInfo specifically
     // (confirmed live, Aug 19: "params.appInfo — expected object" rejection
