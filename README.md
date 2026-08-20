@@ -35,3 +35,5 @@ configured, SYS-20260812-026).
 Intent parser, diversity pass, VIN cross-check, Match Score calculation,
 relaxation-penalty formula (deliberately deferred pending real data,
 SYS-20260812-013).
+
+<!-- Deploy trigger: 1787213834 -->
