@@ -121,7 +121,8 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 .cc-match.is-good{background:var(--cc-match-good-bg);border:1px solid var(--cc-match-good-border);color:var(--cc-match-good-text)}
 .cc-match.is-fair{background:var(--cc-match-fair-bg);border:1px solid var(--cc-match-fair-border);color:var(--cc-match-fair-text)}
 .cc-score{font-size:11px;font-weight:800;color:var(--cc-green)}
-.cc-price{font-size:20px;line-height:1;font-weight:800;letter-spacing:-.03em;color:var(--cc-text)}
+.cc-price{font-size:20px;line-height:1;font-weight:800;letter-spacing:-.03em;color:var(--cc-text);display:flex;justify-content:space-between;align-items:baseline}
+.cc-mileage{font-size:16px;font-weight:700}
 .cc-facts{font-size:10.5px;color:var(--cc-muted);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cc-dealer-row{display:flex;align-items:baseline;justify-content:space-between;gap:6px;margin-top:3px;min-width:0}
 .cc-dealer{font-size:10px;color:var(--cc-link);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:capitalize;min-width:0}
@@ -264,8 +265,8 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     // "NaN searched" bug found live (Aug 19).
     var searched = meta && meta.corpusSizeApprox;
     var matched = meta && typeof meta.totalMatches === "number" ? meta.totalMatches : null;
-    if (searched != null && matched != null) return searched + " searched \\u2192 " + compactNum(matched) + " matched";
-    if (searched != null) return searched + " live listings searched";
+    if (searched != null && matched != null) return "Scan " + compactNum(searched) + " → " + compactNum(matched) + " match";
+    if (searched != null) return "Scan " + compactNum(searched);
     return "Best matches for your search";
   }
 
@@ -347,7 +348,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
       '<div class="cc-body">' +
         '<h3 class="cc-title">' + esc(title) + "</h3>" +
         matchRow +
-        '<div class="cc-price">' + esc(money(listing.price)) + "</div>" +
+        '<div class="cc-price">' + esc(money(listing.price)) + (listing.mileage ? '<span class="cc-mileage">' + esc(miles(listing.mileage)) + '</span>' : '') + "</div>" +
         (function(){
           var extras = [];
           // Exterior color only when there's no photo to show it visually
@@ -359,7 +360,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
           if (drivetrain) extras.push(esc(drivetrain));
           if (vinVerified) extras.push("VIN \\u2713");
           var extrasStr = extras.length ? " \\u00b7 " + extras.join(" \\u00b7 ") : "";
-          return '<div class="cc-facts">' + esc(miles(listing.mileage)) + (location ? " \\u00b7 " + esc(location) : "") + extrasStr + "</div>";
+          return '<div class="cc-facts">' + (location ? esc(location) : "") + extrasStr + "</div>";
         })() +
         (listing.dealer || carfaxUrl
           ? '<div class="cc-dealer-row">' +
