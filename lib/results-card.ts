@@ -265,8 +265,8 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     // "NaN searched" bug found live (Aug 19).
     var searched = meta && meta.corpusSizeApprox;
     var matched = meta && typeof meta.totalMatches === "number" ? meta.totalMatches : null;
-    if (searched != null && matched != null) return "Scan " + compactNum(searched) + " → " + compactNum(matched) + " found";
-    if (searched != null) return "Scan " + compactNum(searched);
+    if (searched != null && matched != null) return "Scan " + searched + " → " + compactNum(matched) + " found";
+    if (searched != null) return "Scan " + searched;
     return "Best matches for your search";
   }
 
