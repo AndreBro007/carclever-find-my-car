@@ -42,4 +42,5 @@ SYS-20260812-013).
 
 
 
-<!-- Test A: protocolVersion 2026-01-26 -->
+
+<!-- Test B: ui.domain removed -->
