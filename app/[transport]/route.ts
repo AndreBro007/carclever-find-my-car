@@ -166,7 +166,7 @@ const FindMatchingVehicleOutput = z.object({
     scopeNote: z.string(),
     serviceError: z.string().nullable(),
     interpretationNotes: z.array(z.string()),
-    qualifierAccounting: z.record(z.any()),
+    qualifierAccounting: z.record(z.string(), z.any()),
   }),
   results: z.array(z.object({
     canonicalVehicleId: z.string(),
@@ -224,7 +224,7 @@ const FindMatchingVehicleOutput = z.object({
     ranking: z.object({
       matchScore: z.number(),
       matchScoreLabel: z.string(),
-      breakdown: z.record(z.any()),
+      breakdown: z.record(z.string(), z.any()),
     }),
     links: z.object({
       affiliateUrl: z.string().nullable(),
@@ -249,7 +249,7 @@ const FindMatchingVehicleOutput = z.object({
       fuelTypeDisplay: z.string(),
     }),
     badges: z.array(z.string()),
-    intentConfirmations: z.record(z.any()),
+    intentConfirmations: z.record(z.string(), z.any()),
     dataConflicts: z.array(z.string()),
   })),
 });
