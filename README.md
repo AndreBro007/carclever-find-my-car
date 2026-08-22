@@ -50,4 +50,5 @@ SYS-20260812-013).
 
 
 
-<!-- Restore B/C + Test D: logDiag disabled (20a96cf + a4ee55e) -->
+
+<!-- Test E: clientInfo removed (8eacce5) -->
