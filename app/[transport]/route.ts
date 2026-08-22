@@ -1130,7 +1130,13 @@ const handler = createMcpHandler((server) => {
           // than reverting to the lean row, and let the caller backfill.
           anyConstraintDrift = true;
           console.log(
-            `[find_matching_vehicle] stage2 full_detail_rejected_due_to_constraint_drift vin=${lean.vin} violations=${JSON.stringify(violations)}`,
+            `[find_matching_vehicle] stage2 full_detail_rejected_due_to_constraint_drift ` +
+              `vin=${lean.vin} violations=${JSON.stringify(violations)} ` +
+              `leanPrice=${lean.retailListing?.price ?? null} fullPrice=${full.retailListing?.price ?? null} ` +
+              `leanMileage=${lean.retailListing?.miles ?? null} fullMileage=${full.retailListing?.miles ?? null} ` +
+              `leanYear=${lean.vehicle?.year ?? null} fullYear=${full.vehicle?.year ?? null} ` +
+              `leanMake=${lean.vehicle?.make ?? null} fullMake=${full.vehicle?.make ?? null} ` +
+              `leanModel=${lean.vehicle?.model ?? null} fullModel=${full.vehicle?.model ?? null}`,
           );
         }
 
