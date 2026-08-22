@@ -503,7 +503,8 @@ const handler = createMcpHandler((server) => {
           // enumerated — photos are proxied through our own first-party
           // origin instead (see app/api/img-proxy/route.ts), so only this
           // one domain needs declaring here.
-          csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
+          domain: "https://carclever-find-my-car.vercel.app",
+      csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
           prefersBorder: false,
         },
       },
@@ -527,7 +528,8 @@ const handler = createMcpHandler((server) => {
               // deployed origin, not an OpenAI-assigned value — this is
               // what the portal's "widget domain is not set" warning was
               // asking for.
-              csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
+              domain: "https://carclever-find-my-car.vercel.app",
+      csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
               prefersBorder: false,
             },
           },
@@ -545,8 +547,12 @@ const handler = createMcpHandler((server) => {
       // Per SEP-1865: hosts that don't support MCP Apps ignore this field
       // and the tool behaves exactly as before (text/structuredContent
       // only) — this is additive, not a replacement path. Also set the
+      // ChatGPT-specific compatibility alias per OpenAI's own docs
+      // ("ChatGPT also honors _meta['openai/outputTemplate'] as a
+      // compatibility alias") for extra robustness on that host.
       _meta: {
         ui: { resourceUri: RESULTS_CARD_RESOURCE_URI },
+        "openai/outputTemplate": RESULTS_CARD_RESOURCE_URI,
       },
     },
     async (input) => {
