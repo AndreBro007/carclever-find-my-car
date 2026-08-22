@@ -1085,6 +1085,17 @@ const handler = createMcpHandler((server) => {
       // fine there since we have no fresher data to trust or distrust —
       // logged separately as detail_lookup_failed.
       //
+      // Fixed again (SYS-20260823, VIN W1N4N5BB1TJ864755 confirmed live):
+      // full-detail is authoritative for everything EXCEPT price. Auto.dev's
+      // full-detail endpoint was observed returning $61,515 for a VIN whose
+      // live listing (Edmunds-confirmed) and stage-1 lean/listings price
+      // were both $59,935 — full-detail's own price was simply wrong. Price
+      // now uses the stage-1 lean price as canonical whenever present
+      // (logged as stage2_price_disagreement when the two differ), while
+      // every other full-detail field is retained unchanged. This is a
+      // single-field override, not the whole-record lean substitution that
+      // was removed above.
+      //
       // Uses effectiveQuery, not baseQuery: if the widening ladder ran, stage 1
       // verified against the widened constraints, so stage 2 must too — checking
       // against the original would reject exactly the rows widening just gained
@@ -1117,22 +1128,48 @@ const handler = createMcpHandler((server) => {
             continue;
           }
 
-          const violations = verifyAgainstConstraints(full, effectiveQuery);
+          // Price precedence (confirmed production case, VIN
+          // W1N4N5BB1TJ864755): Auto.dev's full-detail endpoint can return a
+          // stale/incorrect price for a VIN whose live listing (Edmunds
+          // confirmed) matches the stage-1 lean/listings price exactly —
+          // the lean price is canonical for price specifically, applied
+          // unconditionally whenever present, before constraint checking.
+          // This does NOT revert the whole record to lean: every other
+          // full-detail field (photo, dealer, location, drivetrain,
+          // Carfax, used/new, history, mileage, year, make, model, etc.)
+          // stays exactly as returned by the full-detail fetch. If lean
+          // price is missing, fall back to the full-detail price
+          // (unchanged behavior).
+          const leanPrice = lean.retailListing?.price ?? null;
+          const fullPrice = full.retailListing?.price ?? null;
+          if (leanPrice != null && fullPrice != null && leanPrice !== fullPrice) {
+            console.log(
+              `[find_matching_vehicle] stage2_price_disagreement vin=${lean.vin} leanPrice=${leanPrice} fullPrice=${fullPrice} chosenPrice=${leanPrice}`,
+            );
+          }
+          const priceResolved: AutoDevListing =
+            leanPrice != null && full.retailListing
+              ? { ...full, retailListing: { ...full.retailListing, price: leanPrice } }
+              : full;
+
+          const violations = verifyAgainstConstraints(priceResolved, effectiveQuery);
           if (violations.length === 0) {
-            kept.push(full);
+            kept.push(priceResolved);
             continue;
           }
 
-          // Case 2: full-detail lookup succeeded but the fresh record
+          // Case 2: full-detail lookup succeeded but the resolved record
+          // (with the canonical lean price applied, when available) still
           // contradicts a hard constraint already checked by
-          // verifyAgainstConstraints() (price, year, mileage, make, model,
-          // etc). The full-detail record is authoritative — exclude rather
-          // than reverting to the lean row, and let the caller backfill.
+          // verifyAgainstConstraints() — e.g. year, mileage, make, model,
+          // or a price still over budget even at the lean value. The
+          // resolved record is authoritative — exclude rather than
+          // reverting to the whole lean row, and let the caller backfill.
           anyConstraintDrift = true;
           console.log(
             `[find_matching_vehicle] stage2 full_detail_rejected_due_to_constraint_drift ` +
               `vin=${lean.vin} violations=${JSON.stringify(violations)} ` +
-              `leanPrice=${lean.retailListing?.price ?? null} fullPrice=${full.retailListing?.price ?? null} ` +
+              `leanPrice=${leanPrice} fullPrice=${fullPrice} ` +
               `leanMileage=${lean.retailListing?.miles ?? null} fullMileage=${full.retailListing?.miles ?? null} ` +
               `leanYear=${lean.vehicle?.year ?? null} fullYear=${full.vehicle?.year ?? null} ` +
               `leanMake=${lean.vehicle?.make ?? null} fullMake=${full.vehicle?.make ?? null} ` +
@@ -1284,7 +1321,7 @@ const handler = createMcpHandler((server) => {
       }
       if (priceDriftDetected) {
         dataNotes.push(
-          "One or more listings had updated pricing or details at the time of the detailed lookup that no longer matched your stated filters (e.g. a live price change) — those results were excluded and, where possible, replaced with an alternate match rather than shown with outdated data.",
+          "One or more listings had details at the time of the detailed lookup that still didn't match your stated filters even after reconciling a known price discrepancy against the originally verified data (e.g. a genuine year or mileage conflict) — those results were excluded and, where possible, replaced with an alternate match.",
         );
       }
       if (bodyStyleFallbackUsed) {
