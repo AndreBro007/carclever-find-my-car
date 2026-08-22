@@ -51,4 +51,5 @@ SYS-20260812-013).
 
 
 
-<!-- Test E: clientInfo removed (8eacce5) -->
+
+<!-- Test F: initial reportSize added (8529d04) -->
