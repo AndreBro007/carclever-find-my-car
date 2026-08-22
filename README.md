@@ -53,4 +53,5 @@ SYS-20260812-013).
 
 
 
-<!-- OutputSchema added: FindMatchingVehicleOutput (59d763d + 21a53d7) -->
+
+<!-- Fix Zod v4: z.record() 2-arg syntax (1cda1b6) -->
