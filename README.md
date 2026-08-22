@@ -52,4 +52,5 @@ SYS-20260812-013).
 
 
 
-<!-- Test F: initial reportSize added (8529d04) -->
+
+<!-- OutputSchema added: FindMatchingVehicleOutput (59d763d + 21a53d7) -->
