@@ -254,6 +254,14 @@ const FindMatchingVehicleOutput = z.object({
   })),
 });
 
+const ResolveDealerUrlOutput = z.object({
+  affiliateUrl: z.string().nullable(),
+  affiliateFallbackUrl: z.string().nullable(),
+  dealerListingUrl: z.string().nullable(),
+  isCarvana: z.boolean(),
+  linkStatus: z.enum(["both-available", "edmunds-only", "dealer-only", "fallback-only", "none-available"]),
+});
+
 const SHORTLIST_SIZE = 5;
 
 /**
