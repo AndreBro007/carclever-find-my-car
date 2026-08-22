@@ -174,8 +174,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
   // widget logs, without needing to dig into iframe-scoped DevTools console
   // context. Cheap, always-on, no PII.
   function logDiag(msg){
-    try { sendNotification("notifications/message", { level: "info", data: "[find-my-car-widget] " + msg }); }
-    catch(e) { /* best-effort only */ }
+    // Host diagnostic notification disabled for cross-host compatibility.
   }
   // Real limitation found live (Aug 19): notifications/message delivery to
   // ChatGPT isn't confirmed to surface anywhere a developer can actually
