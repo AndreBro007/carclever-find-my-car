@@ -48,4 +48,5 @@ SYS-20260812-013).
 
 
 
-<!-- Test B: ui.domain removed (d479b6c) -->
+
+<!-- Test C: openai/outputTemplate removed (68a888b) -->
