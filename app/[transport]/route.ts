@@ -1067,33 +1067,83 @@ const handler = createMcpHandler((server) => {
       // priceFlexibility: "strict". Real, confirmed bug — not Auto.dev
       // buffering, not a caller-side parameter mistake (found investigating
       // André's live testing question, root-caused by reading this file).
-      // Falls back to the already-verified lean row if the stage-2 refetch
-      // itself now fails the check — same "never silently drop a real match"
-      // preference as the existing getListingByVin-failure fallback above,
-      // but only when the lean row itself still passes.
+      //
+      // Fixed (SYS-20260822): this used to fall back to the *lean* record
+      // whenever the fresh full-detail record violated a constraint. That's
+      // backwards — the fresh full-detail fetch is authoritative here, so a
+      // confirmed contradiction (e.g. price now over budget) must never be
+      // hidden by reverting to older, possibly-stale lean data. A real
+      // production result was found missing primaryImage, used/new status,
+      // dealer location, drivetrain and Carfax while still showing
+      // price/mileage — root cause was exactly this substitution silently
+      // serving a stale/incomplete lean row while looking "resolved". Now:
+      // a confirmed constraint violation on the full-detail record excludes
+      // that candidate entirely (never substitutes lean) and the caller
+      // backfills from the spare pool, same architecture as the existing
+      // body-style backfill below. A genuine full-detail *lookup failure*
+      // (fetch returned null) is a different case — lean fallback is still
+      // fine there since we have no fresher data to trust or distrust —
+      // logged separately as detail_lookup_failed.
+      //
       // Uses effectiveQuery, not baseQuery: if the widening ladder ran, stage 1
       // verified against the widened constraints, so stage 2 must too — checking
       // against the original would reject exactly the rows widening just gained
       // and silently undo it (SYS-20260816-008).
       //
-      // Factored into a helper (SYS-20260817-013) so the exact same
-      // price-drift-aware refetch logic can run a second time on the spare
-      // pool during backfill, instead of duplicating this block.
-      function priceCheckedRefetch(refetchedRows: AutoDevListing[], leanRows: AutoDevListing[]) {
-        let anyDrift = false;
-        const checked = refetchedRows.map((full, i) => {
-          const violations = verifyAgainstConstraints(full, effectiveQuery);
-          if (violations.length === 0) return full;
-          anyDrift = true;
+      // Factored into a helper so the exact same lookup-failure/constraint-drift
+      // resolution can run a second time on the spare pool during backfill,
+      // instead of duplicating this block.
+      function resolveStage2Detail(
+        leanRows: AutoDevListing[],
+        fullRows: (AutoDevListing | null)[],
+      ): { kept: AutoDevListing[]; anyLookupFailed: boolean; anyConstraintDrift: boolean } {
+        const kept: AutoDevListing[] = [];
+        let anyLookupFailed = false;
+        let anyConstraintDrift = false;
+
+        for (let i = 0; i < leanRows.length; i++) {
           const lean = leanRows[i];
-          return verifyAgainstConstraints(lean, effectiveQuery).length === 0 ? lean : full;
-        });
-        return { checked, anyDrift };
+          const full = fullRows[i];
+
+          if (!full) {
+            // Case 1: genuine lookup failure. Lean fallback still allowed so
+            // a real candidate isn't unnecessarily lost — no new Auto.dev
+            // call/retry added here.
+            anyLookupFailed = true;
+            console.log(
+              `[find_matching_vehicle] stage2 detail_lookup_failed vin=${lean.vin} — full-detail fetch returned null, using lean fallback`,
+            );
+            kept.push(lean);
+            continue;
+          }
+
+          const violations = verifyAgainstConstraints(full, effectiveQuery);
+          if (violations.length === 0) {
+            kept.push(full);
+            continue;
+          }
+
+          // Case 2: full-detail lookup succeeded but the fresh record
+          // contradicts a hard constraint already checked by
+          // verifyAgainstConstraints() (price, year, mileage, make, model,
+          // etc). The full-detail record is authoritative — exclude rather
+          // than reverting to the lean row, and let the caller backfill.
+          anyConstraintDrift = true;
+          console.log(
+            `[find_matching_vehicle] stage2 full_detail_rejected_due_to_constraint_drift vin=${lean.vin} violations=${JSON.stringify(violations)}`,
+          );
+        }
+
+        return { kept, anyLookupFailed, anyConstraintDrift };
       }
 
-      const { checked: shortlistWithPriceCheck, anyDrift: priceDriftFromPrimary } =
-        priceCheckedRefetch(refetched, leanShortlist);
+      const {
+        kept: shortlistWithPriceCheck,
+        anyLookupFailed: detailLookupFailedFromPrimary,
+        anyConstraintDrift: priceDriftFromPrimary,
+      } = resolveStage2Detail(leanShortlist, fullDetail);
       let priceDriftDetected = priceDriftFromPrimary;
+      let detailLookupFailedDetected = detailLookupFailedFromPrimary;
 
       // Body-style stage-2 re-check (SYS-20260816-052): the SYS-20260816-051
       // exclude filter runs on stage-1 lean data, but confirmed live that
@@ -1125,13 +1175,20 @@ const handler = createMcpHandler((server) => {
       let bodyStyleDriftDetected = false;
       let bodyStyleFallbackUsed = false;
       const shortlist = await (async () => {
-        if (!droppedBodyStyle) return shortlistWithPriceCheck;
-
-        const primaryMatches = shortlistWithPriceCheck.filter((full) => {
-          const matches = bodyStyleMatchFilter(full);
-          if (!matches) bodyStyleDriftDetected = true;
-          return matches;
-        });
+        // Shortfall can now come from either body-style exclusion or from
+        // full_detail_rejected_due_to_constraint_drift exclusion above — both
+        // reduce shortlistWithPriceCheck below targetCount, so the backfill
+        // below must run for either cause, not just when a body style was
+        // dropped (that early-return was the other half of the same bug:
+        // constraint-drift exclusions with no droppedBodyStyle never got
+        // backfilled at all).
+        const primaryMatches = droppedBodyStyle
+          ? shortlistWithPriceCheck.filter((full) => {
+              const matches = bodyStyleMatchFilter(full);
+              if (!matches) bodyStyleDriftDetected = true;
+              return matches;
+            })
+          : shortlistWithPriceCheck;
 
         const shortfall = targetCount - primaryMatches.length;
         if (shortfall <= 0 || spareLean.length === 0) {
@@ -1142,24 +1199,26 @@ const handler = createMcpHandler((server) => {
 
         // One bounded backfill round: fetch stage-2 detail for the spare
         // pool (already capped to targetCount by construction above), same
-        // price-drift-aware refetch as the primary shortlist.
+        // lookup-failure/constraint-drift resolution as the primary shortlist.
         const spareFullDetail = await Promise.all(
           spareLean.map((lean) => getListingByVin(lean.vin)),
         );
-        const spareRefetched = spareLean.map((lean, i) => spareFullDetail[i] ?? lean);
-        const { checked: spareChecked, anyDrift: spareDrift } = priceCheckedRefetch(
-          spareRefetched,
-          spareLean,
-        );
+        const {
+          kept: spareResolved,
+          anyLookupFailed: spareLookupFailed,
+          anyConstraintDrift: spareDrift,
+        } = resolveStage2Detail(spareLean, spareFullDetail);
         if (spareDrift) priceDriftDetected = true;
+        if (spareLookupFailed) detailLookupFailedDetected = true;
 
-        const backfillMatches = spareChecked
-          .filter((full) => {
-            const matches = bodyStyleMatchFilter(full);
-            if (!matches) bodyStyleDriftDetected = true; // spares excluded too — still worth disclosing
-            return matches;
-          })
-          .slice(0, shortfall);
+        const backfillMatches = (droppedBodyStyle
+          ? spareResolved.filter((full) => {
+              const matches = bodyStyleMatchFilter(full);
+              if (!matches) bodyStyleDriftDetected = true; // spares excluded too — still worth disclosing
+              return matches;
+            })
+          : spareResolved
+        ).slice(0, shortfall);
 
         const combined = [...primaryMatches, ...backfillMatches];
         if (combined.length > 0) return combined;
@@ -1219,7 +1278,7 @@ const handler = createMcpHandler((server) => {
       }
       if (priceDriftDetected) {
         dataNotes.push(
-          "One or more listings had updated pricing or details at the time of the detailed lookup that no longer matched your stated filters (e.g. a live price change) — the original verified data was used instead where possible.",
+          "One or more listings had updated pricing or details at the time of the detailed lookup that no longer matched your stated filters (e.g. a live price change) — those results were excluded and, where possible, replaced with an alternate match rather than shown with outdated data.",
         );
       }
       if (bodyStyleFallbackUsed) {
