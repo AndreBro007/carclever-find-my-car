@@ -37,4 +37,5 @@ relaxation-penalty formula (deliberately deferred pending real data,
 SYS-20260812-013).
 
 
-<!-- Reverted chips change -->
+
+<!-- 71755f7: stable final -->
