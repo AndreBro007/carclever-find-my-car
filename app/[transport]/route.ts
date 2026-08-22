@@ -545,12 +545,8 @@ const handler = createMcpHandler((server) => {
       // Per SEP-1865: hosts that don't support MCP Apps ignore this field
       // and the tool behaves exactly as before (text/structuredContent
       // only) — this is additive, not a replacement path. Also set the
-      // ChatGPT-specific compatibility alias per OpenAI's own docs
-      // ("ChatGPT also honors _meta['openai/outputTemplate'] as a
-      // compatibility alias") for extra robustness on that host.
       _meta: {
         ui: { resourceUri: RESULTS_CARD_RESOURCE_URI },
-        "openai/outputTemplate": RESULTS_CARD_RESOURCE_URI,
       },
     },
     async (input) => {
