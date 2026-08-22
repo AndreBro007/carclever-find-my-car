@@ -15,7 +15,6 @@ import { applyDiversity } from "@/lib/diversity";
 import { crossCheckVin } from "@/lib/vin-cross-check";
 import { computeMatchScore } from "@/lib/match-score";
 import { resolveLinks } from "@/lib/link-resolution";
-import { getValidatedPhotos } from "@/lib/photos";
 import { sanitizeDealerName } from "@/lib/dealer-name";
 import { applyKnownHybridOverride, formatFuelTypeForDisplay } from "@/lib/fuel-type";
 import { decodeNhtsaElectrification, nhtsaIndicatesElectrified, type NhtsaElectrificationResult } from "@/lib/nhtsa-client";
@@ -1304,27 +1303,6 @@ const handler = createMcpHandler((server) => {
     },
   );
 
-  server.registerTool(
-    "get_vehicle_photos",
-    {
-      description:
-        "Fetches additional photos for a specific vehicle by VIN. Lazy/non-blocking — call this after showing initial search results, never before. Each photo is validated independently; a single broken image never affects the rest of the gallery or the vehicle's match quality.",
-      inputSchema: { vin: z.string().describe("The vehicle's 17-character VIN, from a prior find_matching_vehicle result.") },
-      annotations: { readOnlyHint: true, openWorldHint: true, destructiveHint: false },
-    },
-    async ({ vin }) => {
-      const photos = await getValidatedPhotos(vin, 5);
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: photos.length > 0 ? `Found ${photos.length} photos.` : "No valid photos found for this vehicle.",
-          },
-        ],
-        structuredContent: { vin, photoUrls: photos },
-      };
-    },
-  );
 
   server.registerTool(
     "resolve_dealer_url",
