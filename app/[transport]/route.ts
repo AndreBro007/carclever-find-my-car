@@ -91,6 +91,10 @@ TRIM / VARIANT — REQUIRED VERSUS PREFERRED
 
 Two separate fields exist for a trim/variant, and picking the right one matters: \`trimRequired\` is a hard eligibility filter; \`trimPreference\` is ranking-only. Use \`trimRequired\` whenever the user names a specific trim/variant as part of what they're asking for ("AMG GLA 35," "Limited," "Raptor," "Type R") — including when it's folded into a model-like phrase, e.g. "Mercedes AMG GLA 35" means make: "Mercedes-Benz", model: "GLA", trimRequired: "AMG GLA 35" — never trimPreference. Use \`trimPreference\` only when the user explicitly signals it's a soft preference ("prefer," "ideally," "if possible," "would like"). A result whose trim is confirmed to differ from \`trimRequired\` is excluded, never shown as a match — do not manually relax this yourself if the tool returns fewer results; that's the trade-off of an explicit trim requirement, the same as any other hard filter.
 
+DIRECT VIN LOOKUP
+
+When the user supplies a specific 17-character VIN — "Find VIN W1N4N5BB1TJ864755," "is this VIN available," "check VIN ..." — pass it in \`vin\`. This looks up that exact vehicle only; it is NOT a normal search and doesn't use make/model/price to find a different vehicle. Never translate a VIN into make/model/price filters instead of using this field. Any other criteria the user also stated (price, trim, etc.) are checked against that specific vehicle and reported honestly (met or not) — a mismatch never causes a different, similar vehicle to be substituted. If the exact VIN isn't found in current inventory, that's reported plainly as not found, never silently swapped for something similar.
+
 Use priceFlexibility: "flexible" only when the user signals approximation ("around," "roughly," "about"). Otherwise price is a strict ceiling, never silently loosened.
 
 RESULT TRUST
@@ -132,6 +136,7 @@ MAPS
 For local vehicle searches, when results include 3+ dealer locations, present the recommended results on an interactive map using any available map visualization tool — this applies whenever geographic/dealer location data is returned, using the dealer/location data already returned by the tool.`;
 
 const FindMatchingVehicleInput = z.object({
+  vin: z.string().optional().describe("An exact 17-character VIN, when the user supplies one directly (e.g. 'Find VIN W1N4N5BB1TJ864755', 'is this VIN still available'). When set, this looks up that ONE specific vehicle directly — it does NOT run a broad search, and no other field is used to search for a different vehicle. Do not infer make/model/price filters instead of passing the VIN; pass the VIN as-is here. Any other stated criteria (price, trim, etc.) are checked against this specific vehicle and disclosed honestly, never used to substitute a different one. If the vehicle isn't found, that's reported plainly — never silently substituted with something similar."),
   priceMax: z.number().optional().describe("Maximum price in USD. A hard ceiling — never send a value higher than what the user actually stated."),
   priceMin: z.number().optional().describe("Minimum price in USD."),
   priceFlexibility: z.enum(["strict", "flexible"]).optional().describe("Whether the price ceiling can flex. Set to 'flexible' only if the user signals approximation ('around', 'roughly', 'about') — otherwise omit; the ceiling stays strict by default."),
@@ -694,6 +699,165 @@ const handler = createMcpHandler((server) => {
       // everything already spent (primary search, facet correction, retries).
       const requestStartedAt = Date.now();
       const intent = parseIntent(input);
+
+      // Direct VIN lookup (SYS-20260824): when the user supplies an exact
+      // VIN, this looks up that one vehicle directly and returns early —
+      // the normal search/widening/diversity/backfill pipeline below never
+      // runs for this path. Reuses the existing getListingByVin() call and
+      // the same buildResultCard() enrichment (verification, NHTSA, image
+      // signing, link resolution) as a normal search result, so the card
+      // is built exactly the same way a search result's card would be.
+      // Any other stated constraint (price, trim, etc.) is checked against
+      // THIS vehicle and disclosed honestly — never used to exclude it or
+      // substitute a different vehicle.
+      if (input.vin) {
+        const rawVin = input.vin.trim().toUpperCase();
+        // Basic 17-character VIN format check — real VINs never contain I,
+        // O, or Q (reserved, to avoid confusion with 1/0). Not a full
+        // check-digit/WMI decode, just a cheap, real format validation.
+        const vinFormatValid = /^[A-HJ-NPR-Z0-9]{17}$/.test(rawVin);
+
+        if (!vinFormatValid) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `"${input.vin}" doesn't look like a valid 17-character VIN (VINs never contain the letters I, O, or Q) — double-check it and try again.`,
+              },
+            ],
+            structuredContent: {
+              meta: {
+                totalCandidatesConsidered: 0,
+                totalMatches: 0,
+                corpusSizeApprox: getCorpusCountForDescription(),
+                relaxations: [],
+                dataNotes: [],
+                scopeNote: "vin_lookup",
+                serviceError: null,
+                interpretationNotes: [`"${input.vin}" is not a valid 17-character VIN format.`],
+                qualifierAccounting: [],
+              },
+              results: [],
+            },
+          };
+        }
+
+        const fullListing = await getListingByVin(rawVin);
+
+        if (!fullListing) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `No listing found for VIN ${rawVin} in current live inventory — this exact vehicle isn't currently available (or was already sold/delisted). Not substituting a similar vehicle since a specific VIN was requested.`,
+              },
+            ],
+            structuredContent: {
+              meta: {
+                totalCandidatesConsidered: 0,
+                totalMatches: 0,
+                corpusSizeApprox: getCorpusCountForDescription(),
+                relaxations: [],
+                dataNotes: [],
+                scopeNote: "vin_lookup",
+                serviceError: null,
+                interpretationNotes: [`Exact VIN lookup for ${rawVin} found no matching live listing.`],
+                qualifierAccounting: [],
+              },
+              results: [],
+            },
+          };
+        }
+
+        const nhtsaResult = await decodeNhtsaElectrification(
+          fullListing.vin,
+          fullListing.vehicle?.make,
+          fullListing.vehicle?.model,
+          fullListing.vehicle?.cylinders,
+        );
+
+        const vinIntentInput: CardIntentInput = {
+          exteriorColor: input.exteriorColor,
+          interiorColor: input.interiorColor,
+          drivetrain: input.drivetrain,
+          transmission: input.transmission,
+          cylinders: input.cylinders,
+          doors: input.doors,
+          vehicleType: input.vehicleType,
+          used: input.used,
+          cpo: input.cpo,
+          noAccidents: input.noAccidents,
+          oneOwner: input.oneOwner,
+          seatsMinPreference: intent.semantic.seatsMin,
+          droppedBodyStyleFilter: null,
+          trimRequired: intent.trimRequired,
+        };
+
+        const vinCard = await buildResultCard(fullListing, intent, vinIntentInput, nhtsaResult);
+        const vinCards = vinCard ? [vinCard] : [];
+
+        // Other stated hard constraints (price/year/mileage) are checked
+        // against THIS vehicle and disclosed — never used to exclude it or
+        // substitute a different one. make/model deliberately omitted: a
+        // VIN already identifies an exact vehicle regardless of what
+        // make/model the user also stated.
+        const vinConstraintViolations = verifyAgainstConstraints(fullListing, {
+          priceMax: intent.hardConstraints.priceMax,
+          priceMin: intent.hardConstraints.priceMin,
+          yearMin: intent.hardConstraints.yearMin,
+          yearMax: intent.hardConstraints.yearMax,
+          mileageMax: intent.hardConstraints.mileageMax,
+        });
+        const vinDataNotes: string[] =
+          vinConstraintViolations.length > 0
+            ? [
+                `This exact vehicle doesn't fully meet the other stated criteria (${vinConstraintViolations.join(
+                  ", ",
+                )}) — shown anyway since a specific VIN identifies exactly one vehicle, never substituted for a different one.`,
+              ]
+            : [];
+
+        const vinSummary =
+          vinCards.length === 0
+            ? `VIN ${rawVin} was found in inventory but couldn't be built into a displayable result (no usable dealer or affiliate link available for it).`
+            : (() => {
+                const c = vinCards[0];
+                const id = c.identity;
+                const l = c.listing;
+                const r = c.ranking;
+                const trimStr = id.trim ? ` ${id.trim}` : "";
+                const priceStr = l.price != null ? `$${l.price.toLocaleString()}` : "price unavailable";
+                const mileageStr = l.mileage != null ? `${l.mileage.toLocaleString()} mi` : "mileage unknown";
+                const dealerStr = l.dealer ? ` — ${l.dealer}${l.city ? `, ${l.city}` : ""}${l.state ? `, ${l.state}` : ""}` : "";
+                const primaryLinkStr =
+                  c.links.isCarvana && c.links.dealerListingUrl
+                    ? `${c.links.dealerListingUrl} (view on Carvana)`
+                    : c.links.affiliateUrl ?? c.links.dealerListingUrl ?? c.links.affiliateFallbackUrl ?? "no link available";
+                const violationNote =
+                  vinConstraintViolations.length > 0
+                    ? `\n   ⚠️ Doesn't fully meet: ${vinConstraintViolations.join(", ")} — this is the exact VIN requested, not a different vehicle.`
+                    : "";
+                return `Found the exact vehicle for VIN ${rawVin}:\n\n${id.year} ${id.make} ${id.model}${trimStr} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${violationNote}\n   Link: ${primaryLinkStr}`;
+              })();
+
+        return {
+          content: [{ type: "text" as const, text: vinSummary }],
+          structuredContent: {
+            meta: {
+              totalCandidatesConsidered: 1,
+              totalMatches: vinCards.length,
+              corpusSizeApprox: getCorpusCountForDescription(),
+              relaxations: [],
+              dataNotes: vinDataNotes,
+              scopeNote: "vin_lookup",
+              serviceError: null,
+              interpretationNotes: [`Direct VIN lookup for ${rawVin} — identifies exactly one vehicle; no broader search was run.`],
+              qualifierAccounting: buildQualifierAccounting(vinIntentInput),
+            },
+            results: vinCards,
+          },
+        };
+      }
 
       // trimRequired (SYS-20260823): a hard eligibility requirement,
       // enforced locally — deliberately never sent to Auto.dev as a query
