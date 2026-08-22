@@ -649,7 +649,6 @@ const handler = createMcpHandler((server) => {
     {
       description: FIND_MATCHING_VEHICLE_DESCRIPTION(),
       inputSchema: FindMatchingVehicleInput.shape,
-      outputSchema: FindMatchingVehicleOutput,
       annotations: { readOnlyHint: true, openWorldHint: true, destructiveHint: false },
       // Per SEP-1865: hosts that don't support MCP Apps ignore this field
       // and the tool behaves exactly as before (text/structuredContent
