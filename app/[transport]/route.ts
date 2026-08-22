@@ -23,6 +23,7 @@ import { CAPABILITIES } from "@/lib/capabilities";
 import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting, type CardIntentInput } from "@/lib/qualifier-accounting";
 import { RESULTS_CARD_RESOURCE_URI, buildResultsCardHtml } from "@/lib/results-card";
 import { signImageUrl } from "@/lib/image-proxy-sign";
+import { trimMatches } from "@/lib/trim-match";
 
 initCorpusCount();
 
@@ -86,6 +87,10 @@ Cylinder count is filterable; engine displacement is not. "V8" must use cylinder
 
 The model field never includes the manufacturer name — "Lexus ES," "BMW 530i," and "Mercedes-Benz E-Class" are all wrong; use "ES," "530i," and "E-Class." This applies even in a cross-brand list with no single make field to set. The tool strips a mistakenly-included make automatically and discloses the correction, so this doesn't cause a failed search — but sending it correctly the first time is still preferable.
 
+TRIM / VARIANT — REQUIRED VERSUS PREFERRED
+
+Two separate fields exist for a trim/variant, and picking the right one matters: \`trimRequired\` is a hard eligibility filter; \`trimPreference\` is ranking-only. Use \`trimRequired\` whenever the user names a specific trim/variant as part of what they're asking for ("AMG GLA 35," "Limited," "Raptor," "Type R") — including when it's folded into a model-like phrase, e.g. "Mercedes AMG GLA 35" means make: "Mercedes-Benz", model: "GLA", trimRequired: "AMG GLA 35" — never trimPreference. Use \`trimPreference\` only when the user explicitly signals it's a soft preference ("prefer," "ideally," "if possible," "would like"). A result whose trim is confirmed to differ from \`trimRequired\` is excluded, never shown as a match — do not manually relax this yourself if the tool returns fewer results; that's the trade-off of an explicit trim requirement, the same as any other hard filter.
+
 Use priceFlexibility: "flexible" only when the user signals approximation ("around," "roughly," "about"). Otherwise price is a strict ceiling, never silently loosened.
 
 RESULT TRUST
@@ -139,7 +144,8 @@ const FindMatchingVehicleInput = z.object({
   mileageMax: z.number().optional().describe("Maximum odometer mileage."),
   zip: z.string().optional().describe("5-digit US ZIP code to search near. Required for a local search radius — a search without one covers the user's stated state (if given) or the whole country, and is disclosed as such."),
   radiusMiles: z.number().optional().describe("Search radius in miles from the ZIP. Defaults to 50 if omitted."),
-  trimPreference: z.string().optional().describe("Preferred trim level, e.g. 'Limited' or 'Sport'. Ranking input only — never excludes a result with a different or unknown trim."),
+  trimPreference: z.string().optional().describe("Preferred trim level, e.g. 'Limited' or 'Sport'. Use ONLY when the user signals it's a soft preference ('prefer', 'ideally', 'if possible'). Ranking input only — never excludes a result with a different or unknown trim. If the user simply names a specific trim/variant as what they want, use trimRequired instead."),
+  trimRequired: z.string().optional().describe("A specific trim/variant the user explicitly asked for, e.g. 'AMG GLA 35', 'Raptor', 'Type R', 'Limited'. A HARD eligibility requirement — a result with a confirmed different trim is excluded, not just ranked lower. Use this whenever a trim/variant name is part of the request, even folded into what looks like a model name (e.g. 'Mercedes AMG GLA 35' -> model: 'GLA', trimRequired: 'AMG GLA 35'). Never sent to Auto.dev as a query filter; matched locally against each result's own reported trim."),
   seatsMinPreference: z.number().optional().describe("Minimum seating capacity needed, e.g. 7 for a family needing three rows. Never excludes a result — seat count is disclosed per result (meets, falls short, or unreported), not hard-filtered, since seating capacity is not a real Auto.dev filter."),
   goals: z.array(z.string()).optional().describe("Freeform buyer goals like 'family', 'reliability', 'commuting'. Ranking/context input only, not a hard filter — this tool has no reliability or ownership-cost data to verify these claims against."),
   // Widened per design doc §2 — all live-verified filterable.
@@ -689,6 +695,30 @@ const handler = createMcpHandler((server) => {
       const requestStartedAt = Date.now();
       const intent = parseIntent(input);
 
+      // trimRequired (SYS-20260823): a hard eligibility requirement,
+      // enforced locally — deliberately never sent to Auto.dev as a query
+      // filter (vehicle.trim isn't trusted there as a hard filter param,
+      // same as everywhere else in this file). Stage-1 lean data may have
+      // trim; when it doesn't, a candidate stays provisional rather than
+      // being excluded outright, since stage-2 full-detail can resolve it.
+      // At stage 2, a still-missing or non-matching trim must NOT satisfy
+      // the requirement — see trimRequiredFullFilter below.
+      const trimRequired = intent.trimRequired;
+      const trimRequiredLeanFilter = (c: AutoDevListing): boolean => {
+        if (!trimRequired) return true;
+        const reported = c.vehicle?.trim;
+        if (reported == null || reported === "") return true; // provisional — stage 2 may resolve it
+        return trimMatches(trimRequired, reported);
+      };
+      const trimIsConfirmedMatch = (c: AutoDevListing): boolean =>
+        !!trimRequired && trimMatches(trimRequired, c.vehicle?.trim);
+      const trimRequiredFullFilter = (c: AutoDevListing): boolean => {
+        if (!trimRequired) return true;
+        // Full detail is the last word — a still-missing or non-matching
+        // trim can no longer stay provisional here.
+        return trimMatches(trimRequired, c.vehicle?.trim);
+      };
+
       // "Lowest mileage" almost always means "lowest mileage used car" in
       // real buy-intent — a new car being low-mileage isn't a finding worth
       // surfacing as the best match, and Auto.dev has no separate "demo"
@@ -889,7 +919,9 @@ const handler = createMcpHandler((server) => {
       // this whole mechanism exists for.
       const usableCount = (rows: AutoDevListing[], q: ListingsQuery) =>
         applyDiversity(
-          rows.filter((c) => verifyAgainstConstraints(c, q).length === 0),
+          rows
+            .filter((c) => verifyAgainstConstraints(c, q).length === 0)
+            .filter(trimRequiredLeanFilter),
           targetCount,
         ).length;
 
@@ -1015,7 +1047,32 @@ const handler = createMcpHandler((server) => {
           })()
         : verifiedCandidates;
 
-      const diversified = applyDiversity(bodyStyleFilteredCandidates, targetCount * 2);
+      // Trim requirement, stage 1 (SYS-20260823): a confirmed non-match is
+      // excluded outright — unlike bodyStyleFilteredCandidates above, there
+      // is deliberately NO "never reduce a real pool to zero" fallback here.
+      // Body style has that fallback because Auto.dev's own tagging can be
+      // wrong for a genuinely correct vehicle (real Volvo V90 tagged
+      // "Crossover"); trimRequired is instead an explicit user-stated hard
+      // requirement, same category as priceMax — showing a confirmed wrong
+      // trim to avoid an empty result would silently violate the exact
+      // requirement being fixed here.
+      const trimFilteredCandidates = trimRequired
+        ? bodyStyleFilteredCandidates.filter(trimRequiredLeanFilter)
+        : bodyStyleFilteredCandidates;
+
+      // Prefer a confirmed trim match ahead of a provisional (trim
+      // unknown at lean stage) candidate before diversity/shortlisting —
+      // stable sort, so candidates within each group keep their existing
+      // relative order (already sorted per Auto.dev's own sort/priorityAxis).
+      const trimOrderedCandidates = trimRequired
+        ? [...trimFilteredCandidates].sort((a, b) => {
+            const aRank = trimIsConfirmedMatch(a) ? 0 : 1;
+            const bRank = trimIsConfirmedMatch(b) ? 0 : 1;
+            return aRank - bRank;
+          })
+        : trimFilteredCandidates;
+
+      const diversified = applyDiversity(trimOrderedCandidates, targetCount * 2);
       const leanShortlist = diversified.slice(0, targetCount);
       // Held in reserve for stage-2 backfill (SYS-20260817-013) if body-style
       // exclusion leaves the shortlist short — these already passed stage-1
@@ -1217,25 +1274,48 @@ const handler = createMcpHandler((server) => {
       // qualifier-accounting.ts, never a bare confirmation.
       let bodyStyleDriftDetected = false;
       let bodyStyleFallbackUsed = false;
+      // Trim requirement, stage 2 (SYS-20260823): unlike body style, this
+      // NEVER falls back to showing a non-matching/still-unresolved trim —
+      // trimRequired is an explicit hard requirement, not a data-tagging
+      // quirk to route around. If genuinely nothing satisfies it after the
+      // primary shortlist and one backfill round, the result is an empty
+      // (or partial) shortlist, same as any other hard filter exhausting
+      // real inventory — never a silently-included wrong trim.
+      let trimDriftDetected = false;
+      const applyLocalStage2Filters = (full: AutoDevListing): boolean => {
+        let ok = true;
+        if (droppedBodyStyle) {
+          const matches = bodyStyleMatchFilter(full);
+          if (!matches) bodyStyleDriftDetected = true;
+          ok = ok && matches;
+        }
+        if (trimRequired) {
+          const matches = trimRequiredFullFilter(full);
+          if (!matches) {
+            trimDriftDetected = true;
+            console.log(
+              `[find_matching_vehicle] stage2 trim_required_rejected vin=${full.vin} trimRequired=${trimRequired} reportedTrim=${full.vehicle?.trim ?? null}`,
+            );
+          }
+          ok = ok && matches;
+        }
+        return ok;
+      };
       const shortlist = await (async () => {
-        // Shortfall can now come from either body-style exclusion or from
-        // full_detail_rejected_due_to_constraint_drift exclusion above — both
-        // reduce shortlistWithPriceCheck below targetCount, so the backfill
-        // below must run for either cause, not just when a body style was
-        // dropped (that early-return was the other half of the same bug:
-        // constraint-drift exclusions with no droppedBodyStyle never got
-        // backfilled at all).
-        const primaryMatches = droppedBodyStyle
-          ? shortlistWithPriceCheck.filter((full) => {
-              const matches = bodyStyleMatchFilter(full);
-              if (!matches) bodyStyleDriftDetected = true;
-              return matches;
-            })
+        // Shortfall can now come from body-style exclusion, from
+        // full_detail_rejected_due_to_constraint_drift exclusion above, or
+        // from a trimRequired exclusion — all three reduce
+        // shortlistWithPriceCheck below targetCount, so the backfill below
+        // must run for any of these causes, not just when a body style was
+        // dropped.
+        const primaryMatches = (droppedBodyStyle || trimRequired)
+          ? shortlistWithPriceCheck.filter(applyLocalStage2Filters)
           : shortlistWithPriceCheck;
 
         const shortfall = targetCount - primaryMatches.length;
         if (shortfall <= 0 || spareLean.length === 0) {
           if (primaryMatches.length > 0) return primaryMatches;
+          if (trimRequired) return []; // hard requirement — never fall back to a non-matching/unresolved trim
           bodyStyleFallbackUsed = shortlistWithPriceCheck.length > 0;
           return shortlistWithPriceCheck;
         }
@@ -1254,18 +1334,15 @@ const handler = createMcpHandler((server) => {
         if (spareDrift) priceDriftDetected = true;
         if (spareLookupFailed) detailLookupFailedDetected = true;
 
-        const backfillMatches = (droppedBodyStyle
-          ? spareResolved.filter((full) => {
-              const matches = bodyStyleMatchFilter(full);
-              if (!matches) bodyStyleDriftDetected = true; // spares excluded too — still worth disclosing
-              return matches;
-            })
+        const backfillMatches = ((droppedBodyStyle || trimRequired)
+          ? spareResolved.filter(applyLocalStage2Filters)
           : spareResolved
         ).slice(0, shortfall);
 
         const combined = [...primaryMatches, ...backfillMatches];
         if (combined.length > 0) return combined;
 
+        if (trimRequired) return []; // hard requirement — never fall back to a non-matching/unresolved trim
         bodyStyleFallbackUsed = shortlistWithPriceCheck.length > 0;
         return shortlistWithPriceCheck;
       })();
@@ -1286,6 +1363,7 @@ const handler = createMcpHandler((server) => {
         // (e.g. "family car") as well as an explicit seatsMinPreference.
         seatsMinPreference: intent.semantic.seatsMin,
         droppedBodyStyleFilter: droppedBodyStyle,
+        trimRequired,
       };
 
       const cards = (
@@ -1331,6 +1409,11 @@ const handler = createMcpHandler((server) => {
       } else if (bodyStyleDriftDetected) {
         dataNotes.push(
           `One or more listings turned out not to be a genuine ${droppedBodyStyle} at the detailed lookup stage, despite passing the initial search — excluded rather than shown as a mismatch.`,
+        );
+      }
+      if (trimDriftDetected) {
+        dataNotes.push(
+          `One or more listings turned out not to be a genuine ${trimRequired} at the detailed lookup stage, despite passing the initial search — excluded rather than shown as a mismatch, since ${trimRequired} was a specific requirement, not a preference.`,
         );
       }
       if (violationRate > 0.2) {

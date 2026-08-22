@@ -45,9 +45,19 @@ export interface CardIntentInput {
    * confirmed match when it isn't one.
    */
   droppedBodyStyleFilter?: string | null;
+  /**
+   * Set when the user explicitly asked for a named trim/variant
+   * (trimRequired, SYS-20260823) — a hard eligibility requirement, unlike
+   * trimPreference. By the time buildIntentConfirmations runs, route.ts has
+   * already excluded any candidate whose trim doesn't confirm this, so this
+   * only needs a positive confirmation line, never a "NOT the requested X"
+   * branch the way droppedBodyStyleFilter needs one.
+   */
+  trimRequired?: string;
 }
 
 export interface CardForConfirmation {
+  identity: { trim: string | null };
   detail: { interiorColor: string | null; exteriorColor: string | null; cylinders: number | null; cpoNote: string; ownerHistoryNote: string | null; seatsNote: string };
   powertrain: { drivetrain: string | null; transmission: string | null };
   body: { doors: number | null; vehicleType: string | null; bodyStyle: string | null };
@@ -81,6 +91,13 @@ export function buildIntentConfirmations(input: CardIntentInput, card: CardForCo
   }
   if (input.doors != null && card.body.doors != null) {
     confirmations.push(`${card.body.doors}-door`);
+  }
+  // trimRequired confirmation: by construction, only trim-confirmed
+  // candidates reach this point when trimRequired is set (route.ts
+  // excludes anything else at both stage 1 and stage 2), so this is a
+  // plain positive confirmation — no "NOT the requested X" branch needed.
+  if (input.trimRequired && card.identity.trim) {
+    confirmations.push(card.identity.trim);
   }
   // Body-style confirmation when the filter had to be dropped
   // (droppedBodyStyleFilter set). The "else if (actual)" branch below IS
@@ -183,6 +200,7 @@ export function buildQualifierAccounting(input: CardIntentInput): QualifierAccou
     ["doors", "door count"],
     ["vehicleType", "vehicle type"],
     ["used", "new/used"],
+    ["trimRequired", "trim/variant"],
   ];
   for (const [key, label] of structural) {
     const value = input[key];

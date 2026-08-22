@@ -33,6 +33,16 @@ export interface ParsedIntent {
     seatsMin?: number;
     goals: string[]; // e.g. "family", "reliability", "commuting"
   };
+  /**
+   * User explicitly asked for a named trim/variant (SYS-20260823) — a hard
+   * eligibility requirement, distinct from trimPreference above. Kept
+   * separate from `hardConstraints` (which mirrors real Auto.dev API query
+   * params) because trim is deliberately never sent to Auto.dev as a query
+   * filter — `vehicle.trim` isn't trusted there. It's enforced locally in
+   * route.ts against the returned lean/full-detail data instead, using
+   * lib/trim-match.ts.
+   */
+  trimRequired?: string;
   verificationRequired: string[];
   interpretationNotes: string[];
   /**
@@ -121,6 +131,7 @@ export function parseIntent(input: {
   zip?: string;
   radiusMiles?: number;
   trimPreference?: string;
+  trimRequired?: string;
   seatsMinPreference?: number;
   goals?: string[];
 }): ParsedIntent {
@@ -157,6 +168,16 @@ export function parseIntent(input: {
     interpretationNotes.push(
       `Trim preference "${input.trimPreference}" affects ranking, not eligibility — listings ` +
         `with a different or unknown trim still appear (Trust Class B, not hard-filterable).`,
+    );
+  }
+
+  const trimRequired = input.trimRequired?.trim() || undefined;
+  if (trimRequired) {
+    verificationRequired.push("trim");
+    interpretationNotes.push(
+      `Trim requirement "${trimRequired}" is a hard eligibility filter, not a preference — a ` +
+        `listing with a confirmed different trim is excluded, and one with an unresolvable ` +
+        `unknown trim is only shown if the detailed lookup later confirms the match.`,
     );
   }
 
@@ -198,6 +219,7 @@ export function parseIntent(input: {
       seatsMin,
       goals,
     },
+    trimRequired,
     verificationRequired,
     interpretationNotes,
     modelPrefixesStripped,
