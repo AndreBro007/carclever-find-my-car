@@ -476,6 +476,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
   }).then(function(){
     setStage("initialized, waiting for tool-result…");
     sendNotification("ui/notifications/initialized", {});
+    reportSize();
   }).catch(function(err){
     // Host didn't complete the handshake as expected — leave the timeout
     // fallback above to fire; the host's own text/structuredContent
