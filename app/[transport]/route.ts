@@ -1423,6 +1423,7 @@ const handler = createMcpHandler((server) => {
         model: z.string().describe("Vehicle model name, e.g. Camry."),
         year: z.number().describe("Model year."),
       },
+      outputSchema: ResolveDealerUrlOutput,
       annotations: { readOnlyHint: true, openWorldHint: true, destructiveHint: false },
     },
     async ({ vin, make, model, year }) => {
