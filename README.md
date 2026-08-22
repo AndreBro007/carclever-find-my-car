@@ -54,4 +54,5 @@ SYS-20260812-013).
 
 
 
-<!-- Fix Zod v4: z.record() 2-arg syntax (1cda1b6) -->
+
+<!-- ResolveDealerUrlOutput schema + none-available fix (7be63ce + 02ea696) -->
