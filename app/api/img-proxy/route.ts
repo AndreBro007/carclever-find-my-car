@@ -5,18 +5,30 @@
 //
 // Deliberately minimal: GET-only, http(s)-only upstream, capped size/time,
 // image-content-type only, long cache since listing photos don't change.
+//
+// Authorization: this proxy will fetch whatever URL it's given, so it's
+// only safe to expose publicly if we restrict it to URLs we ourselves
+// generated server-side (see lib/image-proxy-sign.ts). Every request must
+// carry a valid HMAC signature over the exact `u` value; there is no
+// unsigned fallback.
+
+import { verifyImageUrlSignature } from "@/lib/image-proxy-sign";
 
 export const runtime = "nodejs";
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5MB — generous for a listing photo, bounds abuse
-const FETCH_TIMEOUT_MS = 8000;
+const FETCH_TIMEOUT_MS = 12000;
 
 export async function GET(req: Request): Promise<Response> {
   const { searchParams } = new URL(req.url);
   const target = searchParams.get("u");
+  const sig = searchParams.get("sig");
 
   if (!target) {
     return new Response("Missing u param", { status: 400 });
+  }
+  if (!sig || !verifyImageUrlSignature(target, sig)) {
+    return new Response("Missing or invalid signature", { status: 403 });
   }
 
   let parsed: URL;
@@ -33,7 +45,10 @@ export async function GET(req: Request): Promise<Response> {
   try {
     upstream = await fetch(parsed.toString(), {
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      headers: { "User-Agent": "CarCleverFindMyCar-ImageProxy/1.0" },
+      headers: {
+        "User-Agent": "CarCleverFindMyCar-ImageProxy/1.0",
+        Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+      },
     });
   } catch {
     return new Response("Upstream fetch failed", { status: 502 });

@@ -228,9 +228,12 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
       return { "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c];
     });
   }
-  function proxiedPhoto(url){
-    if (!url) return null;
-    return APP_ORIGIN + "/api/img-proxy?u=" + encodeURIComponent(url);
+  function proxiedPhoto(cardImageUrl){
+    // cardImageUrl is a fully-formed, server-signed /api/img-proxy URL
+    // (see media.cardImageUrl, signed in buildResultCard() with
+    // lib/image-proxy-sign.ts). The widget never constructs an unsigned
+    // proxy URL itself — the proxy requires a valid signature.
+    return cardImageUrl || null;
   }
   // Small inline SVG car glyph used whenever a photo is missing or fails
   // to load — no extra network request, no third-party asset/licensing
@@ -283,7 +286,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     var vinVerified = badges.indexOf("vin-verified") !== -1;
     var exteriorColor = c.detail && c.detail.exteriorColor;
     var carfaxUrl = c.detail && c.detail.carfaxUrl;
-    var photo = proxiedPhoto(media.primaryImage);
+    var photo = proxiedPhoto(media.cardImageUrl);
     var isCarvana = links.isCarvana;
     var primaryUrl = isCarvana ? links.dealerListingUrl : (links.affiliateUrl || links.dealerListingUrl);
     var throughEdmunds = !isCarvana && !!links.affiliateUrl;

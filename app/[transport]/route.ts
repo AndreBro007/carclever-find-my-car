@@ -22,6 +22,7 @@ import { getCorpusCountForDescription, initCorpusCount } from "@/lib/corpus-coun
 import { CAPABILITIES } from "@/lib/capabilities";
 import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting, type CardIntentInput } from "@/lib/qualifier-accounting";
 import { RESULTS_CARD_RESOURCE_URI, buildResultsCardHtml } from "@/lib/results-card";
+import { signImageUrl } from "@/lib/image-proxy-sign";
 
 initCorpusCount();
 
@@ -450,6 +451,26 @@ function resolveSort(
 
 const CANDIDATE_POOL_SIZE = 100; // Growth plan cap per docs; silently clamps to 20 on Starter
 
+// Same deployed origin the widget declares in its CSP resourceDomains
+// (lib/results-card.ts APP_ORIGIN) — kept in sync manually since the two
+// files are independent per the MCP Apps static-resource split.
+const IMG_PROXY_ORIGIN = "https://carclever-find-my-car.vercel.app";
+
+function signedImageProxyUrl(rawImageUrl: string | null): string | null {
+  if (!rawImageUrl) return null;
+  // Signing must never fail the whole tool call — if IMAGE_PROXY_SECRET is
+  // unexpectedly missing or signing throws for any reason, fall back to no
+  // image rather than a 500; the widget already renders the existing
+  // "Photo unavailable" placeholder for a null cardImageUrl. The proxy
+  // route itself still fails closed (403) for any unsigned/invalid request.
+  try {
+    const sig = signImageUrl(rawImageUrl);
+    return IMG_PROXY_ORIGIN + "/api/img-proxy?u=" + encodeURIComponent(rawImageUrl) + "&sig=" + sig;
+  } catch {
+    return null;
+  }
+}
+
 async function buildResultCard(
   listing: AutoDevListing,
   intent: ReturnType<typeof parseIntent>,
@@ -549,6 +570,7 @@ async function buildResultCard(
     history: historySummary,
     media: {
       primaryImage: rl?.primaryImage ?? null,
+      cardImageUrl: signedImageProxyUrl(rl?.primaryImage ?? null),
       photoUrls: photos,
     },
     verification,
