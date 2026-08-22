@@ -45,4 +45,5 @@ SYS-20260812-013).
 
 
 
-<!-- Test D: logDiag disabled -->
+
+<!-- Test E: clientInfo removed -->
