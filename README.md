@@ -49,4 +49,5 @@ SYS-20260812-013).
 
 
 
-<!-- Test C: openai/outputTemplate removed (68a888b) -->
+
+<!-- Restore B/C + Test D: logDiag disabled (20a96cf + a4ee55e) -->
