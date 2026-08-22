@@ -527,7 +527,6 @@ const handler = createMcpHandler((server) => {
               // deployed origin, not an OpenAI-assigned value — this is
               // what the portal's "widget domain is not set" warning was
               // asking for.
-              domain: "https://carclever-find-my-car.vercel.app",
               csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
               prefersBorder: false,
             },
