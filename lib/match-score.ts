@@ -10,11 +10,15 @@
 import type { AutoDevListing } from "./auto-dev-client";
 import type { ParsedIntent } from "./intent-parser";
 import type { VerificationResult } from "./vin-cross-check";
+import { modelSatisfiesRequested } from "./model-match";
 
-// make/model fields can be comma-separated OR lists (Auto.dev's native comma
+// make fields can be comma-separated OR lists (Auto.dev's native comma
 // syntax, e.g. "Suburban,Tahoe,Expedition" for a size-qualified search per
 // the model-name-expansion pattern — see route.ts tool description). Exact
 // string equality against the whole list would always fail; check membership.
+// Model matching uses the directional modelSatisfiesRequested() below
+// instead (SYS-20260824) — make matching stays symmetric/prefix-tolerant
+// here, unchanged.
 //
 // Uses String() rather than relying on the TS type (`string | undefined`)
 // matching runtime reality — real bug found 2026-08-14 (diversity.ts): the
@@ -61,7 +65,7 @@ function statedCriteriaFit(listing: AutoDevListing, intent: ParsedIntent): numbe
   if (hc.yearMax != null) checks.push((v?.year ?? Infinity) <= hc.yearMax);
   if (hc.mileageMax != null) checks.push((rl?.miles ?? Infinity) <= hc.mileageMax);
   if (hc.make) checks.push(matchesAnyInList(v?.make, hc.make));
-  if (hc.model) checks.push(matchesAnyInList(v?.model, hc.model));
+  if (hc.model) checks.push(modelSatisfiesRequested(hc.model, v?.model));
 
   let base = checks.length === 0 ? 1.0 : checks.filter(Boolean).length / checks.length;
 

@@ -8,11 +8,12 @@
  */
 import type { AutoDevListing } from "./auto-dev-client";
 import type { ListingsQuery } from "./auto-dev-client";
+import { modelSatisfiesRequested } from "./model-match";
 
-// make/model can be comma-separated OR lists (see match-score.ts for why).
-// Also: model strings have real cross-API family variance (STEP3_STATUS.md,
-// e.g. "Silverado 1500 Crew Cab" vs "Silverado 1500") — exact equality wrongly
-// strips valid rows. Use substring/prefix tolerance instead of strict equality.
+// make can be comma-separated OR lists (see match-score.ts for why). Model
+// matching uses the directional modelSatisfiesRequested() below instead
+// (SYS-20260824) — make matching stays symmetric/prefix-tolerant here,
+// unchanged.
 //
 // String(value) wrapper (real bug found 2026-08-14, reproduced live on a
 // bare "convertible" query): rare/varied vehicles from a broad, unanchored
@@ -34,7 +35,7 @@ export function verifyAgainstConstraints(listing: AutoDevListing, query: Listing
   if (query.make && v?.make && !matchesAnyInList(v.make, query.make)) {
     violations.push("make");
   }
-  if (query.model && v?.model && !matchesAnyInList(v.model, query.model)) {
+  if (query.model && v?.model && !modelSatisfiesRequested(query.model, v.model)) {
     violations.push("model");
   }
   if (query.priceMax != null && rl?.price != null && rl.price > query.priceMax) {
