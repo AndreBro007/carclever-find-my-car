@@ -24,6 +24,11 @@ import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting
 import { RESULTS_CARD_RESOURCE_URI, buildResultsCardHtml } from "@/lib/results-card";
 import { signImageUrl } from "@/lib/image-proxy-sign";
 import { trimMatches } from "@/lib/trim-match";
+import {
+  buildConstraintChecks,
+  aggregateSearchConstraintStatus,
+  type ConstraintEvidenceRequest,
+} from "@/lib/constraint-evidence";
 
 initCorpusCount();
 
@@ -487,6 +492,8 @@ async function buildResultCard(
   intent: ReturnType<typeof parseIntent>,
   intentInput: CardIntentInput,
   nhtsa?: NhtsaElectrificationResult | null,
+  evidenceRequest?: ConstraintEvidenceRequest,
+  relaxedFields?: ReadonlySet<string>,
 ) {
   const verification = crossCheckVin(listing); // now local/synchronous — no API call
   const { matchScore, matchScoreLabel, breakdown } = computeMatchScore(listing, intent, verification);
@@ -611,6 +618,35 @@ async function buildResultCard(
     badges,
   };
 
+  // Constraint evidence (SYS-20260825): built from the exact same resolved
+  // listing (v/rl) the card above is built from — purely observational,
+  // computed after cardShape and never fed back into it or into any
+  // decision this function already made above (links suppression, badges,
+  // Match Score, etc. are all already finalized by this point).
+  const constraintChecks = buildConstraintChecks(
+    evidenceRequest ?? {},
+    {
+      make: v?.make ?? null,
+      model: v?.model ?? null,
+      price: rl?.price ?? null,
+      year: v?.year ?? null,
+      mileage: rl?.miles ?? null,
+      bodyStyle: v?.bodyStyle ?? null,
+      vehicleType: v?.type ?? null,
+      drivetrain: v?.drivetrain ?? null,
+      transmission: v?.transmission ?? null,
+      exteriorColor: v?.exteriorColor ?? null,
+      interiorColor: v?.interiorColor ?? null,
+      doors: v?.doors ?? null,
+      cylinders: v?.cylinders ?? null,
+      used: rl?.used ?? null,
+      state: rl?.state ?? null,
+      trim: v?.trim ?? null,
+    },
+    relaxedFields ?? new Set(),
+  );
+  const searchConstraintStatus = aggregateSearchConstraintStatus(constraintChecks);
+
   return {
     ...cardShape,
     // Qualifier accounting (SYS-20260815 follow-up): dynamic, per-result
@@ -619,6 +655,12 @@ async function buildResultCard(
     // confirms" gap found in the Aug 15 baseline.
     intentConfirmations: buildIntentConfirmations(intentInput, cardShape),
     dataConflicts: detectDataConflicts(listing),
+    // Constraint evidence (SYS-20260825): additive, observational only —
+    // built from the same already-resolved listing the rest of this card
+    // uses, never participates in eligibility/ranking/ordering decisions.
+    // See lib/constraint-evidence.ts for the full contract.
+    constraintChecks,
+    searchConstraintStatus,
   };
 }
 
@@ -821,7 +863,36 @@ const handler = createMcpHandler((server) => {
           trimRequired: intent.trimRequired,
         };
 
-        const vinCard = await buildResultCard(resolvedListing, intent, vinIntentInput, nhtsaResult);
+        const vinCard = await buildResultCard(
+          resolvedListing,
+          intent,
+          vinIntentInput,
+          nhtsaResult,
+          {
+            make: input.make,
+            model: input.model,
+            priceMin: input.priceMin,
+            priceMax: input.priceMax,
+            yearMin: input.yearMin,
+            yearMax: input.yearMax,
+            mileageMax: input.mileageMax,
+            bodyType: input.bodyType,
+            drivetrain: input.drivetrain,
+            transmission: input.transmission,
+            exteriorColor: input.exteriorColor,
+            interiorColor: input.interiorColor,
+            vehicleType: input.vehicleType,
+            doors: input.doors,
+            cylinders: input.cylinders,
+            used: input.used,
+            state: input.state,
+            trimRequired: intent.trimRequired,
+          },
+          // A direct VIN lookup never widens/relaxes anything — this is
+          // always the exact requested VIN, so no field is ever "relaxed"
+          // here.
+          new Set(),
+        );
         const vinCards = vinCard ? [vinCard] : [];
 
         // Other stated hard constraints (price/year/mileage) are checked
@@ -1558,8 +1629,54 @@ const handler = createMcpHandler((server) => {
         trimRequired,
       };
 
+      // Constraint evidence (SYS-20260825): "requested" values come from
+      // intent.hardConstraints (the originally-stated, never-widened values
+      // — the same object parseIntent() produced once at the top of this
+      // handler, untouched by the widening ladder below it, which only
+      // mutates the separate effectiveQuery variable) plus the raw input
+      // for the fields intent.hardConstraints doesn't carry. relaxedFields
+      // is derived only from this handler's own already-known, explicit
+      // relaxation state — never inferred by the evidence module itself.
+      const relaxedFields = new Set<string>();
+      for (const r of relaxations) {
+        if (r.step === "price") relaxedFields.add("priceMax");
+        if (r.step === "year") {
+          relaxedFields.add("yearMin");
+          relaxedFields.add("yearMax");
+        }
+        if (r.step === "mileage") relaxedFields.add("mileageMax");
+        // "radius" and the model-name-correction steps don't correspond to
+        // any evidence field above — intentionally not mapped.
+      }
+      if (droppedBodyStyle) relaxedFields.add("bodyType");
+
+      const searchEvidenceRequest: ConstraintEvidenceRequest = {
+        make: intent.hardConstraints.make,
+        model: intent.hardConstraints.model,
+        priceMin: intent.hardConstraints.priceMin,
+        priceMax: intent.hardConstraints.priceMax,
+        yearMin: intent.hardConstraints.yearMin,
+        yearMax: intent.hardConstraints.yearMax,
+        mileageMax: intent.hardConstraints.mileageMax,
+        bodyType: intent.hardConstraints.bodyType,
+        drivetrain: input.drivetrain,
+        transmission: input.transmission,
+        exteriorColor: input.exteriorColor,
+        interiorColor: input.interiorColor,
+        vehicleType: input.vehicleType,
+        doors: input.doors,
+        cylinders: input.cylinders,
+        used: input.used,
+        state: input.state,
+        trimRequired: intent.trimRequired,
+      };
+
       const cards = (
-        await Promise.all(shortlist.map((listing) => buildResultCard(listing, intent, intentInput, nhtsaByVin.get(listing.vin))))
+        await Promise.all(
+          shortlist.map((listing) =>
+            buildResultCard(listing, intent, intentInput, nhtsaByVin.get(listing.vin), searchEvidenceRequest, relaxedFields),
+          ),
+        )
       ).filter((c): c is NonNullable<typeof c> => c !== null);
 
       // Match Score ordering is only correct for the default best_for_budget
