@@ -1347,8 +1347,28 @@ const handler = createMcpHandler((server) => {
       // applyLocalBestForBudgetOrdering below, applyConfigurationVarietyPass,
       // applyDiversity, Match Score, cards, links, Buyer Check — all
       // otherwise unchanged). No NEW/USED quota is forced anywhere.
+      //
+      // SYS-20260825 fix: the merge above is a straight concatenation
+      // (NEW rows first, then USED), never globally re-sorted by price.
+      // That's fine for best_for_budget (applyLocalBestForBudgetOrdering
+      // re-ranks the merged pool by value below), but for cheapest/
+      // lowest_mileage/newest — which bypass that re-ranking and rely
+      // entirely on provider sort order surviving into the shortlist —
+      // the merge silently destroyed the global ordering. Confirmed live:
+      // "cheapest BMW X5 near 10001, new or used fine" returned a $71,500
+      // NEW X5 as cheapest while a $70,489 USED X5 was in the same live
+      // pool. Fix: only fair-pool for best_for_budget/unset, the one axis
+      // that actually re-ranks the merged result afterward. cheapest/
+      // lowest_mileage/newest keep the original single-query path, so
+      // Auto.dev's own global sort (price.asc/miles.asc/year.desc) is
+      // preserved intact across NEW+USED exactly as it was before fair
+      // pooling was introduced. Ranking formula, anomaly handling,
+      // diversity, Match Score, hard filters, and UI are untouched.
+      const useFairPool =
+        baseQuery.used == null &&
+        (input.priorityAxis === "best_for_budget" || input.priorityAxis == null);
       let rawResult: { data: AutoDevListing[]; total: number | null; error?: string; degraded?: string };
-      if (baseQuery.used == null) {
+      if (useFairPool) {
         const [newResult, usedResult] = await Promise.all([
           searchListingsLean({ ...baseQuery, used: false }),
           searchListingsLean({ ...baseQuery, used: true }),
