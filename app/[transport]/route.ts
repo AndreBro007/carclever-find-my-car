@@ -24,6 +24,7 @@ import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting
 import { RESULTS_CARD_RESOURCE_URI, buildResultsCardHtml } from "@/lib/results-card";
 import { signImageUrl } from "@/lib/image-proxy-sign";
 import { trimMatches } from "@/lib/trim-match";
+import type { FindMatchingVehicleOutput } from "@/lib/find-matching-vehicle-output";
 import {
   buildConstraintChecks,
   aggregateSearchConstraintStatus,
@@ -459,7 +460,7 @@ async function buildResultCard(
       bodyStyleConfig: v?.style ?? null, // confirmed real (e.g. "4dr SUV") - short structural descriptor, not narrative text
     },
     condition: {
-      inventoryType: rl?.used === false ? "new" : rl?.used === true ? "used" : "unknown",
+      inventoryType: (rl?.used === false ? "new" : rl?.used === true ? "used" : "unknown") as "new" | "used" | "unknown",
       used: rl?.used ?? null,
       cpo: rl?.cpo ?? null,
       cpoEvidenceState: cpoSummary.state,
@@ -494,7 +495,14 @@ async function buildResultCard(
       photoUrls: photos,
     },
     verification,
-    ranking: { matchScore, matchScoreLabel, breakdown },
+    // matchScoreLabel cast: lib/match-score.ts's MatchScoreResult interface
+    // declares matchScoreLabel as plain `string`, but the actual runtime
+    // computation there is always exactly one of these three literals
+    // (`matchScore >= 85 ? "Strong match" : matchScore >= 65 ? "Good match"
+    // : "Partial match"`). This cast is a compile-time-only annotation
+    // matching that deterministic reality — it changes no runtime value,
+    // and lib/match-score.ts itself (the ranking formula/logic) is untouched.
+    ranking: { matchScore, matchScoreLabel: matchScoreLabel as "Strong match" | "Good match" | "Partial match", breakdown },
     links: {
       affiliateUrl: links.affiliateUrl,
       affiliateFallbackUrl: links.affiliateFallbackUrl,
@@ -686,7 +694,7 @@ const handler = createMcpHandler((server) => {
                 qualifierAccounting: [],
               },
               results: [],
-            },
+            } satisfies FindMatchingVehicleOutput,
           };
         }
 
@@ -716,7 +724,7 @@ const handler = createMcpHandler((server) => {
                 qualifierAccounting: [],
               },
               results: [],
-            },
+            } satisfies FindMatchingVehicleOutput,
           };
         }
 
@@ -860,7 +868,7 @@ const handler = createMcpHandler((server) => {
               qualifierAccounting: buildQualifierAccounting(vinIntentInput),
             },
             results: vinCards,
-          },
+          } satisfies FindMatchingVehicleOutput,
         };
       }
 
@@ -1675,7 +1683,7 @@ const handler = createMcpHandler((server) => {
           qualifierAccounting: buildQualifierAccounting(intentInput),
         },
         results: cards,
-      };
+      } satisfies FindMatchingVehicleOutput;
 
       // The text content block is what the host model actually reads and
       // reasons over — structuredContent is supplementary, not a substitute.
