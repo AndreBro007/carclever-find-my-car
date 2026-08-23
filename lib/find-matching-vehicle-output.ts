@@ -1,11 +1,12 @@
 /**
  * Canonical find_matching_vehicle output schema (SYS-20260825).
  *
- * NOT YET REGISTERED as find_matching_vehicle's outputSchema — this file
- * exists purely to compile-time-validate (via `satisfies`) that the four
- * live structuredContent construction paths in app/[transport]/route.ts
- * (invalid VIN, VIN not found, VIN success, normal response) actually
- * match this shape. Activation is a separate, later one-line pass.
+ * This is find_matching_vehicle's REGISTERED outputSchema (activated
+ * SYS-20260825, follow-up pass) — this file is the live output contract,
+ * not just a validation aid. The four live structuredContent construction
+ * paths in app/[transport]/route.ts (invalid VIN, VIN not found, VIN
+ * success, normal response) remain compile-time validated against this
+ * shape via `satisfies FindMatchingVehicleOutput`.
  *
  * Built by reading the CURRENT runtime code — buildResultCard() in
  * route.ts, lib/vin-cross-check.ts, lib/match-score.ts,

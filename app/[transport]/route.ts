@@ -24,7 +24,10 @@ import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting
 import { RESULTS_CARD_RESOURCE_URI, buildResultsCardHtml } from "@/lib/results-card";
 import { signImageUrl } from "@/lib/image-proxy-sign";
 import { trimMatches } from "@/lib/trim-match";
-import type { FindMatchingVehicleOutput } from "@/lib/find-matching-vehicle-output";
+import {
+  FindMatchingVehicleOutputSchema,
+  type FindMatchingVehicleOutput,
+} from "@/lib/find-matching-vehicle-output";
 import {
   buildConstraintChecks,
   aggregateSearchConstraintStatus,
@@ -634,10 +637,9 @@ const handler = createMcpHandler((server) => {
     {
       description: FIND_MATCHING_VEHICLE_DESCRIPTION(),
       inputSchema: FindMatchingVehicleInput.shape,
-      // Intentionally no outputSchema here. find_matching_vehicle returns evolving
-      // structuredContent alongside its text/UI response. A previous dormant output
-      // schema drifted from the real runtime shape; do not add one back unless it is
-      // generated/validated against the canonical runtime contract with regression tests.
+      outputSchema: FindMatchingVehicleOutputSchema,
+      // Canonical output contract. All live structuredContent construction paths
+      // are compile-time validated against this schema via `satisfies`.
       annotations: { readOnlyHint: true, openWorldHint: true, destructiveHint: false },
       // Per SEP-1865: hosts that don't support MCP Apps ignore this field
       // and the tool behaves exactly as before (text/structuredContent
