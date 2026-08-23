@@ -416,7 +416,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
       return;
     }
     var visible = results.slice(0, 5);
-    var hasAffiliate = visible.some(function(c){ return c.links && c.links.affiliateUrl; });
+    var hasAffiliate = visible.some(function(c){ return c.links && (c.links.affiliateUrl || c.links.affiliateFallbackUrl); });
     var html = '<section class="cc-shell">' +
       '<header class="cc-header">' +
         '<div class="cc-header-left"><div class="cc-scale">' + esc(scaleHeaderText(meta)) + "</div></div>" +
