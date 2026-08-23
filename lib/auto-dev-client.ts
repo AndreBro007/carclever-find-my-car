@@ -263,7 +263,13 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
     if (retry.ok) {
       return {
         data: retry.data.data ?? [],
-        total: retry.data.total ?? 0,
+        // Degraded retry deliberately drops `includes=total` (cheaper,
+        // faster request) — Auto.dev's total is therefore rarely present
+        // here. Missing/unreliable total metadata must never collapse to
+        // 0 (SYS-20260825): that reads as "zero matches" downstream even
+        // when real rows were recovered. Only a genuine numeric total is
+        // trusted; otherwise null (unknown), never a 0 fallback.
+        total: typeof retry.data.total === "number" ? retry.data.total : null,
         degraded: "The vehicle data service was slow, so this search used a smaller result set than usual.",
       };
     }
@@ -358,14 +364,23 @@ export async function searchListingsLean(query: ListingsQuery): Promise<Listings
     const retryParams = new URLSearchParams(params);
     retryParams.set("limit", "25");
     retryParams.delete("includes");
-    const retry = await autoDevFetch<{ data: LeanRow[] }>(`/listings?${retryParams.toString()}`, 15_000);
+    const retry = await autoDevFetch<{ data: LeanRow[]; total?: number }>(`/listings?${retryParams.toString()}`, 15_000);
     if (retry.ok) {
       const listings = (retry.data.data ?? [])
         .map(leanRowToListing)
         .filter((l): l is AutoDevListing => l !== null);
+      // Degraded retry deliberately drops `includes=total` — Auto.dev's
+      // total is therefore rarely present here. Missing/unreliable total
+      // metadata must never collapse to 0 (SYS-20260825): that reads as
+      // "zero matches" downstream even when real rows were recovered.
+      // Same sanity rule as the normal path above: if a total IS present
+      // but logically impossible (< the row count actually returned),
+      // it's still unknown, not trustworthy.
+      const rawRetryTotal = typeof retry.data.total === "number" ? retry.data.total : null;
+      const retryTotal = rawRetryTotal != null && rawRetryTotal < listings.length ? null : rawRetryTotal;
       return {
         data: listings,
-        total: 0,
+        total: retryTotal,
         degraded: "The vehicle data service was slow, so this search used a smaller result set than usual.",
       };
     }
