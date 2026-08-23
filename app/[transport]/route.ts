@@ -936,22 +936,15 @@ const handler = createMcpHandler((server) => {
           // origin instead (see app/api/img-proxy/route.ts), so only this
           // one domain needs declaring here.
           //
-          // EXPERIMENT (experiment/omit-ui-domain-claude-mount-test,
-          // André's direction, temporary A/B test): domain: intentionally
-          // OMITTED here. Per SEP-1865, domain is optional; when omitted
-          // the host falls back to its own default sandbox origin.
-          // Current value ("https://carclever-find-my-car.vercel.app") is
-          // OpenAI-shaped (the app's own origin), not the documented
-          // Claude convention (a sha256-hash-derived *.claudemcpcontent.com
-          // origin) — production evidence (real Claude tools/list →
-          // resources/list → resources/read of this exact resource → 200,
-          // then still "Unable to reach"/"There was a problem displaying
-          // content") shows the failure is post-resource-fetch, at mount.
-          // Testing whether this specific field is the mount-stage
-          // rejection trigger. NOT the final fix either way — revert if
-          // Claude still fails with domain omitted (see A/B outcomes in
-          // DECISIONS.md), and no Claude-hash value is being introduced
-          // here regardless of outcome.
+          // domain: intentionally omitted for cross-host MCP Apps
+          // compatibility — hosts may use their own default sandbox
+          // origin when it's absent (per SEP-1865, the field is
+          // optional). Confirmed live (SYS-20260825): a plain-origin
+          // value here caused Claude to fetch this resource successfully
+          // but fail to mount/render it; Claude iOS rendered correctly
+          // once the field was removed, ChatGPT unaffected either way.
+          // Do NOT restore a plain Vercel-origin value without
+          // re-validating against a live Claude test first.
           csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
           prefersBorder: false,
         },
@@ -969,13 +962,9 @@ const handler = createMcpHandler((server) => {
           // against the deployed endpoint (the registration-level _meta
           // alone did not surface here).
           //
-          // EXPERIMENT (experiment/omit-ui-domain-claude-mount-test):
-          // domain: intentionally OMITTED here too, same reasoning as the
-          // registration-level _meta.ui above — see that comment for the
-          // full rationale. openai/outputTemplate (on the tool
-          // registration, unrelated to this block) is untouched, so
-          // ChatGPT's own domain-matching path is unaffected by this
-          // experiment.
+          // domain: intentionally omitted here too, same reasoning as the
+          // registration-level _meta.ui above. openai/outputTemplate (on
+          // the tool registration, unrelated to this block) is untouched.
           _meta: {
             ui: {
               csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
@@ -2391,90 +2380,4 @@ const handler = createMcpHandler((server) => {
   );
 });
 
-// TEMPORARY DIAGNOSTIC (SYS-20260824, Claude MCP Apps investigation) —
-// distinguishes where the Claude/ChatGPT MCP Apps handshake diverges, per
-// André's explicit, narrowly-scoped instruction. NOT for merge to main as
-// a permanent feature — remove once the investigation concludes.
-//
-// Logs ONLY: JSON-RPC method name, initialize's clientInfo.name/version +
-// whether capabilities.extensions["io.modelcontextprotocol/ui"] is
-// advertised, tools/call's tool NAME only (never .arguments — that's
-// where a vehicle search's zip/price/etc. would live), and resources/read's
-// requested URI only (never resource contents). No auth headers, no IPs,
-// no raw session IDs (only a boolean for whether the mcp-session-id
-// header was present). The cloned JSON-RPC body IS fully parsed with
-// JSON.parse below — parsing itself touches the whole message — but only
-// the specific fields named above (method, clientInfo.name/version,
-// protocolVersion, the ui-extension flag/key list, params.name,
-// params.uri) are ever selected out and passed to console.log; everything
-// else read during parsing (search arguments, resource contents, etc.)
-// is discarded in memory and never emitted.
-// Wraps ONLY the POST path (where JSON-RPC arrives) — GET/DELETE, and the
-// real `handler` itself, are completely untouched; the diagnostic reads a
-// *cloned* request body so the original request passed to `handler` is
-// byte-for-byte what it would have been without this wrapper.
-function logMcpDiagnostic(body: unknown, headers: Headers): void {
-  try {
-    const messages = Array.isArray(body) ? body : [body];
-    for (const msg of messages) {
-      if (!msg || typeof msg !== "object" || typeof (msg as { method?: unknown }).method !== "string") continue;
-      const method = (msg as { method: string }).method;
-      const params = (msg as { params?: Record<string, unknown> }).params;
-      const sessionIdPresent = headers.has("mcp-session-id");
-      const userAgent = headers.get("user-agent") ?? null;
-      const base = { tag: "[mcp-diag]", method, sessionIdPresent, userAgent };
-      if (method === "initialize") {
-        const clientInfo = (params as { clientInfo?: { name?: string; version?: string } } | undefined)?.clientInfo;
-        const extensions = (params as { capabilities?: { extensions?: Record<string, unknown> } } | undefined)?.capabilities?.extensions;
-        console.log(JSON.stringify({
-          ...base,
-          clientName: clientInfo?.name ?? null,
-          clientVersion: clientInfo?.version ?? null,
-          protocolVersion: (params as { protocolVersion?: string } | undefined)?.protocolVersion ?? null,
-          uiExtensionAdvertised: !!(extensions && "io.modelcontextprotocol/ui" in extensions),
-          extensionKeys: extensions ? Object.keys(extensions) : [],
-        }));
-      } else if (method === "resources/list" || method === "tools/list") {
-        console.log(JSON.stringify(base));
-      } else if (method === "tools/call") {
-        const toolName = (params as { name?: string } | undefined)?.name ?? null;
-        console.log(JSON.stringify({ ...base, toolName }));
-      } else if (method === "resources/read") {
-        const uri = (params as { uri?: string } | undefined)?.uri ?? null;
-        console.log(JSON.stringify({ ...base, resourceUri: uri, isResultsCard: uri === RESULTS_CARD_RESOURCE_URI }));
-      } else {
-        // Any other JSON-RPC method (notifications/initialized, ping,
-        // etc.) — method name only, for visibility into the full sequence
-        // without adding a special case per method.
-        console.log(JSON.stringify(base));
-      }
-    }
-  } catch (err) {
-    // Diagnostic logging must never break the real request.
-    console.error("[mcp-diag] logging error (non-fatal):", err instanceof Error ? err.message : String(err));
-  }
-}
-
-async function diagnosticPost(request: Request): Promise<Response> {
-  try {
-    const clone = request.clone();
-    const text = await clone.text();
-    if (text) {
-      let parsed: unknown = null;
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        // Not JSON (or empty) — nothing to log, not an error.
-      }
-      if (parsed !== null) logMcpDiagnostic(parsed, request.headers);
-    }
-  } catch (err) {
-    console.error("[mcp-diag] request-clone error (non-fatal):", err instanceof Error ? err.message : String(err));
-  }
-  // The ORIGINAL, untouched request goes to the real handler — this
-  // wrapper only ever reads a clone, never modifies what handler receives.
-  return handler(request);
-}
-
-export { handler as GET, diagnosticPost as POST, handler as DELETE };
-
+export { handler as GET, handler as POST, handler as DELETE };
