@@ -373,6 +373,76 @@ function resolveSort(
 
 const CANDIDATE_POOL_SIZE = 100; // Growth plan cap per docs; silently clamps to 20 on Starter
 
+/**
+ * EXPERIMENT (preview only, SYS-20260825 follow-up): local best_for_budget
+ * candidate ordering. Provider retrieval/sort is completely untouched
+ * (resolveSort() above is unchanged) — this only reorders the already-
+ * eligible lean candidates client-side, after trim ordering and before
+ * applyDiversity()/shortlist selection, for priorityAxis best_for_budget
+ * (or unset, its default). cheapest/lowest_mileage/newest are untouched —
+ * this function is never called for those axes.
+ *
+ * This is an internal ordering heuristic only — it does not compute or
+ * expose a new score, and Match Score (lib/match-score.ts) is completely
+ * unaffected; the final cards.sort() by matchScore still runs afterward
+ * and, since Array.prototype.sort is stable, preserves this candidate
+ * order among equal Match Scores.
+ *
+ * Ranking, per the pool actually passed in:
+ * 1. A confirmed trimPreference match (existing trimMatches() directional
+ *    matcher) ranks first, if trimPreference was stated.
+ * 2. balancedScore = yearRank + mileageRank descending — pool-relative
+ *    min-max ranks (best known -> 1, worst known -> 0, missing -> neutral
+ *    0.5), combined equally per spec, not raw weighted units.
+ * 3. Lower price as a weak tie-breaker only.
+ * 4. Original provider order preserved for any remaining tie (stable sort).
+ *
+ * Deliberately no budget-distance scoring in this first experiment — the
+ * pool is already budget-constrained by the existing hard priceMax filter
+ * and (in production) already price-desc from the provider; this tests
+ * only whether better age/mileage selection from that same pool helps.
+ */
+function applyLocalBestForBudgetOrdering(
+  candidates: AutoDevListing[],
+  trimPreference: string | undefined,
+): AutoDevListing[] {
+  if (candidates.length === 0) return candidates;
+
+  const years = candidates.map((c) => c.vehicle?.year).filter((y): y is number => y != null);
+  const miles = candidates.map((c) => c.retailListing?.miles).filter((m): m is number => m != null);
+  const yearMin = years.length > 0 ? Math.min(...years) : null;
+  const yearMax = years.length > 0 ? Math.max(...years) : null;
+  const milesMin = miles.length > 0 ? Math.min(...miles) : null;
+  const milesMax = miles.length > 0 ? Math.max(...miles) : null;
+
+  const yearRank = (y: number | undefined): number => {
+    if (y == null || yearMin == null || yearMax == null || yearMax === yearMin) return 0.5;
+    return (y - yearMin) / (yearMax - yearMin); // newer -> higher -> closer to 1
+  };
+  const mileageRank = (m: number | undefined): number => {
+    if (m == null || milesMin == null || milesMax == null || milesMax === milesMin) return 0.5;
+    return (milesMax - m) / (milesMax - milesMin); // lower miles -> higher -> closer to 1
+  };
+  const balancedScore = (c: AutoDevListing): number =>
+    yearRank(c.vehicle?.year) + mileageRank(c.retailListing?.miles);
+  const trimMatchRank = (c: AutoDevListing): number =>
+    trimPreference && trimMatches(trimPreference, c.vehicle?.trim) ? 0 : 1; // confirmed match sorts first
+
+  return [...candidates].sort((a, b) => {
+    const trimDiff = trimMatchRank(a) - trimMatchRank(b);
+    if (trimDiff !== 0) return trimDiff;
+
+    const scoreDiff = balancedScore(b) - balancedScore(a); // descending
+    if (scoreDiff !== 0) return scoreDiff;
+
+    const priceA = a.retailListing?.price ?? Infinity;
+    const priceB = b.retailListing?.price ?? Infinity;
+    if (priceA !== priceB) return priceA - priceB; // ascending
+
+    return 0; // preserve original provider order — stable sort
+  });
+}
+
 // Same deployed origin the widget declares in its CSP resourceDomains
 // (lib/results-card.ts APP_ORIGIN) — kept in sync manually since the two
 // files are independent per the MCP Apps static-resource split.
@@ -1265,7 +1335,16 @@ const handler = createMcpHandler((server) => {
           })
         : trimFilteredCandidates;
 
-      const diversified = applyDiversity(trimOrderedCandidates, targetCount * 2);
+      const diversified = applyDiversity(
+        // EXPERIMENT (preview only): local best_for_budget ordering, applied
+        // only for that axis (or unset, its default) — cheapest/
+        // lowest_mileage/newest pass through unchanged. Provider retrieval/
+        // sort (resolveSort() above) is completely untouched.
+        input.priorityAxis === "best_for_budget" || input.priorityAxis == null
+          ? applyLocalBestForBudgetOrdering(trimOrderedCandidates, intent.semantic.trimPreference)
+          : trimOrderedCandidates,
+        targetCount * 2,
+      );
       const leanShortlist = diversified.slice(0, targetCount);
       // Held in reserve for stage-2 backfill (SYS-20260817-013) if body-style
       // exclusion leaves the shortlist short — these already passed stage-1
