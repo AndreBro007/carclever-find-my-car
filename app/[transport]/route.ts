@@ -556,7 +556,7 @@ async function buildResultCard(
       cpoEvidenceState: cpoSummary.state,
     },
     powertrain: {
-      type: normalizedFuel,
+      type: finalNormalizedFuel,
       engine: v?.engine ?? null,
       drivetrain: v?.drivetrain ?? null,
       transmission: v?.transmission ?? null,
