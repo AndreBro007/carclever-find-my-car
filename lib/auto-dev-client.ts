@@ -442,6 +442,36 @@ export async function getListingByVin(vin: string): Promise<AutoDevListing | nul
   return outcome.ok ? outcome.data.data : null;
 }
 
+/**
+ * Exact-VIN lookup via the normal LISTINGS SEARCH endpoint, using the
+ * nested field-path filter `vehicle.vin=` (SYS-20260824, empirically
+ * confirmed live: HTTP 200, returns exactly the requested VIN,
+ * retailListing.price matched the live Edmunds price and normal-search
+ * lean price for VIN W1N4N5BB1TJ864755 — $59,935 — where the separate
+ * full-detail endpoint, /listings/{vin}, returned a stale $61,515 for the
+ * same VIN). Distinct from the flat `vin=` query param, which is rejected
+ * outright (HTTP 400 "Invalid parameter provided: vin"), and distinct from
+ * getListingByVin() above (the path-form /listings/{vin} endpoint) — this
+ * is the search-endpoint counterpart, playing the same "lean/canonical
+ * price" role here that searchListingsLean() plays for a normal search's
+ * stage-2 price-precedence fix.
+ *
+ * `limit=1` and no other filter — this is never a broad search. Returns
+ * null on any failure/error so the caller can fall back to full-detail
+ * price without failing the whole VIN lookup. The caller MUST still verify
+ * the returned row's own `vin` field exactly equals what was requested
+ * before trusting its price — Auto.dev's own docs don't guarantee this
+ * filter can never fall back to a near-match, so this function does not
+ * assume it on the caller's behalf.
+ */
+export async function searchListingByVinExact(vin: string): Promise<AutoDevListing | null> {
+  const params = new URLSearchParams({ "vehicle.vin": vin, limit: "1" });
+  const outcome = await autoDevFetch<ListingsResponse>(`/listings?${params.toString()}`);
+  if (!outcome.ok) return null;
+  const row = outcome.data.data?.[0];
+  return row ?? null;
+}
+
 export async function decodeVin(vin: string): Promise<VinDecodeResult | null> {
   const outcome = await autoDevFetch<VinDecodeResult>(`/vin/${encodeURIComponent(vin)}`);
   return outcome.ok ? outcome.data : null;

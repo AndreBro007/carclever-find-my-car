@@ -1,7 +1,7 @@
 import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
 import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
-import { searchListingsLean, getListingByVin, getModelFacets } from "@/lib/auto-dev-client";
+import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets } from "@/lib/auto-dev-client";
 // Widening ladder re-enabled 2026-08-16 (SYS-20260816-008). It was bypassed on
 // Aug 13 per André's request — "search itself needs to work correctly before any
 // widening logic runs on top of it." That precondition is now met: the stage-2
@@ -742,7 +742,10 @@ const handler = createMcpHandler((server) => {
           };
         }
 
-        const fullListing = await getListingByVin(rawVin);
+        const [fullListing, exactSearchRow] = await Promise.all([
+          getListingByVin(rawVin),
+          searchListingByVinExact(rawVin),
+        ]);
 
         if (!fullListing) {
           return {
@@ -769,11 +772,36 @@ const handler = createMcpHandler((server) => {
           };
         }
 
+        // Price reconciliation (SYS-20260824, confirmed live for VIN
+        // W1N4N5BB1TJ864755): getListingByVin() — the path-form
+        // /listings/{vin} full-detail endpoint — can return a stale price
+        // ($61,515) where the LISTINGS SEARCH endpoint's exact vehicle.vin=
+        // filter returns the canonical, live-matching price ($59,935, same
+        // as Edmunds and normal search's own lean price). Only price is
+        // ever merged from the search-endpoint row — every other field
+        // (photo, dealer, location, drivetrain, Carfax, used/new, history,
+        // mileage, year, make, model, trim, etc.) stays exactly as returned
+        // by full-detail. The exact search row's own VIN is verified before
+        // its price is trusted at all — Auto.dev's docs don't guarantee
+        // this filter can never near-match, so this code doesn't assume it.
+        const searchPrice =
+          exactSearchRow && exactSearchRow.vin === rawVin ? exactSearchRow.retailListing?.price ?? null : null;
+        const fullPrice = fullListing.retailListing?.price ?? null;
+        if (searchPrice != null && fullPrice != null && searchPrice !== fullPrice) {
+          console.log(
+            `[find_matching_vehicle] vin_price_disagreement vin=${rawVin} searchPrice=${searchPrice} fullPrice=${fullPrice} chosenPrice=${searchPrice}`,
+          );
+        }
+        const resolvedListing: AutoDevListing =
+          searchPrice != null && fullListing.retailListing
+            ? { ...fullListing, retailListing: { ...fullListing.retailListing, price: searchPrice } }
+            : fullListing;
+
         const nhtsaResult = await decodeNhtsaElectrification(
-          fullListing.vin,
-          fullListing.vehicle?.make,
-          fullListing.vehicle?.model,
-          fullListing.vehicle?.cylinders,
+          resolvedListing.vin,
+          resolvedListing.vehicle?.make,
+          resolvedListing.vehicle?.model,
+          resolvedListing.vehicle?.cylinders,
         );
 
         const vinIntentInput: CardIntentInput = {
@@ -793,7 +821,7 @@ const handler = createMcpHandler((server) => {
           trimRequired: intent.trimRequired,
         };
 
-        const vinCard = await buildResultCard(fullListing, intent, vinIntentInput, nhtsaResult);
+        const vinCard = await buildResultCard(resolvedListing, intent, vinIntentInput, nhtsaResult);
         const vinCards = vinCard ? [vinCard] : [];
 
         // Other stated hard constraints (price/year/mileage) are checked
@@ -801,7 +829,7 @@ const handler = createMcpHandler((server) => {
         // substitute a different one. make/model deliberately omitted: a
         // VIN already identifies an exact vehicle regardless of what
         // make/model the user also stated.
-        const vinConstraintViolations = verifyAgainstConstraints(fullListing, {
+        const vinConstraintViolations = verifyAgainstConstraints(resolvedListing, {
           priceMax: intent.hardConstraints.priceMax,
           priceMin: intent.hardConstraints.priceMin,
           yearMin: intent.hardConstraints.yearMin,
