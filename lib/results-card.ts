@@ -311,11 +311,18 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
       : "amber"; // verify_before_proceeding or caution
     var riskPill = riskTier ? '<span class="cc-risk is-' + riskTier + '">RISK</span>' : "";
     var exactVinBadge = buyerCheck ? '<div class="cc-exact-vin">EXACT VIN</div>' : "";
-    var isCarvana = links.isCarvana;
-    var primaryUrl = isCarvana ? links.dealerListingUrl : (links.affiliateUrl || links.dealerListingUrl);
-    var throughEdmunds = !isCarvana && !!links.affiliateUrl;
-    var providerLabel = isCarvana ? "Carvana \\u2197" : (throughEdmunds ? "Edmunds \\u2197" : "Dealer \\u2197");
-    var ctaLabel = throughEdmunds ? "Check availability" : "View listing";
+    // CTA link/label (fix/affiliate-routing): the card's clickable CTA never
+    // routes to links.dealerListingUrl — including Carvana. affiliateUrl
+    // (VIN-specific Edmunds) first; when null, affiliateFallbackUrl
+    // (Edmunds category search, same make/model) is used instead and
+    // labeled explicitly as similar options, never "Check availability"
+    // (that label implies this specific vehicle). If neither exists, no CTA
+    // button is rendered at all — dealerListingUrl stays available on the
+    // underlying data, just never surfaced as the clickable destination.
+    var usingFallbackLink = !links.affiliateUrl && !!links.affiliateFallbackUrl;
+    var primaryUrl = links.affiliateUrl || links.affiliateFallbackUrl || null;
+    var providerLabel = "Edmunds \\u2197";
+    var ctaLabel = usingFallbackLink ? "Similar options on Edmunds" : "Check availability";
 
     var chips = (c.intentConfirmations || []).slice(0, 2).map(function(v){
       return '<span class="cc-chip">' + esc(v) + "</span>";

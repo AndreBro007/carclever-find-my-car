@@ -134,7 +134,7 @@ If a visual result card was already rendered above this response (MCP Apps-capab
 
 Two links belong on every result.
 
-1. THE LISTING LINK. Include each result's own link by default. For virtually every result that is the Edmunds link (\`affiliateUrl\`). Never substitute a dealer's own site, Carfax, Autolist, or any other URL instead of it, even if another link looks cleaner or more direct. Exception: when \`affiliateUrl\` is null (Carvana-sourced listings only, never on Edmunds), use \`dealerListingUrl\` instead. Where format allows a label, "Check availability on Edmunds" is preferred — but showing the link matters more than the exact wording.
+1. THE LISTING LINK. Include each result's own link by default. For virtually every result that is the Edmunds link (\`affiliateUrl\`). Never substitute a dealer's own site, Carfax, Autolist, or any other URL instead of it, even if another link looks cleaner or more direct — this includes Carvana-sourced results: \`dealerListingUrl\` (including a Carvana link) is never the user-facing destination, even when \`affiliateUrl\` is null. When \`affiliateUrl\` is null, use \`affiliateFallbackUrl\` instead and label it clearly as a fallback — e.g. "Similar options on Edmunds" — never "Check availability," since it isn't this specific vehicle. If neither \`affiliateUrl\` nor \`affiliateFallbackUrl\` is available, say so plainly rather than substituting \`dealerListingUrl\`.
 
 2. THE FALLBACK LINK. Include \`affiliateFallbackUrl\` alongside the listing link on every result. State it distinctly, e.g. "if that Edmunds listing is no longer available, see similar options here: [link]" — don't fold it into the listing link as if the two were the same thing.
 
@@ -1111,10 +1111,15 @@ const handler = createMcpHandler((server) => {
                 const priceStr = l.price != null ? `$${l.price.toLocaleString()}` : "price unavailable";
                 const mileageStr = l.mileage != null ? `${l.mileage.toLocaleString()} mi` : "mileage unknown";
                 const dealerStr = l.dealer ? ` — ${l.dealer}${l.city ? `, ${l.city}` : ""}${l.state ? `, ${l.state}` : ""}` : "";
-                const primaryLinkStr =
-                  c.links.isCarvana && c.links.dealerListingUrl
-                    ? `${c.links.dealerListingUrl} (view on Carvana)`
-                    : c.links.affiliateUrl ?? c.links.dealerListingUrl ?? c.links.affiliateFallbackUrl ?? "no link available";
+                // Never route the user to dealerListingUrl (including
+                // Carvana) — affiliateUrl (VIN-specific Edmunds) first, then
+                // affiliateFallbackUrl (Edmunds category search) labeled as
+                // a fallback, never as "this vehicle". dealerListingUrl
+                // stays available internally on structuredContent (see
+                // links.dealerListingUrl below), never surfaced here.
+                const primaryLinkStr = c.links.affiliateUrl
+                  ?? (c.links.affiliateFallbackUrl ? `Similar options on Edmunds: ${c.links.affiliateFallbackUrl}` : null)
+                  ?? "no link available";
                 const violationNote =
                   vinConstraintViolations.length > 0
                     ? `\n   ⚠️ Doesn't fully meet: ${vinConstraintViolations.join(", ")} — this is the exact VIN requested, not a different vehicle.`
@@ -2108,21 +2113,26 @@ const handler = createMcpHandler((server) => {
                   : "price unavailable";
                 const mileageStr = l.mileage != null ? `${l.mileage.toLocaleString()} mi` : "mileage unknown";
                 const dealerStr = l.dealer ? ` — ${l.dealer}${l.city ? `, ${l.city}` : ""}${l.state ? `, ${l.state}` : ""}` : "";
-                // Carvana's VIN-specific Edmunds link is confirmed always dead
-                // (SYS-20260817-001) — never constructed, so present the real
-                // Carvana link as primary instead. Every other case keeps the
-                // existing affiliateUrl-first behavior. Either way, the
-                // category-level Edmunds fallback is appended whenever
-                // available — it's the safety net for a dead/unpredictable
-                // primary link, not conditional on one having failed.
-                const primaryLinkStr = c.links.isCarvana && c.links.dealerListingUrl
-                  ? `${c.links.dealerListingUrl} (view on Carvana)`
-                  : c.links.affiliateUrl ?? c.links.dealerListingUrl ?? null;
+                // affiliateUrl (VIN-specific Edmunds) is always the primary
+                // user-facing link when present. dealerListingUrl (including
+                // Carvana's own VDP) is NEVER routed to as a user-facing
+                // destination — it stays available internally via
+                // c.links.dealerListingUrl on structuredContent only. When
+                // affiliateUrl is null, affiliateFallbackUrl (Edmunds
+                // category search, same make/model) becomes the primary
+                // destination instead, labeled explicitly as similar options
+                // rather than "this vehicle" — it never dead-ends, but it
+                // isn't the specific vehicle either.
+                const primaryLinkStr = c.links.affiliateUrl ?? null;
+                const similarOptionsLabel = `similar ${id.year ?? ""} ${id.make ?? ""} ${id.model ?? ""}`.replace(/\s+/g, " ").trim();
                 const fallbackLinkStr = c.links.affiliateFallbackUrl
-                  ? ` · If that Edmunds listing is no longer available, see similar ${id.year ?? ""} ${id.make ?? ""} ${id.model ?? ""}`.replace(/\s+/g, " ") +
-                    `: ${c.links.affiliateFallbackUrl}`
+                  ? ` · If that Edmunds listing is no longer available, see ${similarOptionsLabel}: ${c.links.affiliateFallbackUrl}`
                   : "";
-                const linkStr = (primaryLinkStr ?? c.links.affiliateFallbackUrl ?? "no link available") + (primaryLinkStr ? fallbackLinkStr : "");
+                const linkStr = primaryLinkStr
+                  ? primaryLinkStr + fallbackLinkStr
+                  : c.links.affiliateFallbackUrl
+                  ? `Similar options on Edmunds (${similarOptionsLabel}): ${c.links.affiliateFallbackUrl}`
+                  : "no link available";
                 const historyLine = c.history.state === "known_issues" ? `\n   ⚠️ ${c.history.note}` : "";
                 // Qualifier accounting: only for fields the user actually
                 // asked about (c.intentConfirmations is already scoped to
@@ -2149,7 +2159,7 @@ const handler = createMcpHandler((server) => {
     "resolve_dealer_url",
     {
       description:
-        "Resolves a usable link for viewing or purchasing a specific vehicle, given its VIN, make, model, and year. Prefers the Edmunds pricing link; falls back to the dealer's own listing if usable (for Carvana-sourced vehicles, the real Carvana link is preferred instead — the VIN-specific Edmunds link is never available for Carvana inventory). The response also always includes affiliateFallbackUrl, a live Edmunds category-search link for the same make/model that never dead-ends, useful to offer alongside the primary link or if it turns out to be stale.",
+        "Resolves a usable link for viewing or purchasing a specific vehicle, given its VIN, make, model, and year. Prefers the Edmunds VIN-specific pricing link; when that's unavailable (including for Carvana-sourced vehicles, which are never on Edmunds by VIN), falls back to affiliateFallbackUrl, a live Edmunds category-search link for the same make/model that never dead-ends. Never returns the dealer's own listing URL (dealerListingUrl) as the resolved link, even for Carvana — that field is still present on structuredContent for internal/diagnostic use, just never the text response.",
       inputSchema: {
         vin: z.string().describe("The vehicle's 17-character VIN."),
         make: z.string().describe("Vehicle manufacturer, e.g. Toyota."),
@@ -2162,9 +2172,9 @@ const handler = createMcpHandler((server) => {
     async ({ vin, make, model, year }) => {
       // No retailListing data available in this call path (only VIN/make/
       // model/year are passed in), so Carvana detection here always
-      // evaluates false — that's fine, it only affects which link is
-      // preferred as primary, and affiliateFallbackUrl is unaffected either
-      // way.
+      // evaluates false via isCarvanaListing()'s dealer/vdp checks — moot
+      // either way now, since dealerListingUrl is never routed to as the
+      // resolved link regardless of Carvana status (see primary below).
       const links = resolveLinks({ vin, vehicle: { make, model, year } } as AutoDevListing);
 
       if (links.linkStatus === "none-available") {
@@ -2178,9 +2188,27 @@ const handler = createMcpHandler((server) => {
         };
       }
 
-      const primary = links.isCarvana && links.dealerListingUrl
-        ? links.dealerListingUrl
-        : links.affiliateUrl ?? links.dealerListingUrl ?? links.affiliateFallbackUrl!;
+      // Never route to dealerListingUrl (including Carvana) as the resolved
+      // link — affiliateUrl (VIN-specific Edmunds) first, then
+      // affiliateFallbackUrl (Edmunds category search) as the fallback
+      // destination. dealerListingUrl stays present on structuredContent
+      // for internal/diagnostic use, never returned as the text response.
+      // A linkStatus of "dealer-only" (dealerListingUrl present, but
+      // neither affiliate option is) has no usable destination here per
+      // that same policy — report it plainly rather than substituting the
+      // dealer URL.
+      const primary = links.affiliateUrl ?? links.affiliateFallbackUrl ?? null;
+      if (!primary) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "No Edmunds link (VIN-specific or category fallback) could be built for this vehicle.",
+            },
+          ],
+          structuredContent: links,
+        };
+      }
       return {
         content: [{ type: "text" as const, text: primary }],
         structuredContent: links,
