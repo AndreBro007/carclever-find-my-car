@@ -2384,8 +2384,14 @@ const handler = createMcpHandler((server) => {
 // advertised, tools/call's tool NAME only (never .arguments — that's
 // where a vehicle search's zip/price/etc. would live), and resources/read's
 // requested URI only (never resource contents). No auth headers, no IPs,
-// no request bodies beyond the single `method`/`params.name`/`params.uri`
-// fields named above are ever logged or even parsed further than that.
+// no raw session IDs (only a boolean for whether the mcp-session-id
+// header was present). The cloned JSON-RPC body IS fully parsed with
+// JSON.parse below — parsing itself touches the whole message — but only
+// the specific fields named above (method, clientInfo.name/version,
+// protocolVersion, the ui-extension flag/key list, params.name,
+// params.uri) are ever selected out and passed to console.log; everything
+// else read during parsing (search arguments, resource contents, etc.)
+// is discarded in memory and never emitted.
 // Wraps ONLY the POST path (where JSON-RPC arrives) — GET/DELETE, and the
 // real `handler` itself, are completely untouched; the diagnostic reads a
 // *cloned* request body so the original request passed to `handler` is
@@ -2397,9 +2403,9 @@ function logMcpDiagnostic(body: unknown, headers: Headers): void {
       if (!msg || typeof msg !== "object" || typeof (msg as { method?: unknown }).method !== "string") continue;
       const method = (msg as { method: string }).method;
       const params = (msg as { params?: Record<string, unknown> }).params;
-      const sessionId = headers.get("mcp-session-id") ?? null;
+      const sessionIdPresent = headers.has("mcp-session-id");
       const userAgent = headers.get("user-agent") ?? null;
-      const base = { tag: "[mcp-diag]", method, sessionId, userAgent };
+      const base = { tag: "[mcp-diag]", method, sessionIdPresent, userAgent };
       if (method === "initialize") {
         const clientInfo = (params as { clientInfo?: { name?: string; version?: string } } | undefined)?.clientInfo;
         const extensions = (params as { capabilities?: { extensions?: Record<string, unknown> } } | undefined)?.capabilities?.extensions;
