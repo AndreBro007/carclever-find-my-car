@@ -402,6 +402,32 @@ const CANDIDATE_POOL_SIZE = 100; // Growth plan cap per docs; silently clamps to
  * and (in production) already price-desc from the provider; this tests
  * only whether better age/mileage selection from that same pool helps.
  */
+/**
+ * EXPERIMENT (preview only, experiment/value-based-best-for-budget):
+ * value-based best_for_budget local ordering — extends the original
+ * year+mileage-only formula (d5805cc) to also weigh price materially, not
+ * just as a final tiebreaker. Motivation: live-tested (fair-pool merge
+ * experiment) that even once USED candidates get a genuinely fair chance
+ * to enter the pool, the old formula still always favored near-zero-mile
+ * current-model-year NEW stock over any USED alternative, however
+ * price-competitive — e.g. a 2026 USED X5 at ~$71k/306mi lost every time
+ * to a 2026 NEW X5 at ~$101k/1mi, purely because year+mileage never
+ * considered the ~$30k price gap at all. This is a genuine "best value to
+ * buy" gap, not a bug in the old formula's own narrower goal.
+ *
+ * balancedScore is now a straight three-way average of yearRank,
+ * mileageRank, and priceRank — each independently pool-relative (best
+ * known -> 1, worst known -> 0, missing -> neutral 0.5), same rank
+ * construction as before, just one more axis with genuinely equal
+ * weight (not a coefficient tacked onto the old two-factor score, and
+ * not a mere tiebreaker after year+mileage already decided the order).
+ * Trim preference precedence (checked first, before balancedScore ever
+ * applies) and configuration variety (downstream, unchanged) are both
+ * completely unaffected — this only changes how balancedScore itself is
+ * computed. No condition (NEW/USED) signal is read anywhere in this
+ * function, same as before — still fully condition-blind by construction,
+ * so nothing here can force or bias toward either.
+ */
 function applyLocalBestForBudgetOrdering(
   candidates: AutoDevListing[],
   trimPreference: string | undefined,
@@ -410,10 +436,13 @@ function applyLocalBestForBudgetOrdering(
 
   const years = candidates.map((c) => c.vehicle?.year).filter((y): y is number => y != null);
   const miles = candidates.map((c) => c.retailListing?.miles).filter((m): m is number => m != null);
+  const prices = candidates.map((c) => c.retailListing?.price).filter((p): p is number => p != null);
   const yearMin = years.length > 0 ? Math.min(...years) : null;
   const yearMax = years.length > 0 ? Math.max(...years) : null;
   const milesMin = miles.length > 0 ? Math.min(...miles) : null;
   const milesMax = miles.length > 0 ? Math.max(...miles) : null;
+  const priceMin = prices.length > 0 ? Math.min(...prices) : null;
+  const priceMax = prices.length > 0 ? Math.max(...prices) : null;
 
   const yearRank = (y: number | undefined): number => {
     if (y == null || yearMin == null || yearMax == null || yearMax === yearMin) return 0.5;
@@ -423,8 +452,12 @@ function applyLocalBestForBudgetOrdering(
     if (m == null || milesMin == null || milesMax == null || milesMax === milesMin) return 0.5;
     return (milesMax - m) / (milesMax - milesMin); // lower miles -> higher -> closer to 1
   };
+  const priceRank = (p: number | undefined): number => {
+    if (p == null || priceMin == null || priceMax == null || priceMax === priceMin) return 0.5;
+    return (priceMax - p) / (priceMax - priceMin); // cheaper -> higher -> closer to 1
+  };
   const balancedScore = (c: AutoDevListing): number =>
-    yearRank(c.vehicle?.year) + mileageRank(c.retailListing?.miles);
+    (yearRank(c.vehicle?.year) + mileageRank(c.retailListing?.miles) + priceRank(c.retailListing?.price)) / 3;
   const trimMatchRank = (c: AutoDevListing): number =>
     trimPreference && trimMatches(trimPreference, c.vehicle?.trim) ? 0 : 1; // confirmed match sorts first
 
@@ -437,7 +470,7 @@ function applyLocalBestForBudgetOrdering(
 
     const priceA = a.retailListing?.price ?? Infinity;
     const priceB = b.retailListing?.price ?? Infinity;
-    if (priceA !== priceB) return priceA - priceB; // ascending
+    if (priceA !== priceB) return priceA - priceB; // ascending, exact-tie final tiebreaker
 
     return 0; // preserve original provider order — stable sort
   });
@@ -1242,7 +1275,58 @@ const handler = createMcpHandler((server) => {
       // Two-stage search (SYS-20260812-060): lean ?select= primary search for
       // the full candidate pool (smaller payload, faster), then full-detail
       // refetch via parallel /listings/{vin} calls for just the shortlist.
-      const rawResult = await searchListingsLean(baseQuery);
+      //
+      // EXPERIMENT (preview only, experiment/value-based-best-for-budget):
+      // for a condition-neutral search (baseQuery.used == null — the user
+      // never asked for NEW or USED specifically), a single query relies
+      // entirely on the provider sort to decide which ~100 rows come back.
+      // Live-tested: for a BMW X5 near 10001 with priorityAxis
+      // best_for_budget (no priceMax -> year.desc sort), that single
+      // top-100 window was 100% NEW, 0% USED. Explicit NEW/USED searches
+      // are untouched below — this only changes the condition-neutral case.
+      //
+      // Fix: run the two conditions as separate lean searches in parallel
+      // (each still capped at CANDIDATE_POOL_SIZE, same sort/filters/limit
+      // as before — nothing else about either query changes, and no
+      // additional API calls beyond these two), then dedupe-merge into one
+      // combined pool before handing off to the downstream pipeline
+      // (eligibility, trim handling, the new value-based
+      // applyLocalBestForBudgetOrdering below, applyConfigurationVarietyPass,
+      // applyDiversity, Match Score, cards, links, Buyer Check — all
+      // otherwise unchanged). No NEW/USED quota is forced anywhere.
+      let rawResult: { data: AutoDevListing[]; total: number | null; error?: string; degraded?: string };
+      if (baseQuery.used == null) {
+        const [newResult, usedResult] = await Promise.all([
+          searchListingsLean({ ...baseQuery, used: false }),
+          searchListingsLean({ ...baseQuery, used: true }),
+        ]);
+        const seenVins = new Set<string>();
+        const mergedData: AutoDevListing[] = [];
+        for (const c of [...newResult.data, ...usedResult.data]) {
+          if (c.vin && !seenVins.has(c.vin)) {
+            seenVins.add(c.vin);
+            mergedData.push(c);
+          }
+        }
+        // Same "unreliable total -> null" discipline already used elsewhere
+        // (SYS-20260819 doors-param fix) — if either side's total is
+        // unknown, the combined total is unknown too, never silently
+        // presented as a real number built from a partial sum.
+        const mergedTotal =
+          newResult.total != null && usedResult.total != null ? newResult.total + usedResult.total : null;
+        // A genuine error only surfaces if BOTH sub-queries failed — one
+        // succeeding still gives a real, usable (if partial) result, same
+        // "partial beats nothing" principle already used for the stage-2
+        // full-detail fallback below.
+        const mergedError = newResult.error && usedResult.error ? `${newResult.error} ${usedResult.error}` : undefined;
+        const mergedDegraded =
+          newResult.degraded || usedResult.degraded
+            ? [newResult.degraded, usedResult.degraded].filter(Boolean).join(" ")
+            : undefined;
+        rawResult = { data: mergedData, total: mergedTotal, error: mergedError, degraded: mergedDegraded };
+      } else {
+        rawResult = await searchListingsLean(baseQuery);
+      }
       let candidates = rawResult.data;
       let total = rawResult.total;
       const relaxations: Array<{ step: string; detail: string }> = [];
