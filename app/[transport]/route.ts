@@ -373,6 +373,20 @@ function resolveSort(
 
 const CANDIDATE_POOL_SIZE = 100; // Growth plan cap per docs; silently clamps to 20 on Starter
 
+// Shared anomalous-price rule (feature/value-based-best-for-budget follow-up):
+// hoisted to module scope so the "price-likely-inaccurate" card badge
+// (buildResultCard, below) and the best_for_budget ranking's price
+// weighting (applyLocalBestForBudgetOrdering, immediately below) both read
+// the exact same threshold/definition — cannot drift into two independent
+// $1,000 rules. Real evidence (Aug 14) that motivated the original badge:
+// a listing priced $85 for a 2024 CR-V passed every filter cleanly and got
+// VIN-verified — the price itself is the obviously bad data, not the
+// identity.
+const ANOMALOUS_PRICE_FLOOR = 1000;
+function isAnomalousPrice(price: number | undefined | null): boolean {
+  return price != null && price < ANOMALOUS_PRICE_FLOOR;
+}
+
 /**
  * EXPERIMENT (preview only, SYS-20260825 follow-up): local best_for_budget
  * candidate ordering. Provider retrieval/sort is completely untouched
@@ -428,6 +442,35 @@ const CANDIDATE_POOL_SIZE = 100; // Growth plan cap per docs; silently clamps to
  * function, same as before — still fully condition-blind by construction,
  * so nothing here can force or bias toward either.
  */
+/**
+ * EXPERIMENT (preview only, follow-up to 59085ba): anomalous-price
+ * exclusion. Cross-model validation surfaced a real failure: prices
+ * already recognized as untrustworthy by production's own
+ * "price-likely-inaccurate" badge rule (below $1,000 — real evidence,
+ * e.g. a $85 2024 CR-V that passed every filter and got VIN-verified,
+ * the price alone was the bad data) were still allowed to participate as
+ * genuinely cheap in priceRank, so a data-entry error could dominate the
+ * top of the shortlist purely by being implausibly cheap (observed live:
+ * $595/$948 F-150s beating real $40k value picks).
+ *
+ * Fix, using the exact same ANOMALOUS_PRICE_FLOOR/isAnomalousPrice()
+ * shared with the card badge (never a second, independent $1,000 rule):
+ * - priceMin/priceMax normalization is computed from genuine prices only
+ *   — an anomalous price can no longer stretch or shrink the pool's price
+ *   scale for every other (genuine) candidate.
+ * - An anomalous candidate's own priceRank is forced to neutral 0.5 —
+ *   never scored as "cheap", but not penalized as "expensive" either,
+ *   same treatment as a missing price.
+ * - A new anomalyRank tier sits between trim-preference and balancedScore:
+ *   genuine-price candidates are preferred over anomalous-price ones
+ *   whenever both exist, but nothing is discarded — an anomalous
+ *   candidate simply sorts after genuine ones (same "reorder, never
+ *   drop" philosophy as applyConfigurationVarietyPass below), so it's
+ *   still available for shortlist backfill if genuinely nothing else
+ *   qualifies.
+ *
+ * year+mileage weighting for genuine prices is completely unchanged.
+ */
 function applyLocalBestForBudgetOrdering(
   candidates: AutoDevListing[],
   trimPreference: string | undefined,
@@ -436,13 +479,15 @@ function applyLocalBestForBudgetOrdering(
 
   const years = candidates.map((c) => c.vehicle?.year).filter((y): y is number => y != null);
   const miles = candidates.map((c) => c.retailListing?.miles).filter((m): m is number => m != null);
-  const prices = candidates.map((c) => c.retailListing?.price).filter((p): p is number => p != null);
+  const genuinePrices = candidates
+    .map((c) => c.retailListing?.price)
+    .filter((p): p is number => p != null && !isAnomalousPrice(p));
   const yearMin = years.length > 0 ? Math.min(...years) : null;
   const yearMax = years.length > 0 ? Math.max(...years) : null;
   const milesMin = miles.length > 0 ? Math.min(...miles) : null;
   const milesMax = miles.length > 0 ? Math.max(...miles) : null;
-  const priceMin = prices.length > 0 ? Math.min(...prices) : null;
-  const priceMax = prices.length > 0 ? Math.max(...prices) : null;
+  const priceMin = genuinePrices.length > 0 ? Math.min(...genuinePrices) : null;
+  const priceMax = genuinePrices.length > 0 ? Math.max(...genuinePrices) : null;
 
   const yearRank = (y: number | undefined): number => {
     if (y == null || yearMin == null || yearMax == null || yearMax === yearMin) return 0.5;
@@ -452,18 +497,24 @@ function applyLocalBestForBudgetOrdering(
     if (m == null || milesMin == null || milesMax == null || milesMax === milesMin) return 0.5;
     return (milesMax - m) / (milesMax - milesMin); // lower miles -> higher -> closer to 1
   };
-  const priceRank = (p: number | undefined): number => {
+  const priceRank = (c: AutoDevListing): number => {
+    const p = c.retailListing?.price;
+    if (isAnomalousPrice(p)) return 0.5; // untrustworthy price — neutral, never "cheap"
     if (p == null || priceMin == null || priceMax == null || priceMax === priceMin) return 0.5;
     return (priceMax - p) / (priceMax - priceMin); // cheaper -> higher -> closer to 1
   };
   const balancedScore = (c: AutoDevListing): number =>
-    (yearRank(c.vehicle?.year) + mileageRank(c.retailListing?.miles) + priceRank(c.retailListing?.price)) / 3;
+    (yearRank(c.vehicle?.year) + mileageRank(c.retailListing?.miles) + priceRank(c)) / 3;
   const trimMatchRank = (c: AutoDevListing): number =>
     trimPreference && trimMatches(trimPreference, c.vehicle?.trim) ? 0 : 1; // confirmed match sorts first
+  const anomalyRank = (c: AutoDevListing): number => (isAnomalousPrice(c.retailListing?.price) ? 1 : 0); // genuine price sorts first
 
   return [...candidates].sort((a, b) => {
     const trimDiff = trimMatchRank(a) - trimMatchRank(b);
     if (trimDiff !== 0) return trimDiff;
+
+    const anomalyDiff = anomalyRank(a) - anomalyRank(b);
+    if (anomalyDiff !== 0) return anomalyDiff;
 
     const scoreDiff = balancedScore(b) - balancedScore(a); // descending
     if (scoreDiff !== 0) return scoreDiff;
@@ -602,8 +653,10 @@ async function buildResultCard(
   // Real evidence (Aug 14): a listing priced $85 for a 2024 CR-V passed every
   // filter cleanly and got VIN-verified — the price itself is the obviously
   // bad data, not the identity. Flag rather than silently present as trustworthy.
-  const ANOMALOUS_PRICE_FLOOR = 1000;
-  if (listing.retailListing?.price != null && listing.retailListing.price < ANOMALOUS_PRICE_FLOOR) {
+  // ANOMALOUS_PRICE_FLOOR/isAnomalousPrice() are shared module-level (see
+  // above applyLocalBestForBudgetOrdering) so this badge and the
+  // best_for_budget ranking's price weighting can never drift apart.
+  if (isAnomalousPrice(listing.retailListing?.price)) {
     badges.push("price-likely-inaccurate");
   }
 
