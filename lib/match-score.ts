@@ -45,8 +45,8 @@ export interface MatchScoreResult {
 }
 
 function identityConfidenceFrom(v: VerificationResult): number {
-  if (v.hardConstraintStatus === "verified_match") return 1.0;
-  if (v.hardConstraintStatus === "potential_match") return 0.6;
+  if (v.identityVerificationStatus === "verified_match") return 1.0;
+  if (v.identityVerificationStatus === "potential_match") return 0.6;
   return 0.0;
 }
 

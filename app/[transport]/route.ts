@@ -230,7 +230,7 @@ const FindMatchingVehicleOutput = z.object({
       photoUrls: z.array(z.string()),
     }),
     verification: z.object({
-      hardConstraintStatus: z.string(),
+      identityVerificationStatus: z.string(),
       softConstraintViolations: z.array(z.string()),
     }),
     ranking: z.object({
@@ -520,8 +520,8 @@ async function buildResultCard(
   const photos: string[] = [];
 
   const badges: string[] = [];
-  if (verification.hardConstraintStatus === "verified_match") badges.push("vin-verified");
-  if (verification.hardConstraintStatus === "failed") badges.push("vin-conflicting");
+  if (verification.identityVerificationStatus === "verified_match") badges.push("vin-verified");
+  if (verification.identityVerificationStatus === "failed") badges.push("vin-conflicting");
   if (nhtsa?.makeConflict) badges.push("nhtsa-make-conflict");
   if (nhtsa?.modelConflict) badges.push("nhtsa-model-conflict");
   if (nhtsa?.cylindersConflict) badges.push("nhtsa-cylinders-conflict");

@@ -17,7 +17,7 @@ import type { AutoDevListing } from "./auto-dev-client";
 import { analyzeVin } from "./vin-anatomy";
 
 export interface VerificationResult {
-  hardConstraintStatus: "verified_match" | "potential_match" | "failed";
+  identityVerificationStatus: "verified_match" | "potential_match" | "failed";
   verifiedAttributes: string[];
   unknownAttributes: string[];
   conflictingAttributes: string[];
@@ -45,7 +45,7 @@ export function crossCheckVin(listing: AutoDevListing): VerificationResult {
 
   if (!anatomy.formatValid) {
     return {
-      hardConstraintStatus: "potential_match",
+      identityVerificationStatus: "potential_match",
       verifiedAttributes: [],
       unknownAttributes: ["make", "model", "year", "trim"],
       conflictingAttributes: [],
@@ -76,7 +76,7 @@ export function crossCheckVin(listing: AutoDevListing): VerificationResult {
   // structure — always unknown here, never a conflict.
   unknownAttributes.push("model", "trim");
 
-  const hardConstraintStatus: VerificationResult["hardConstraintStatus"] =
+  const identityVerificationStatus: VerificationResult["identityVerificationStatus"] =
     conflictingAttributes.length > 0
       ? "failed"
       : verifiedAttributes.length > 0
@@ -84,7 +84,7 @@ export function crossCheckVin(listing: AutoDevListing): VerificationResult {
         : "potential_match";
 
   return {
-    hardConstraintStatus,
+    identityVerificationStatus,
     verifiedAttributes,
     unknownAttributes,
     conflictingAttributes,
