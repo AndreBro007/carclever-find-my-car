@@ -146,10 +146,14 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 .cc-cta{margin-top:auto;padding-top:8px}
 .cc-primary{all:unset;box-sizing:border-box;cursor:pointer;width:100%;min-height:36px;border-radius:9px;background:var(--cc-button-bg);color:var(--cc-button-text);display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 10px;font-size:11.5px;font-weight:600;letter-spacing:.005em}
 .cc-provider{font-size:9.2px;font-weight:700;color:var(--cc-subtle)}
-.cc-footer{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;padding:8px 14px 0;color:var(--cc-subtle);font-size:10.5px;line-height:1.3}
+/* Split CTA row (feature/split-cta-row): two joined buttons, same overall
+   height as the single .cc-primary button (36px) — the row itself adds no
+   extra height, just splits the same footprint into two clickable halves. */
+.cc-cta-row{display:flex;width:100%;min-height:36px;border-radius:9px;overflow:hidden}
+.cc-cta-btn{all:unset;box-sizing:border-box;cursor:pointer;flex:1;min-width:0;min-height:36px;background:var(--cc-button-bg);color:var(--cc-button-text);display:flex;align-items:center;justify-content:center;text-align:center;padding:0 6px;font-size:11px;font-weight:600;letter-spacing:.005em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc-cta-right{border-left:1px solid rgba(255,255,255,.22)}
+.cc-footer{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 14px 0;color:var(--cc-subtle);font-size:10.5px;line-height:1.3}
 .cc-footer-right{text-align:right}
-.cc-similar-link{all:unset;cursor:pointer;font-size:10.5px;font-weight:700;color:var(--cc-link);white-space:nowrap}
-.cc-similar-link:hover{text-decoration:underline}
 .cc-loading{padding:20px 14px;font-size:12px;color:var(--cc-subtle)}
 .cc-loading-stage{padding:2px 14px 0;font-size:10px;color:#4c5f79}
 </style>
@@ -370,7 +374,12 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
       ? '<img class="cc-photo" src="' + esc(photo) + '" alt="' + esc(title) + '" loading="lazy" onerror="window.__ccPhotoFallback(this)"/>'
       : '<div class="cc-photo cc-photo-fallback">' + PHOTO_FALLBACK_SVG + "<span>Photo unavailable</span></div>";
 
-    var ctaBlock = primaryUrl
+    var ctaBlock = (links.affiliateUrl && links.affiliateFallbackUrl)
+      ? '<div class="cc-cta"><div class="cc-cta-row">' +
+          '<button type="button" class="cc-cta-btn cc-cta-left" data-url="' + esc(links.affiliateUrl) + '">Check availability</button>' +
+          '<button type="button" class="cc-cta-btn cc-cta-right" data-url="' + esc(links.affiliateFallbackUrl) + '">Similar</button>' +
+        "</div></div>"
+      : primaryUrl
       ? '<div class="cc-cta"><button type="button" class="cc-primary" data-url="' + esc(primaryUrl) + '"><span>' + esc(ctaLabel) + '</span><span class="cc-provider">' + esc(providerLabel) + "</span></button></div>"
       : "";
 
@@ -430,25 +439,19 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
             '<button type="button" class="cc-nav cc-nav-next" id="cc-nav-next" aria-label="Next">\\u203a</button>'
           : "") +
       "</div>" +
-      // Collapsed to one grid row (was three stacked rows) - real, useful
-      // space saved per André's request. Uses the fallback link already
-      // resolved for the top-shown result (a live Edmunds category search
-      // for that make/model that never dead-ends, per SYS-20260817-002) as
-      // an escape hatch for a listing not actually carried on Edmunds.
-      (function(){
-        var fallback = visible[0] && visible[0].links && visible[0].links.affiliateFallbackUrl;
-        var similarLink = fallback
-          ? '<button type="button" class="cc-similar-link" data-url="' + esc(fallback) + '">Similar options on Edmunds</button>'
-          : "<span></span>";
-        return '<footer class="cc-footer">' +
-          "<span>Swipe \\u2192</span>" +
-          similarLink +
-          '<span class="cc-footer-right">' + (hasAffiliate ? "Edmunds affiliate links" : "Current dealer listings") + "</span>" +
-        "</footer>";
-      })() +
+      // Split per-card CTA (feature/split-cta-row) replaced the old
+      // carousel-level "Similar options on Edmunds" footer link — each
+      // card now surfaces its own affiliateFallbackUrl directly in its own
+      // CTA row when applicable, so a single shared footer link (which
+      // only ever reflected the first visible card) is redundant. Footer
+      // is back to two items: swipe hint + affiliate disclosure.
+      '<footer class="cc-footer">' +
+        "<span>Swipe \\u2192</span>" +
+        '<span class="cc-footer-right">' + (hasAffiliate ? "Edmunds affiliate links" : "Current dealer listings") + "</span>" +
+      "</footer>" +
       "</section>";
     root.innerHTML = html;
-    root.querySelectorAll(".cc-primary, .cc-similar-link, .cc-carfax-link").forEach(function(btn){
+    root.querySelectorAll(".cc-primary, .cc-cta-btn, .cc-carfax-link").forEach(function(btn){
       btn.addEventListener("click", function(){ openLink(btn.getAttribute("data-url")); });
     });
     // Prev/next nav for screens without swipe/trackpad gestures - same
