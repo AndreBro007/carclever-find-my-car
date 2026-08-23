@@ -2374,4 +2374,84 @@ const handler = createMcpHandler((server) => {
   );
 });
 
-export { handler as GET, handler as POST, handler as DELETE };
+// TEMPORARY DIAGNOSTIC (SYS-20260824, Claude MCP Apps investigation) —
+// distinguishes where the Claude/ChatGPT MCP Apps handshake diverges, per
+// André's explicit, narrowly-scoped instruction. NOT for merge to main as
+// a permanent feature — remove once the investigation concludes.
+//
+// Logs ONLY: JSON-RPC method name, initialize's clientInfo.name/version +
+// whether capabilities.extensions["io.modelcontextprotocol/ui"] is
+// advertised, tools/call's tool NAME only (never .arguments — that's
+// where a vehicle search's zip/price/etc. would live), and resources/read's
+// requested URI only (never resource contents). No auth headers, no IPs,
+// no request bodies beyond the single `method`/`params.name`/`params.uri`
+// fields named above are ever logged or even parsed further than that.
+// Wraps ONLY the POST path (where JSON-RPC arrives) — GET/DELETE, and the
+// real `handler` itself, are completely untouched; the diagnostic reads a
+// *cloned* request body so the original request passed to `handler` is
+// byte-for-byte what it would have been without this wrapper.
+function logMcpDiagnostic(body: unknown, headers: Headers): void {
+  try {
+    const messages = Array.isArray(body) ? body : [body];
+    for (const msg of messages) {
+      if (!msg || typeof msg !== "object" || typeof (msg as { method?: unknown }).method !== "string") continue;
+      const method = (msg as { method: string }).method;
+      const params = (msg as { params?: Record<string, unknown> }).params;
+      const sessionId = headers.get("mcp-session-id") ?? null;
+      const userAgent = headers.get("user-agent") ?? null;
+      const base = { tag: "[mcp-diag]", method, sessionId, userAgent };
+      if (method === "initialize") {
+        const clientInfo = (params as { clientInfo?: { name?: string; version?: string } } | undefined)?.clientInfo;
+        const extensions = (params as { capabilities?: { extensions?: Record<string, unknown> } } | undefined)?.capabilities?.extensions;
+        console.log(JSON.stringify({
+          ...base,
+          clientName: clientInfo?.name ?? null,
+          clientVersion: clientInfo?.version ?? null,
+          protocolVersion: (params as { protocolVersion?: string } | undefined)?.protocolVersion ?? null,
+          uiExtensionAdvertised: !!(extensions && "io.modelcontextprotocol/ui" in extensions),
+          extensionKeys: extensions ? Object.keys(extensions) : [],
+        }));
+      } else if (method === "resources/list" || method === "tools/list") {
+        console.log(JSON.stringify(base));
+      } else if (method === "tools/call") {
+        const toolName = (params as { name?: string } | undefined)?.name ?? null;
+        console.log(JSON.stringify({ ...base, toolName }));
+      } else if (method === "resources/read") {
+        const uri = (params as { uri?: string } | undefined)?.uri ?? null;
+        console.log(JSON.stringify({ ...base, resourceUri: uri, isResultsCard: uri === RESULTS_CARD_RESOURCE_URI }));
+      } else {
+        // Any other JSON-RPC method (notifications/initialized, ping,
+        // etc.) — method name only, for visibility into the full sequence
+        // without adding a special case per method.
+        console.log(JSON.stringify(base));
+      }
+    }
+  } catch (err) {
+    // Diagnostic logging must never break the real request.
+    console.error("[mcp-diag] logging error (non-fatal):", err instanceof Error ? err.message : String(err));
+  }
+}
+
+async function diagnosticPost(request: Request): Promise<Response> {
+  try {
+    const clone = request.clone();
+    const text = await clone.text();
+    if (text) {
+      let parsed: unknown = null;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        // Not JSON (or empty) — nothing to log, not an error.
+      }
+      if (parsed !== null) logMcpDiagnostic(parsed, request.headers);
+    }
+  } catch (err) {
+    console.error("[mcp-diag] request-clone error (non-fatal):", err instanceof Error ? err.message : String(err));
+  }
+  // The ORIGINAL, untouched request goes to the real handler — this
+  // wrapper only ever reads a clone, never modifies what handler receives.
+  return handler(request);
+}
+
+export { handler as GET, diagnosticPost as POST, handler as DELETE };
+
