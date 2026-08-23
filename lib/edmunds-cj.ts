@@ -68,17 +68,39 @@ export function buildEdmundsUrl(vehicle: {
  * e-tron query, whose VIN link was fully dead with zero fallback content,
  * still returned 56 real nationwide listings via this URL shape).
  *
- * Condition-aware and year-aware per live-tested URL shapes only
- * (2026-08-23 investigation, no new API calls used to build this):
- * - USED (default): `/used-{make}-{model}/`, or `/used-{year}-{make}-{model}/`
- *   when a model year is known — both slug shapes confirmed live to
- *   genuinely filter by year (e.g. used-2020-ford-f-150-dallas-tx/ returned
- *   a real year-specific count and year-specific average price/mileage
- *   stats, not the unfiltered full-model figures).
- * - NEW: `/new-{make}-{model}-for-sale/` — confirmed live as the working
- *   slug shape for new inventory. Deliberately NOT year-specific: no
- *   live-tested new+year URL shape exists yet, so one is not invented here;
- *   do not add a new-with-year slug until that's separately verified.
+ * Precedence, per live-tested URL shapes only (2026-08-23/24 investigation,
+ * no new API calls used to build this):
+ * 1. TRIM, when present and safely representable (see isSafeTrimForSlug()
+ *    below) — confirmed live for both conditions:
+ *    - USED: `/used-{make}-{model}-{trim}/` (e.g. used-chevrolet-tahoe-ls/,
+ *      used-chevrolet-tahoe-high-country/, used-chevrolet-tahoe-z71/ — all
+ *      three independently confirmed: the "Trim" filter chip matched, every
+ *      visible listing was that trim, and unrelated trims never appeared)
+ *    - NEW: `/new-{make}-{model}-{trim}-for-sale/` (e.g.
+ *      new-chevrolet-tahoe-ls-for-sale/ — same confirmation)
+ * 2. USED, no safe trim: `/used-{year}-{make}-{model}/` when year is known
+ *    (confirmed live to genuinely filter by year), else
+ *    `/used-{make}-{model}/`.
+ * 3. NEW, no safe trim: `/new-{make}-{model}-for-sale/`.
+ *
+ * YEAR AND TRIM ARE NEVER COMBINED — confirmed live-tested and BROKEN
+ * (2026-08-24 investigation): `/used-2026-chevrolet-tahoe-ls/` 404s;
+ * `/used-chevrolet-tahoe-ls-2026/` also 404s (and silently redirects to a
+ * wrong URL that misparses "tahoe-ls" as the model); `?year=2026` added to
+ * a working trim slug, and `?trim=LS` added to a working year slug, both
+ * silently corrupt the year to "2025-2025" in Edmunds' own Applied Filters
+ * panel and return 0 listings — while the page title deceptively still
+ * says "2026". No combination of year+trim tested returned real,
+ * correctly-filtered inventory. This function must never construct a URL
+ * containing both.
+ *
+ * isSafeTrimForSlug(): only alphanumeric "words" separated by single
+ * spaces/hyphens (e.g. "LS", "High Country", "Z71", "AMG GLA 35") are
+ * treated as trim-safe. Anything containing other punctuation (slashes,
+ * ampersands, parentheses, etc.) falls through to the year/no-trim
+ * fallback instead — deliberately no speculative normalization beyond the
+ * existing slugify(), since no live-tested evidence exists for how
+ * Edmunds' slug parser handles punctuation-heavy trim names.
  *
  * No `zip` or `price` query parameters — REMOVED (2026-08-23) after live
  * testing confirmed Edmunds silently ignores both on this SEO
@@ -94,8 +116,12 @@ export function buildEdmundsUrl(vehicle: {
  *
  * Returns null only if make/model can't be slugified at all.
  */
+function isSafeTrimForSlug(trim: string): boolean {
+  return /^[A-Za-z0-9]+([ -][A-Za-z0-9]+)*$/.test(trim.trim());
+}
+
 export function buildEdmundsCategoryUrl(
-  vehicle: { make?: string; model?: string; year?: number },
+  vehicle: { make?: string; model?: string; year?: number; trim?: string },
   opts?: { used?: boolean },
 ): string | null {
   const makeSlug = slugify(vehicle.make);
@@ -106,8 +132,17 @@ export function buildEdmundsCategoryUrl(
 
   const isUsed = opts?.used !== false; // default true — matches prior behavior when condition is unknown
 
+  const rawTrim = vehicle.trim?.trim();
+  const trimSlug = rawTrim && isSafeTrimForSlug(rawTrim) ? slugify(rawTrim) : "";
+
   if (!isUsed) {
-    return `${EDMUNDS_BASE}/new-${makeSlug}-${modelSlug}-for-sale/`;
+    return trimSlug
+      ? `${EDMUNDS_BASE}/new-${makeSlug}-${modelSlug}-${trimSlug}-for-sale/`
+      : `${EDMUNDS_BASE}/new-${makeSlug}-${modelSlug}-for-sale/`;
+  }
+
+  if (trimSlug) {
+    return `${EDMUNDS_BASE}/used-${makeSlug}-${modelSlug}-${trimSlug}/`;
   }
 
   if (vehicle.year != null) {
