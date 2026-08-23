@@ -127,6 +127,15 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 .cc-exact-vin{position:absolute;bottom:8px;left:8px;border-radius:6px;font-size:8.5px;line-height:1;padding:3px 6px;font-weight:700;background:rgba(8,18,31,.82);color:#edf4fc;border:1px solid rgba(255,255,255,.16);text-transform:uppercase;letter-spacing:.03em}
 .cc-body{padding:10px 10px 9px;display:flex;flex-direction:column;flex:1;min-width:0}
 .cc-title{font-size:13.5px;line-height:1.2;font-weight:700;margin:0 0 6px;color:var(--cc-text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:32px}
+/* Clickable photo/title (image + title link to primaryUrl only — see
+   cardHtml()). Visually unchanged from a plain photo/title; the only
+   additions are default link color removal (so text stays --cc-text,
+   not the blue --cc-link) and a focus-visible outline for keyboard
+   users, since these are now real interactive elements. */
+.cc-photo-link{display:block;height:100%;width:100%}
+.cc-photo-link:focus-visible,.cc-title-link:focus-visible{outline:2px solid var(--cc-link);outline-offset:2px;border-radius:4px}
+.cc-title-link{color:inherit;text-decoration:none;display:block}
+.cc-title-link:hover{text-decoration:underline}
 .cc-match-row{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:7px}
 .cc-match{border-radius:6px;font-size:9.5px;line-height:1;padding:4px 7px;font-weight:700;text-transform:uppercase;letter-spacing:.03em}
 .cc-fuel{font-size:9.5px;font-weight:700;color:var(--cc-subtle);text-transform:uppercase;letter-spacing:.03em}
@@ -370,9 +379,29 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     // Inline SVG placeholder (see window.__ccPhotoFallback above) instead
     // of plain grey text when no photo is present or a photo URL fails to
     // load after render.
-    var photoBlock = photo
-      ? '<img class="cc-photo" src="' + esc(photo) + '" alt="' + esc(title) + '" loading="lazy" onerror="window.__ccPhotoFallback(this)"/>'
+    var photoInner = photo
+      ? '<img class="cc-photo" src="' + esc(photo) + '" alt="' + (primaryUrl ? "" : esc(title)) + '" loading="lazy" onerror="window.__ccPhotoFallback(this)"/>'
       : '<div class="cc-photo cc-photo-fallback">' + PHOTO_FALLBACK_SVG + "<span>Photo unavailable</span></div>";
+    // Clickable image/title (feature/clickable-image-title): both navigate
+    // to the SAME already-resolved primaryUrl used by the single-button
+    // CTA above — no new URL is constructed here, and dealerListingUrl is
+    // never referenced. When primaryUrl is null (neither affiliateUrl nor
+    // affiliateFallbackUrl present), both stay plain, non-interactive
+    // markup — never an invented fallback destination. Uses the same
+    // data-url + delegated openLink() pattern as every other clickable
+    // element in this widget (CTA buttons, Carfax link) rather than a
+    // native href navigation, since actual navigation is routed through
+    // the host's ui/open-link RPC — href is still set for correct link
+    // semantics (screen readers, keyboard focus, right-click/hover), the
+    // click handler below just intercepts the default navigation and
+    // calls openLink() instead, exactly as already happens for the CTA
+    // buttons via data-url. The image link carries the accessible name
+    // (aria-label) since its <img alt> is suppressed to avoid double
+    // announcement; the title link's own text already is the accessible
+    // name, so it needs no separate aria-label.
+    var photoBlock = primaryUrl
+      ? '<a class="cc-photo-link" href="' + esc(primaryUrl) + '" data-url="' + esc(primaryUrl) + '" aria-label="' + esc(title) + ' \\u2014 view listing" rel="noopener">' + photoInner + "</a>"
+      : photoInner;
 
     var ctaBlock = (links.affiliateUrl && links.affiliateFallbackUrl)
       ? '<div class="cc-cta"><div class="cc-cta-row">' +
@@ -388,7 +417,9 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
         '<div class="cc-badges"><span class="cc-type">' + esc(listingType) + "</span>" + riskPill + "</div>" +
       "</div>" +
       '<div class="cc-body">' +
-        '<h3 class="cc-title">' + esc(title) + "</h3>" +
+        (primaryUrl
+          ? '<h3 class="cc-title"><a class="cc-title-link" href="' + esc(primaryUrl) + '" data-url="' + esc(primaryUrl) + '" rel="noopener">' + esc(title) + "</a></h3>"
+          : '<h3 class="cc-title">' + esc(title) + "</h3>") +
         matchRow +
         '<div class="cc-price">' + esc(money(listing.price)) + (listing.mileage ? '<span class="cc-mileage">' + esc(miles(listing.mileage)) + '</span>' : '') + "</div>" +
         (function(){
@@ -453,6 +484,18 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     root.innerHTML = html;
     root.querySelectorAll(".cc-primary, .cc-cta-btn, .cc-carfax-link").forEach(function(btn){
       btn.addEventListener("click", function(){ openLink(btn.getAttribute("data-url")); });
+    });
+    // Image/title links (feature/clickable-image-title): real <a href>
+    // elements (unlike the plain buttons above) for correct link
+    // semantics, so the default browser navigation is intercepted and
+    // routed through the same openLink()/ui/open-link host RPC as every
+    // other clickable element here, rather than navigating the iframe
+    // directly.
+    root.querySelectorAll(".cc-photo-link, .cc-title-link").forEach(function(a){
+      a.addEventListener("click", function(e){
+        e.preventDefault();
+        openLink(a.getAttribute("data-url"));
+      });
     });
     // Prev/next nav for screens without swipe/trackpad gestures - same
     // carousel, just an alternate way to scroll it. Cheap, no library.
