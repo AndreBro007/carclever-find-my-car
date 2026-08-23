@@ -112,6 +112,17 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 .cc-photo-fallback{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;height:100%;color:light-dark(#7186ab,#6f8db8);font-size:10px;font-weight:600;background:linear-gradient(160deg,light-dark(#eef2f9,#182842),light-dark(#e1e7f3,#0f1c30))}
 .cc-badges{position:absolute;top:8px;left:8px;right:8px;display:flex;justify-content:space-between;gap:6px}
 .cc-type{border-radius:999px;border:1px solid rgba(255,255,255,.16);font-size:9.5px;line-height:1;padding:4px 7px;font-weight:700;background:rgba(8,18,31,.82);color:#edf4fc;text-transform:uppercase;letter-spacing:.04em}
+/* VIN Buyer Check risk pill (feature/vin-buyer-check) — direct-VIN-lookup
+   cards only (c.buyerCheck present); never rendered on normal search
+   cards. Reuses the existing match-tier color tokens (green/amber/
+   match-fair-as-red) rather than inventing a new palette. */
+.cc-risk{border-radius:999px;border:1px solid rgba(255,255,255,.16);font-size:9.5px;line-height:1;padding:4px 7px;font-weight:700;background:rgba(8,18,31,.82);color:#edf4fc;text-transform:uppercase;letter-spacing:.04em;flex-shrink:0}
+.cc-risk.is-green{background:var(--cc-green-bg);border-color:var(--cc-green-border);color:var(--cc-green)}
+.cc-risk.is-amber{background:var(--cc-amber-bg);border-color:var(--cc-amber-border);color:var(--cc-amber)}
+.cc-risk.is-red{background:var(--cc-match-fair-bg);border-color:var(--cc-match-fair-border);color:var(--cc-match-fair-text)}
+/* "EXACT VIN" bottom-left image badge — same direct-VIN-lookup-only scope
+   as .cc-risk above. */
+.cc-exact-vin{position:absolute;bottom:8px;left:8px;border-radius:6px;font-size:8.5px;line-height:1;padding:3px 6px;font-weight:700;background:rgba(8,18,31,.82);color:#edf4fc;border:1px solid rgba(255,255,255,.16);text-transform:uppercase;letter-spacing:.03em}
 .cc-body{padding:10px 10px 9px;display:flex;flex-direction:column;flex:1;min-width:0}
 .cc-title{font-size:13.5px;line-height:1.2;font-weight:700;margin:0 0 6px;color:var(--cc-text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:32px}
 .cc-match-row{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:7px}
@@ -287,6 +298,17 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     var exteriorColor = c.detail && c.detail.exteriorColor;
     var carfaxUrl = c.detail && c.detail.carfaxUrl;
     var photo = proxiedPhoto(media.cardImageUrl);
+    // VIN Buyer Check UI (feature/vin-buyer-check): c.buyerCheck is present
+    // ONLY on a direct-VIN-lookup result (see buildBuyerCheck() in
+    // app/[transport]/route.ts) — never on a normal search result, so both
+    // badges below are naturally scoped to that case with no extra flag.
+    var buyerCheck = c.buyerCheck;
+    var riskTier = !buyerCheck ? null
+      : buyerCheck.outcome === "promising" ? "green"
+      : buyerCheck.outcome === "significant_concern" ? "red"
+      : "amber"; // verify_before_proceeding or caution
+    var riskPill = riskTier ? '<span class="cc-risk is-' + riskTier + '">RISK</span>' : "";
+    var exactVinBadge = buyerCheck ? '<div class="cc-exact-vin">EXACT VIN</div>' : "";
     var isCarvana = links.isCarvana;
     var primaryUrl = isCarvana ? links.dealerListingUrl : (links.affiliateUrl || links.dealerListingUrl);
     var throughEdmunds = !isCarvana && !!links.affiliateUrl;
@@ -344,8 +366,8 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
       : "";
 
     return '<article class="cc-card">' +
-      '<div class="cc-photo-wrap">' + photoBlock +
-        '<div class="cc-badges"><span class="cc-type">' + esc(listingType) + "</span></div>" +
+      '<div class="cc-photo-wrap">' + photoBlock + exactVinBadge +
+        '<div class="cc-badges"><span class="cc-type">' + esc(listingType) + "</span>" + riskPill + "</div>" +
       "</div>" +
       '<div class="cc-body">' +
         '<h3 class="cc-title">' + esc(title) + "</h3>" +
