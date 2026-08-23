@@ -12,7 +12,7 @@ import { widenSearchIfThin, type StepName } from "@/lib/loosening-ladder";
 import { verifyAgainstConstraints } from "@/lib/post-verify";
 import { parseIntent } from "@/lib/intent-parser";
 import { applyDiversity } from "@/lib/diversity";
-import { crossCheckVin } from "@/lib/vin-cross-check";
+import { crossCheckVin, type VerificationResult } from "@/lib/vin-cross-check";
 import { computeMatchScore } from "@/lib/match-score";
 import { resolveLinks } from "@/lib/link-resolution";
 import { sanitizeDealerName } from "@/lib/dealer-name";
@@ -102,7 +102,7 @@ Two separate fields exist for a trim/variant, and picking the right one matters:
 
 DIRECT VIN LOOKUP
 
-When the user supplies a specific 17-character VIN — "Find VIN W1N4N5BB1TJ864755," "is this VIN available," "check VIN ..." — pass it in \`vin\`. This looks up that exact vehicle only; it is NOT a normal search and doesn't use make/model/price to find a different vehicle. Never translate a VIN into make/model/price filters instead of using this field. Any other criteria the user also stated (price, trim, etc.) are checked against that specific vehicle and reported honestly (met or not) — a mismatch never causes a different, similar vehicle to be substituted. If the exact VIN isn't found in current inventory, that's reported plainly as not found, never silently swapped for something similar.
+When the user supplies a specific 17-character VIN — "Find VIN W1N4N5BB1TJ864755," "is this VIN available," "check VIN ...," "check this VIN before I buy it," "any red flags?," "what should I verify before buying this?" — pass it in \`vin\`. This looks up that exact vehicle only; it is NOT a normal search and doesn't use make/model/price to find a different vehicle. Never translate a VIN into make/model/price filters instead of using this field. Any other criteria the user also stated (price, trim, etc.) are checked against that specific vehicle and reported honestly (met or not) — a mismatch never causes a different, similar vehicle to be substituted. If the exact VIN isn't found in current inventory, that's reported plainly as not found, never silently swapped for something similar. When the user's intent is specifically about pre-purchase due diligence on a known VIN, this path also returns a Buyer Check — good signs, concerns, what still needs independent verification, and next steps — built entirely from evidence already available on that result, never a fabricated fact or a numeric score.
 
 Use priceFlexibility: "flexible" only when the user signals approximation ("around," "roughly," "about"). Otherwise price is a strict ceiling, never silently loosened.
 
@@ -145,7 +145,7 @@ MAPS
 For local vehicle searches, when results include 3+ dealer locations, present the recommended results on an interactive map using any available map visualization tool — this applies whenever geographic/dealer location data is returned, using the dealer/location data already returned by the tool.`;
 
 const FindMatchingVehicleInput = z.object({
-  vin: z.string().optional().describe("An exact 17-character VIN, when the user supplies one directly (e.g. 'Find VIN W1N4N5BB1TJ864755', 'is this VIN still available'). When set, this looks up that ONE specific vehicle directly — it does NOT run a broad search, and no other field is used to search for a different vehicle. Do not infer make/model/price filters instead of passing the VIN; pass the VIN as-is here. Any other stated criteria (price, trim, etc.) are checked against this specific vehicle and disclosed honestly, never used to substitute a different one. If the vehicle isn't found, that's reported plainly — never silently substituted with something similar."),
+  vin: z.string().optional().describe("An exact 17-character VIN, when the user supplies one directly (e.g. 'Find VIN W1N4N5BB1TJ864755', 'is this VIN still available', 'check this VIN before I buy it', 'any red flags on this VIN?'). When set, this looks up that ONE specific vehicle directly — it does NOT run a broad search, and no other field is used to search for a different vehicle. Do not infer make/model/price filters instead of passing the VIN; pass the VIN as-is here. Any other stated criteria (price, trim, etc.) are checked against this specific vehicle and disclosed honestly, never used to substitute a different one. If the vehicle isn't found, that's reported plainly — never silently substituted with something similar. This path also returns a Buyer Check (good signs, concerns, what needs independent verification, next steps) built from evidence already on the result — appropriate whenever the user is asking about buying/verifying that specific VIN, not just its availability."),
   priceMax: z.number().optional().describe("Maximum price in USD. A hard ceiling — never send a value higher than what the user actually stated."),
   priceMin: z.number().optional().describe("Minimum price in USD."),
   priceFlexibility: z.enum(["strict", "flexible"]).optional().describe("Whether the price ceiling can flex. Set to 'flexible' only if the user signals approximation ('around', 'roughly', 'about') — otherwise omit; the ceiling stays strict by default."),
@@ -701,6 +701,134 @@ async function buildResultCard(
   };
 }
 
+export interface BuyerCheck {
+  outcome: "promising" | "verify_before_proceeding" | "caution" | "significant_concern";
+  goodSigns: string[];
+  concerns: string[];
+  needsVerification: string[];
+  nextSteps: string[];
+}
+
+/**
+ * VIN Buyer Check (preview MVP, feature/vin-buyer-check) — attached ONLY to
+ * the direct-VIN-lookup result, never to normal search results. Pure
+ * function over evidence buildResultCard() already produced for this same
+ * card — no new Auto.dev call, no new data source, no new MCP tool.
+ *
+ * Hard rules this function follows:
+ * - unknown is never treated as a concern — every "we don't know" signal
+ *   (unreported history, unconfirmed identity attributes, unknown CPO
+ *   status, no Carfax link) goes into needsVerification, never concerns.
+ * - Never invents an accident/title/CPO/history fact — every string here is
+ *   either a verbatim existing field (history.note, dataConflicts entries)
+ *   or a generic, evidence-agnostic verification suggestion.
+ * - No numeric risk/deal/value score of any kind.
+ * - titleStatus is deliberately NOT used — that source field is still
+ *   unverified in the current client contract (lib/auto-dev-client.ts
+ *   marks retailListing.titleStatus "unconfirmed").
+ *
+ * Outcome precedence (first match wins):
+ * 1. identityVerificationStatus === "failed" -> significant_concern.
+ * 2. A known accident/history issue (history.state === "known_issues") or
+ *    a material data conflict (dataConflicts.length > 0) -> caution.
+ * 3. No concerns at all AND strong positive evidence (identity confirmed,
+ *    history reported clean, no data conflicts) -> promising.
+ * 4. Otherwise -> verify_before_proceeding (the common, honest default —
+ *    e.g. identity only "potential_match," or clean-but-unreported
+ *    history: real evidence exists but isn't strong enough either way).
+ */
+function buildBuyerCheck(card: {
+  verification: VerificationResult;
+  history: { state: "known_clean" | "known_issues" | "unreported"; note: string; ownerNote: string | null };
+  condition: { cpoEvidenceState: "confirmed_cpo" | "reported_not_cpo" | "unknown" };
+  detail: { carfaxUrl: string | null };
+  dataConflicts: string[];
+}): BuyerCheck {
+  const goodSigns: string[] = [];
+  const concerns: string[] = [];
+  const needsVerification: string[] = [];
+  const nextSteps: string[] = [];
+
+  // Identity verification (lib/vin-cross-check.ts — derived offline from
+  // VIN anatomy: model year, manufacturer, transcription validity).
+  if (card.verification.identityVerificationStatus === "verified_match") {
+    goodSigns.push("VIN identity confirmed — the reported year and make match what's encoded in the VIN itself.");
+  } else if (card.verification.identityVerificationStatus === "failed") {
+    const conflicting = card.verification.conflictingAttributes.join(", ") || "one or more reported attributes";
+    concerns.push(
+      `VIN identity check failed — ${conflicting} reported by this listing does not match what's encoded in the VIN itself.`,
+    );
+  } else {
+    needsVerification.push(
+      "VIN identity could not be fully confirmed from the VIN alone — verify the year and make against the actual vehicle before proceeding.",
+    );
+  }
+  if (card.verification.unknownAttributes.length > 0) {
+    needsVerification.push(
+      `${card.verification.unknownAttributes.join(" and ")} cannot be confirmed from the VIN alone (VIN anatomy doesn't encode this) — confirm independently, e.g. via a dealer VIN decode or the vehicle's window sticker.`,
+    );
+  }
+
+  // History (lib/qualifier-accounting.ts-adjacent buildHistorySummary()) —
+  // verbatim existing note, never re-worded or embellished.
+  if (card.history.state === "known_clean") {
+    goodSigns.push(card.history.note);
+  } else if (card.history.state === "known_issues") {
+    concerns.push(card.history.note);
+  } else {
+    needsVerification.push(card.history.note);
+  }
+
+  // CPO status.
+  if (card.condition.cpoEvidenceState === "confirmed_cpo") {
+    goodSigns.push("Certified Pre-Owned (CPO) — reported by the dealer.");
+  } else if (card.condition.cpoEvidenceState === "unknown") {
+    needsVerification.push("CPO status was not reported for this listing — ask the dealer if certification matters to you.");
+  }
+  // "reported_not_cpo" is neutral (not flagged either way) — this listing
+  // simply wasn't marked CPO, which isn't itself a concern.
+
+  // Data conflicts already curated by detectDataConflicts() (e.g. NHTSA
+  // make/model/cylinder mismatches) — reused verbatim, not re-derived.
+  if (card.dataConflicts.length > 0) {
+    concerns.push(...card.dataConflicts);
+  }
+
+  // Carfax availability.
+  if (card.detail.carfaxUrl) {
+    needsVerification.push("Review the linked Carfax report for full accident/title history before purchase.");
+  } else {
+    needsVerification.push("No Carfax link was available on this listing — request an independent vehicle history report before purchase.");
+  }
+
+  // Generic, evidence-agnostic next steps — never specific to a fact we
+  // don't actually have.
+  if (concerns.length > 0) {
+    nextSteps.push("Ask the dealer directly about the flagged item(s) above and get documentation before proceeding.");
+  }
+  if (needsVerification.length > 0) {
+    nextSteps.push("Independently verify the items listed above — via Carfax, a trusted mechanic, or the dealer — before finalizing a purchase.");
+  }
+  nextSteps.push("Have a pre-purchase inspection done by an independent mechanic if you haven't already.");
+
+  let outcome: BuyerCheck["outcome"];
+  if (card.verification.identityVerificationStatus === "failed") {
+    outcome = "significant_concern";
+  } else if (card.history.state === "known_issues" || card.dataConflicts.length > 0) {
+    outcome = "caution";
+  } else if (
+    card.verification.identityVerificationStatus === "verified_match" &&
+    card.history.state === "known_clean" &&
+    card.dataConflicts.length === 0
+  ) {
+    outcome = "promising";
+  } else {
+    outcome = "verify_before_proceeding";
+  }
+
+  return { outcome, goodSigns, concerns, needsVerification, nextSteps };
+}
+
 const handler = createMcpHandler((server) => {
   // MCP Apps (SEP-1865) result-card widget — a STATIC resource, registered
   // once. Real per-search data is delivered to it client-side via
@@ -935,6 +1063,14 @@ const handler = createMcpHandler((server) => {
         );
         const vinCards = vinCard ? [vinCard] : [];
 
+        // VIN Buyer Check (feature/vin-buyer-check, preview MVP): attached
+        // ONLY here, on the direct-VIN-lookup result — never on normal
+        // search results. Pure function over the same evidence
+        // buildResultCard() already produced for vinCard above; no new
+        // Auto.dev call, no new data source.
+        const buyerCheck = vinCard ? buildBuyerCheck(vinCard) : null;
+        const vinCardsWithBuyerCheck = vinCard && buyerCheck ? [{ ...vinCard, buyerCheck }] : vinCards;
+
         // Other stated hard constraints (price/year/mileage) are checked
         // against THIS vehicle and disclosed — never used to exclude it or
         // substitute a different one. make/model deliberately omitted: a
@@ -956,6 +1092,13 @@ const handler = createMcpHandler((server) => {
               ]
             : [];
 
+        const BUYER_CHECK_OUTCOME_LABEL: Record<BuyerCheck["outcome"], string> = {
+          promising: "Promising",
+          verify_before_proceeding: "Verify before proceeding",
+          caution: "Caution",
+          significant_concern: "Significant concern",
+        };
+
         const vinSummary =
           vinCards.length === 0
             ? `VIN ${rawVin} was found in inventory but couldn't be built into a displayable result (no usable dealer or affiliate link available for it).`
@@ -976,7 +1119,16 @@ const handler = createMcpHandler((server) => {
                   vinConstraintViolations.length > 0
                     ? `\n   ⚠️ Doesn't fully meet: ${vinConstraintViolations.join(", ")} — this is the exact VIN requested, not a different vehicle.`
                     : "";
-                return `Found the exact vehicle for VIN ${rawVin}:\n\n${id.year} ${id.make} ${id.model}${trimStr} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${violationNote}\n   Link: ${primaryLinkStr}`;
+                const buyerCheckText = buyerCheck
+                  ? `\n\nBuyer Check: ${BUYER_CHECK_OUTCOME_LABEL[buyerCheck.outcome]}` +
+                    (buyerCheck.goodSigns.length > 0 ? `\n  Good signs: ${buyerCheck.goodSigns.join(" ")}` : "") +
+                    (buyerCheck.concerns.length > 0 ? `\n  Concerns: ${buyerCheck.concerns.join(" ")}` : "") +
+                    (buyerCheck.needsVerification.length > 0
+                      ? `\n  Needs verification: ${buyerCheck.needsVerification.join(" ")}`
+                      : "") +
+                    (buyerCheck.nextSteps.length > 0 ? `\n  Next steps: ${buyerCheck.nextSteps.join(" ")}` : "")
+                  : "";
+                return `Found the exact vehicle for VIN ${rawVin}:\n\n${id.year} ${id.make} ${id.model}${trimStr} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${violationNote}\n   Link: ${primaryLinkStr}${buyerCheckText}`;
               })();
 
         return {
@@ -993,7 +1145,7 @@ const handler = createMcpHandler((server) => {
               interpretationNotes: [`Direct VIN lookup for ${rawVin} — identifies exactly one vehicle; no broader search was run.`],
               qualifierAccounting: buildQualifierAccounting(vinIntentInput),
             },
-            results: vinCards,
+            results: vinCardsWithBuyerCheck,
           } satisfies FindMatchingVehicleOutput,
         };
       }

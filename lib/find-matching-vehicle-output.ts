@@ -169,6 +169,14 @@ const ConstraintCheckSchema = z.object({
   actual: z.unknown(),
 });
 
+const BuyerCheckSchema = z.object({
+  outcome: z.enum(["promising", "verify_before_proceeding", "caution", "significant_concern"]),
+  goodSigns: z.array(z.string()),
+  concerns: z.array(z.string()),
+  needsVerification: z.array(z.string()),
+  nextSteps: z.array(z.string()),
+});
+
 const ResultSchema = z.object({
   canonicalVehicleId: z.string(),
   identity: IdentitySchema,
@@ -187,6 +195,10 @@ const ResultSchema = z.object({
   dataConflicts: z.array(z.string()),
   constraintChecks: z.array(ConstraintCheckSchema),
   searchConstraintStatus: z.enum(["verified", "partial", "relaxed", "mismatch", "not_applicable"]),
+  // VIN Buyer Check (feature/vin-buyer-check, preview MVP) — present ONLY
+  // on the direct-VIN-lookup result; normal search results never populate
+  // this field, hence optional here rather than nullable.
+  buyerCheck: BuyerCheckSchema.optional(),
 });
 
 export const FindMatchingVehicleOutputSchema = z.object({
