@@ -114,12 +114,14 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 .cc-type{border-radius:999px;border:1px solid rgba(255,255,255,.16);font-size:9.5px;line-height:1;padding:4px 7px;font-weight:700;background:rgba(8,18,31,.82);color:#edf4fc;text-transform:uppercase;letter-spacing:.04em}
 /* VIN Buyer Check risk pill (feature/vin-buyer-check) — direct-VIN-lookup
    cards only (c.buyerCheck present); never rendered on normal search
-   cards. Reuses the existing match-tier color tokens (green/amber/
-   match-fair-as-red) rather than inventing a new palette. */
+   cards. Solid, high-saturation colors (not the shared --cc-green/
+   --cc-amber/--cc-match-fair tokens, which are pale low-opacity tints
+   meant for chips on a solid card background) so the pill stays a clear
+   traffic-light green/amber/red against a busy vehicle photo. */
 .cc-risk{border-radius:999px;border:1px solid rgba(255,255,255,.16);font-size:9.5px;line-height:1;padding:4px 7px;font-weight:700;background:rgba(8,18,31,.82);color:#edf4fc;text-transform:uppercase;letter-spacing:.04em;flex-shrink:0}
-.cc-risk.is-green{background:var(--cc-green-bg);border-color:var(--cc-green-border);color:var(--cc-green)}
-.cc-risk.is-amber{background:var(--cc-amber-bg);border-color:var(--cc-amber-border);color:var(--cc-amber)}
-.cc-risk.is-red{background:var(--cc-match-fair-bg);border-color:var(--cc-match-fair-border);color:var(--cc-match-fair-text)}
+.cc-risk.is-green{background:rgba(16,145,86,.95);border-color:rgba(9,110,64,.9);color:#f3fff9}
+.cc-risk.is-amber{background:rgba(245,158,11,.96);border-color:rgba(180,105,4,.9);color:#1a1204}
+.cc-risk.is-red{background:rgba(220,38,38,.95);border-color:rgba(165,26,26,.9);color:#fff6f6}
 /* "EXACT VIN" bottom-left image badge — same direct-VIN-lookup-only scope
    as .cc-risk above. */
 .cc-exact-vin{position:absolute;bottom:8px;left:8px;border-radius:6px;font-size:8.5px;line-height:1;padding:3px 6px;font-weight:700;background:rgba(8,18,31,.82);color:#edf4fc;border:1px solid rgba(255,255,255,.16);text-transform:uppercase;letter-spacing:.03em}
