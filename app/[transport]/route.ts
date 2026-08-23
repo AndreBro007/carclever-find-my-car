@@ -1137,6 +1137,16 @@ const handler = createMcpHandler((server) => {
       // multiple body styles. André's explicit decision (SYS-20260816-051):
       // known-wrong data is excluded outright, not shown with a caveat.
       let droppedBodyStyle: string | undefined;
+      // Tracks which of the two possible fields were actually present (and
+      // therefore actually dropped) — droppedStyle above only ever holds
+      // ONE label string even when both bodyType and vehicleType were
+      // supplied and both got dropped, so evidence wiring further down
+      // needs its own record of which field(s) were truly requested and
+      // truly relaxed (SYS-20260825 follow-up fix — the evidence wiring
+      // previously always marked "bodyType" regardless of which field(s)
+      // were actually involved).
+      let droppedBodyTypeField = false;
+      let droppedVehicleTypeField = false;
 
       // Body-style filter drop (SYS-20260816-046): vehicle.type/vehicle.bodyStyle
       // tagging is genuinely inconsistent per model, not a clean rule that can
@@ -1152,6 +1162,8 @@ const handler = createMcpHandler((server) => {
       // only if still at zero. One retry, never a loop, always disclosed.
       if (total === 0 && candidates.length === 0 && effectiveQuery.model && (effectiveQuery.bodyType || effectiveQuery.vehicleType)) {
         const droppedStyle = effectiveQuery.bodyType ?? effectiveQuery.vehicleType;
+        const hadBodyType = !!effectiveQuery.bodyType;
+        const hadVehicleType = !!effectiveQuery.vehicleType;
         const { bodyType: _droppedBodyType, vehicleType: _droppedVehicleType, ...withoutBodyStyle } = effectiveQuery;
         const retryResult = await searchListingsLean(withoutBodyStyle);
 
@@ -1160,6 +1172,8 @@ const handler = createMcpHandler((server) => {
           total = retryResult.total;
           effectiveQuery = withoutBodyStyle;
           droppedBodyStyle = droppedStyle;
+          droppedBodyTypeField = hadBodyType;
+          droppedVehicleTypeField = hadVehicleType;
           relaxations.push({
             step: "body_style_filter_dropped",
             detail: `Dropped the body-style filter ("${droppedStyle}") after it returned zero results for the requested model — the model already implies its own body style, and body-style tagging can be inconsistent for some vehicles.`,
@@ -1648,7 +1662,8 @@ const handler = createMcpHandler((server) => {
         // "radius" and the model-name-correction steps don't correspond to
         // any evidence field above — intentionally not mapped.
       }
-      if (droppedBodyStyle) relaxedFields.add("bodyType");
+      if (droppedBodyTypeField) relaxedFields.add("bodyType");
+      if (droppedVehicleTypeField) relaxedFields.add("vehicleType");
 
       const searchEvidenceRequest: ConstraintEvidenceRequest = {
         make: intent.hardConstraints.make,
