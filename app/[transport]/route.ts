@@ -443,6 +443,60 @@ function applyLocalBestForBudgetOrdering(
   });
 }
 
+/**
+ * EXPERIMENT (preview only, follow-up to d5805cc): configuration-variety
+ * pass. Observed regression in the F-150 fixture: applyLocalBestForBudgetOrdering()
+ * above (unchanged, still exactly as in d5805cc) can legitimately rank a
+ * batch of near-identical fleet units at the very top when they share the
+ * best year+mileage combination in the pool — 5 distinct VINs, same
+ * 2026/F-150/STX/price/mileage. That's not a bug in the ranking itself
+ * (they genuinely tied on every ranked dimension); it's a visible-shortlist
+ * diversity problem this pass addresses separately.
+ *
+ * Ordering only — never discards a candidate. First pass keeps at most
+ * maxPerConfig per (make|model|year|trim) key, in the existing ranked
+ * order; anything over the cap is appended to the END, in its own existing
+ * relative order, not dropped. So if inventory really is homogeneous (e.g.
+ * only 3 total F-150s exist at any price), the normal shortlist/backfill
+ * mechanism downstream can still pull the overflow candidates in and fill
+ * every result slot exactly as before — this only changes visible-ordering
+ * preference among an otherwise-tied pool, not eligibility or count.
+ *
+ * Missing trim is normalized to "" consistently — never invented/guessed —
+ * so two candidates that both lack a reported trim still correctly group
+ * together as one "unknown trim" configuration rather than each getting a
+ * unique key.
+ */
+function configurationKey(c: AutoDevListing): string {
+  const make = (c.vehicle?.make ?? "").trim().toLowerCase();
+  const model = (c.vehicle?.model ?? "").trim().toLowerCase();
+  const year = c.vehicle?.year ?? "";
+  const trim = (c.vehicle?.trim ?? "").trim().toLowerCase(); // missing -> "" — never invented
+  return `${make}|${model}|${year}|${trim}`;
+}
+
+function applyConfigurationVarietyPass(
+  candidates: AutoDevListing[],
+  maxPerConfig = 2,
+): AutoDevListing[] {
+  const seenCount = new Map<string, number>();
+  const withinCap: AutoDevListing[] = [];
+  const overflow: AutoDevListing[] = [];
+
+  for (const c of candidates) {
+    const key = configurationKey(c);
+    const count = seenCount.get(key) ?? 0;
+    if (count < maxPerConfig) {
+      withinCap.push(c);
+      seenCount.set(key, count + 1);
+    } else {
+      overflow.push(c); // never discarded — appended below, existing relative order preserved
+    }
+  }
+
+  return [...withinCap, ...overflow];
+}
+
 // Same deployed origin the widget declares in its CSP resourceDomains
 // (lib/results-card.ts APP_ORIGIN) — kept in sync manually since the two
 // files are independent per the MCP Apps static-resource split.
@@ -1341,7 +1395,9 @@ const handler = createMcpHandler((server) => {
         // lowest_mileage/newest pass through unchanged. Provider retrieval/
         // sort (resolveSort() above) is completely untouched.
         input.priorityAxis === "best_for_budget" || input.priorityAxis == null
-          ? applyLocalBestForBudgetOrdering(trimOrderedCandidates, intent.semantic.trimPreference)
+          ? applyConfigurationVarietyPass(
+              applyLocalBestForBudgetOrdering(trimOrderedCandidates, intent.semantic.trimPreference),
+            )
           : trimOrderedCandidates,
         targetCount * 2,
       );
