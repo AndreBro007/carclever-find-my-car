@@ -68,18 +68,35 @@ export function buildEdmundsUrl(vehicle: {
  * e-tron query, whose VIN link was fully dead with zero fallback content,
  * still returned 56 real nationwide listings via this URL shape).
  *
- * Deliberately no price ceiling by default — a tight band anchored to one
- * specific (possibly anomalous) listing's price risks excluding genuinely
- * comparable inventory and re-introducing a would-be-empty result. Callers
- * may pass the user's own stated priceMax (not a specific listing's price)
- * if honoring the original search budget is more useful than an
- * unconstrained "similar options" view.
+ * Condition-aware and year-aware per live-tested URL shapes only
+ * (2026-08-23 investigation, no new API calls used to build this):
+ * - USED (default): `/used-{make}-{model}/`, or `/used-{year}-{make}-{model}/`
+ *   when a model year is known — both slug shapes confirmed live to
+ *   genuinely filter by year (e.g. used-2020-ford-f-150-dallas-tx/ returned
+ *   a real year-specific count and year-specific average price/mileage
+ *   stats, not the unfiltered full-model figures).
+ * - NEW: `/new-{make}-{model}-for-sale/` — confirmed live as the working
+ *   slug shape for new inventory. Deliberately NOT year-specific: no
+ *   live-tested new+year URL shape exists yet, so one is not invented here;
+ *   do not add a new-with-year slug until that's separately verified.
+ *
+ * No `zip` or `price` query parameters — REMOVED (2026-08-23) after live
+ * testing confirmed Edmunds silently ignores both on this SEO
+ * category-page shape: fetching `/used-ford-f-150/?zip=75001&price=0-45000`
+ * returned nationwide results anchored to a default location (not zip
+ * 75001) with prices far above the stated ceiling ($94,559 seen against a
+ * $45,000 cap), and the same was true with `?price=` alone or combined
+ * with a genuinely-working location slug. Location filtering that
+ * actually works requires a city/state slug (e.g. `-dallas-tx`), which
+ * requires a ZIP→city/state resolution step this codebase does not have —
+ * out of scope for this fix. Never re-add zip/price query params to this
+ * function without fresh live confirmation they do something.
  *
  * Returns null only if make/model can't be slugified at all.
  */
 export function buildEdmundsCategoryUrl(
-  vehicle: { make?: string; model?: string },
-  opts?: { zip?: string; priceMax?: number },
+  vehicle: { make?: string; model?: string; year?: number },
+  opts?: { used?: boolean },
 ): string | null {
   const makeSlug = slugify(vehicle.make);
   if (!makeSlug) return null;
@@ -87,14 +104,16 @@ export function buildEdmundsCategoryUrl(
   const modelSlug = slugify(vehicle.model);
   if (!modelSlug) return null;
 
-  const params = new URLSearchParams();
-  if (opts?.zip) params.set('zip', opts.zip);
-  if (opts?.priceMax != null && opts.priceMax > 0) {
-    params.set('price', `0-${Math.round(opts.priceMax)}`);
-  }
-  const qs = params.toString();
+  const isUsed = opts?.used !== false; // default true — matches prior behavior when condition is unknown
 
-  return `${EDMUNDS_BASE}/used-${makeSlug}-${modelSlug}/${qs ? `?${qs}` : ''}`;
+  if (!isUsed) {
+    return `${EDMUNDS_BASE}/new-${makeSlug}-${modelSlug}-for-sale/`;
+  }
+
+  if (vehicle.year != null) {
+    return `${EDMUNDS_BASE}/used-${vehicle.year}-${makeSlug}-${modelSlug}/`;
+  }
+  return `${EDMUNDS_BASE}/used-${makeSlug}-${modelSlug}/`;
 }
 
 /**

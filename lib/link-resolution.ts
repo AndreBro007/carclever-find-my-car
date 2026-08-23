@@ -18,13 +18,22 @@
  * local inventory (Edmunds auto-expands the search radius). This is the
  * safety net that actually closes the user-trust gap, independent of
  * whether the primary VIN link happens to still resolve.
+ *
+ * Fallback precision (2026-08-23, see lib/edmunds-cj.ts buildEdmundsCategoryUrl
+ * for the full live-test writeup): the fallback is condition-aware
+ * (used/new) and includes model year for used vehicles — both confirmed to
+ * genuinely narrow the destination. It does NOT filter by the user's
+ * location or price ceiling — live testing confirmed Edmunds ignores both
+ * the `zip` and `price` query parameters on this URL shape, so those are
+ * never sent. Any user-facing text describing this fallback must not claim
+ * it narrows to the user's area or budget.
  */
 import { buildEdmundsUrl, buildEdmundsCategoryUrl, wrapWithCJ } from "./edmunds-cj";
 import type { AutoDevListing } from "./auto-dev-client";
 
 export interface LinkResolution {
   affiliateUrl: string | null; // Edmunds VIN-specific link; null if unusable OR known-dead (Carvana)
-  affiliateFallbackUrl: string | null; // Edmunds category link — live-tested to never dead-end; present whenever make+model are known
+  affiliateFallbackUrl: string | null; // Edmunds category link (make/model, +year if used) — live-tested to never dead-end; present whenever make+model are known. Not zip/price-filtered — see module doc.
   dealerListingUrl: string | null; // direct dealer/marketplace link (e.g. the real, live Carvana vdp link)
   isCarvana: boolean; // true when this listing is confirmed Carvana-sourced — see module doc above
   linkStatus: "both-available" | "edmunds-only" | "dealer-only" | "fallback-only" | "none-available";
@@ -45,12 +54,7 @@ function isCarvanaListing(listing: AutoDevListing): boolean {
   return dealer === "carvana" || vdp.includes("carvana.com");
 }
 
-/**
- * @param priceMax optional — the user's own stated search budget (not a
- *   specific listing's price), used only to shape the category-fallback URL.
- *   Omit when unknown; the fallback still works fine unfiltered.
- */
-export function resolveLinks(listing: AutoDevListing, priceMax?: number): LinkResolution {
+export function resolveLinks(listing: AutoDevListing): LinkResolution {
   const isCarvana = isCarvanaListing(listing);
 
   const rawEdmunds = isCarvana
@@ -64,8 +68,8 @@ export function resolveLinks(listing: AutoDevListing, priceMax?: number): LinkRe
   const affiliateUrl = rawEdmunds ? wrapWithCJ(rawEdmunds) : null;
 
   const rawFallback = buildEdmundsCategoryUrl(
-    { make: listing.vehicle?.make, model: listing.vehicle?.model },
-    { zip: listing.retailListing?.zip ?? undefined, priceMax },
+    { make: listing.vehicle?.make, model: listing.vehicle?.model, year: listing.vehicle?.year },
+    { used: listing.retailListing?.used },
   );
   const affiliateFallbackUrl = rawFallback ? wrapWithCJ(rawFallback) : null;
 
