@@ -173,104 +173,6 @@ const FindMatchingVehicleInput = z.object({
   oneOwner: z.boolean().optional().describe("true if the user specifically wants a one-owner vehicle. Never excludes results — ownership history is disclosed per result, not hard-filtered, for the same reason as noAccidents."), // maps to history.ownerCount=1
 });
 
-const FindMatchingVehicleOutput = z.object({
-  meta: z.object({
-    totalCandidatesConsidered: z.number(),
-    totalMatches: z.number().nullable(),
-    corpusSizeApprox: z.string(),
-    relaxations: z.array(z.string()),
-    dataNotes: z.array(z.string()),
-    scopeNote: z.string(),
-    serviceError: z.string().nullable(),
-    interpretationNotes: z.array(z.string()),
-    qualifierAccounting: z.record(z.string(), z.any()),
-  }),
-  results: z.array(z.object({
-    canonicalVehicleId: z.string(),
-    identity: z.object({
-      vin: z.string(),
-      year: z.number().nullable(),
-      make: z.string().nullable(),
-      model: z.string().nullable(),
-      trim: z.string().nullable(),
-      series: z.string().nullable(),
-      squishVin: z.string().nullable(),
-      bodyStyleConfig: z.string().nullable(),
-    }),
-    condition: z.object({
-      inventoryType: z.enum(["new", "used", "unknown"]),
-      used: z.boolean().nullable(),
-      cpo: z.boolean().nullable(),
-      cpoEvidenceState: z.string(),
-    }),
-    powertrain: z.object({
-      type: z.string(),
-      engine: z.string().nullable(),
-      drivetrain: z.string().nullable(),
-      transmission: z.string().nullable(),
-    }),
-    body: z.object({
-      bodyStyle: z.string().nullable(),
-      vehicleType: z.string().nullable(),
-      doors: z.number().nullable(),
-    }),
-    listing: z.object({
-      price: z.number().nullable(),
-      mileage: z.number().nullable(),
-      dealer: z.string().nullable(),
-      dealerId: z.string().nullable(),
-      city: z.string().nullable(),
-      state: z.string().nullable(),
-      zip: z.string().nullable(),
-      rawVdp: z.string().nullable(),
-      resolvedDestination: z.string().nullable(),
-      destinationClass: z.string().nullable(),
-    }),
-    history: z.object({
-      state: z.string(),
-      ownerNote: z.string().nullable(),
-    }),
-    media: z.object({
-      primaryImage: z.string().nullable(),
-      photoUrls: z.array(z.string()),
-    }),
-    verification: z.object({
-      identityVerificationStatus: z.string(),
-      softConstraintViolations: z.array(z.string()),
-    }),
-    ranking: z.object({
-      matchScore: z.number(),
-      matchScoreLabel: z.string(),
-      breakdown: z.record(z.string(), z.any()),
-    }),
-    links: z.object({
-      affiliateUrl: z.string().nullable(),
-      affiliateFallbackUrl: z.string().nullable(),
-      dealerListingUrl: z.string().nullable(),
-      isCarvana: z.boolean(),
-      linkStatus: z.string(),
-    }),
-    detail: z.object({
-      carfaxUrl: z.string().nullable(),
-      cpoNote: z.string().nullable(),
-      ownerHistoryNote: z.string().nullable(),
-      interiorColor: z.string().nullable(),
-      exteriorColor: z.string().nullable(),
-      cylinders: z.number().nullable(),
-      seats: z.number().nullable(),
-      seatsNote: z.string().nullable(),
-      dataConfidence: z.number().nullable(),
-      historyUsageType: z.string().nullable(),
-      historyPersonalUse: z.boolean().nullable(),
-      titleStatus: z.string().nullable(),
-      fuelTypeDisplay: z.string(),
-    }),
-    badges: z.array(z.string()),
-    intentConfirmations: z.record(z.string(), z.any()),
-    dataConflicts: z.array(z.string()),
-  })),
-});
-
 const ResolveDealerUrlOutput = z.object({
   affiliateUrl: z.string().nullable(),
   affiliateFallbackUrl: z.string().nullable(),
@@ -724,6 +626,10 @@ const handler = createMcpHandler((server) => {
     {
       description: FIND_MATCHING_VEHICLE_DESCRIPTION(),
       inputSchema: FindMatchingVehicleInput.shape,
+      // Intentionally no outputSchema here. find_matching_vehicle returns evolving
+      // structuredContent alongside its text/UI response. A previous dormant output
+      // schema drifted from the real runtime shape; do not add one back unless it is
+      // generated/validated against the canonical runtime contract with regression tests.
       annotations: { readOnlyHint: true, openWorldHint: true, destructiveHint: false },
       // Per SEP-1865: hosts that don't support MCP Apps ignore this field
       // and the tool behaves exactly as before (text/structuredContent
