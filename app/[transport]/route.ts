@@ -935,8 +935,24 @@ const handler = createMcpHandler((server) => {
           // enumerated — photos are proxied through our own first-party
           // origin instead (see app/api/img-proxy/route.ts), so only this
           // one domain needs declaring here.
-          domain: "https://carclever-find-my-car.vercel.app",
-      csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
+          //
+          // EXPERIMENT (experiment/omit-ui-domain-claude-mount-test,
+          // André's direction, temporary A/B test): domain: intentionally
+          // OMITTED here. Per SEP-1865, domain is optional; when omitted
+          // the host falls back to its own default sandbox origin.
+          // Current value ("https://carclever-find-my-car.vercel.app") is
+          // OpenAI-shaped (the app's own origin), not the documented
+          // Claude convention (a sha256-hash-derived *.claudemcpcontent.com
+          // origin) — production evidence (real Claude tools/list →
+          // resources/list → resources/read of this exact resource → 200,
+          // then still "Unable to reach"/"There was a problem displaying
+          // content") shows the failure is post-resource-fetch, at mount.
+          // Testing whether this specific field is the mount-stage
+          // rejection trigger. NOT the final fix either way — revert if
+          // Claude still fails with domain omitted (see A/B outcomes in
+          // DECISIONS.md), and no Claude-hash value is being introduced
+          // here regardless of outcome.
+          csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
           prefersBorder: false,
         },
       },
@@ -952,16 +968,17 @@ const handler = createMcpHandler((server) => {
           // static registration config above — confirmed via a live check
           // against the deployed endpoint (the registration-level _meta
           // alone did not surface here).
+          //
+          // EXPERIMENT (experiment/omit-ui-domain-claude-mount-test):
+          // domain: intentionally OMITTED here too, same reasoning as the
+          // registration-level _meta.ui above — see that comment for the
+          // full rationale. openai/outputTemplate (on the tool
+          // registration, unrelated to this block) is untouched, so
+          // ChatGPT's own domain-matching path is unaffected by this
+          // experiment.
           _meta: {
             ui: {
-              // Real fix, confirmed against OpenAI's own official docs
-              // example (developers.openai.com/plugins/build/chatgpt-ui):
-              // domain is a standard _meta.ui field set to the app's own
-              // deployed origin, not an OpenAI-assigned value — this is
-              // what the portal's "widget domain is not set" warning was
-              // asking for.
-              domain: "https://carclever-find-my-car.vercel.app",
-      csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
+              csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
               prefersBorder: false,
             },
           },
