@@ -377,7 +377,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     var ctaBlock = (links.affiliateUrl && links.affiliateFallbackUrl)
       ? '<div class="cc-cta"><div class="cc-cta-row">' +
           '<button type="button" class="cc-cta-btn cc-cta-left" data-url="' + esc(links.affiliateUrl) + '">View listing</button>' +
-          '<button type="button" class="cc-cta-btn cc-cta-right" data-url="' + esc(links.affiliateFallbackUrl) + '">Similar</button>' +
+          '<button type="button" class="cc-cta-btn cc-cta-right" data-url="' + esc(links.affiliateFallbackUrl) + '">View similar</button>' +
         "</div></div>"
       : primaryUrl
       ? '<div class="cc-cta"><button type="button" class="cc-primary" data-url="' + esc(primaryUrl) + '"><span>' + esc(ctaLabel) + '</span><span class="cc-provider">' + esc(providerLabel) + "</span></button></div>"
