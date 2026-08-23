@@ -22,7 +22,7 @@
 // is completely untouched (see route.ts) — this widget is additive, never a
 // replacement for the existing tool response.
 
-export const RESULTS_CARD_RESOURCE_URI = "ui://carclever-find-my-car/results-card";
+export const RESULTS_CARD_RESOURCE_URI = "ui://carclever-find-my-car/results-card-v2";
 
 // Set to the real deployed origin. Used both for the CSP resourceDomains
 // declaration and for building proxied photo URLs client-side.
