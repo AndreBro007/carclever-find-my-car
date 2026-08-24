@@ -15,6 +15,7 @@ import { parseIntent } from "@/lib/intent-parser";
 import { applyDiversity } from "@/lib/diversity";
 import { crossCheckVin, type VerificationResult } from "@/lib/vin-cross-check";
 import { classifyRiskTier, riskTierRank, type RiskTier } from "@/lib/risk-tier";
+import { buildBuyerCheck, type BuyerCheck } from "@/lib/buyer-check";
 import { computeMatchScore } from "@/lib/match-score";
 import { resolveLinks } from "@/lib/link-resolution";
 import { sanitizeDealerName } from "@/lib/dealer-name";
@@ -126,7 +127,11 @@ Set priorityAxis based on what the user is actually optimizing for, not merely w
 
 LOWER RISK RANKING
 
-lower_risk is ranking guidance, not a filter — every existing hard constraint (price, make/model, trimRequired, year, mileage, radius, drivetrain, etc.) still applies exactly as normal; lower_risk never restricts results to only vehicles with positive history evidence, it only changes the order they're shown in. CarClever prioritizes candidates based on available listing/history evidence (VIN identity verification, reported accident history, CPO status, data conflicts) — genuine positive evidence ranks first, then vehicles with no known concerns either way (incomplete/unreported history is neutral, never treated as risky), then vehicles with a known concern, then vehicles with stronger/multiple known concerns. This is shortlist guidance only, never a guarantee that any vehicle is safe, clean, accident-free, or problem-free. Say so naturally once, briefly, rather than repeating a disclaimer on every individual result — e.g. "I prioritized vehicles with stronger reported history evidence and pushed known accident/data concerns lower. Some listings have incomplete history, so check Carfax and Edmunds before buying." When an individual result does carry a known concern, mention it plainly (the result's own disclosure already states what's known) rather than adding a second generic warning on top.
+lower_risk is ranking guidance, not a filter — every existing hard constraint (price, make/model, trimRequired, year, mileage, radius, drivetrain, etc.) still applies exactly as normal; lower_risk never restricts results to only vehicles with positive history evidence, it only changes the order they're shown in. CarClever prioritizes candidates based on genuine purchase-risk evidence — reported accident/history evidence, confirmed CPO or clean reported history, and material VIN identity verification failure — genuine positive evidence ranks first, then vehicles with no known purchase-risk concerns either way (incomplete/unreported history is neutral, never treated as risky), then vehicles with a known accident/history concern, then vehicles with a failed VIN identity check or stronger/multiple known concerns. This is shortlist guidance only, never a guarantee that any vehicle is safe, clean, accident-free, or problem-free.
+
+Listing/spec data conflicts (e.g. the vehicle's reported cylinder count disagreeing with its VIN-decoded configuration) are a SEPARATE thing — verification notes, not purchase-risk evidence. A data conflict does not make the vehicle a higher-risk purchase and does not affect lower_risk ranking, but it can still matter for suitability — for a towing request in particular, mention a configuration conflict plainly, since engine/axle/package/payload configuration affects towing capacity and is worth verifying regardless of how the vehicle ranks on risk.
+
+Say the ranking framing naturally once, briefly, rather than repeating a disclaimer on every individual result — e.g. "I prioritized stronger reported history evidence and pushed known accident/identity concerns lower. Some listings have incomplete history, so check Carfax and Edmunds before buying." When an individual result does carry a known accident concern or a data conflict worth verifying, mention it plainly (the result's own disclosure already states what's known) rather than adding a second generic warning on top.
 
 LOCATION HANDLING
 
@@ -161,7 +166,7 @@ const FindMatchingVehicleInput = z.object({
   priceMax: z.number().optional().describe("Maximum price in USD. A hard ceiling — never send a value higher than what the user actually stated."),
   priceMin: z.number().optional().describe("Minimum price in USD."),
   priceFlexibility: z.enum(["strict", "flexible"]).optional().describe("Whether the price ceiling can flex. Set to 'flexible' only if the user signals approximation ('around', 'roughly', 'about') — otherwise omit; the ceiling stays strict by default."),
-  priorityAxis: z.enum(["best_for_budget", "cheapest", "lowest_mileage", "newest", "lower_risk"]).optional().describe("What the user is actually optimizing for, not merely which words appear in the request. 'best_for_budget' (default) for 'best for budget', 'best in my budget', 'best value within my budget', 'best I can get', 'nicest in my budget', or a price ceiling with no other stated optimization. 'cheapest' ONLY for explicit lowest-price intent: 'cheapest', 'lowest price', 'spend as little as possible' — the word 'budget' by itself is NOT a signal for cheapest; 'best for budget' means best_for_budget, never cheapest. 'lowest_mileage' for fewest miles (this defaults the search to used vehicles only — new/demo cars are excluded automatically, disclosed to the user). 'newest' for latest model year. 'lower_risk' for 'lower-risk', 'low risk', 'safer-looking', 'cleanest-looking history', or 'which cars look like the lower-risk buys' — ranking only, based on available listing/history evidence (VIN identity check, reported accidents, CPO status, data conflicts); NEVER a guarantee a vehicle is safe, clean, or problem-free, and never excludes a vehicle for having unreported/unknown history — see LOWER RISK RANKING below. Also protects that same dimension if the search needs automatic widening — see AUTOMATIC WIDENING."),
+  priorityAxis: z.enum(["best_for_budget", "cheapest", "lowest_mileage", "newest", "lower_risk"]).optional().describe("What the user is actually optimizing for, not merely which words appear in the request. 'best_for_budget' (default) for 'best for budget', 'best in my budget', 'best value within my budget', 'best I can get', 'nicest in my budget', or a price ceiling with no other stated optimization. 'cheapest' ONLY for explicit lowest-price intent: 'cheapest', 'lowest price', 'spend as little as possible' — the word 'budget' by itself is NOT a signal for cheapest; 'best for budget' means best_for_budget, never cheapest. 'lowest_mileage' for fewest miles (this defaults the search to used vehicles only — new/demo cars are excluded automatically, disclosed to the user). 'newest' for latest model year. 'lower_risk' for 'lower-risk', 'low risk', 'safer-looking', 'cleanest-looking history', or 'which cars look like the lower-risk buys' — ranking only, based on genuine purchase-risk evidence (VIN identity verification failure, reported accident/history evidence, confirmed CPO or clean reported history); NEVER a guarantee a vehicle is safe, clean, or problem-free, and never excludes a vehicle for having unreported/unknown history. Listing/spec data conflicts (e.g. a cylinder-count disagreement) are verification notes, not purchase-risk evidence, and do not affect lower_risk ranking — but still worth mentioning when relevant, e.g. for a towing request where configuration matters. See LOWER RISK RANKING below. Also protects that same dimension if the search needs automatic widening — see AUTOMATIC WIDENING."),
   yearMin: z.number().optional().describe("Minimum model year."),
   yearMax: z.number().optional().describe("Maximum model year."),
   make: z.string().optional().describe("Vehicle manufacturer, e.g. Toyota, Honda, Ford."),
@@ -555,9 +560,11 @@ function applyLocalBestForBudgetOrdering(
  * to positive-evidence-only vehicles; it only changes the order they're
  * presented in.
  *
- * Uses classifyRiskTier() (lib/risk-tier.ts) — the exact same evidence
- * BuyerCheck itself reads (crossCheckVin/buildHistorySummary/
- * buildCpoSummary/detectDataConflicts), all four of which already operate
+ * Uses classifyRiskTier() (lib/risk-tier.ts) — purchase-risk evidence
+ * only (crossCheckVin/buildHistorySummary/buildCpoSummary), deliberately
+ * excluding detectDataConflicts() (SYS-20260827: a data-quality/
+ * verification signal, not purchase-risk evidence — see lib/risk-tier.ts's
+ * module doc for the full boundary). All three inputs already operate
  * directly on a raw AutoDevListing, so this runs at the lean (pre-stage-2)
  * stage, before diversity/shortlisting, same timing as
  * applyLocalBestForBudgetOrdering(). Simple, deterministic: sort by tier
@@ -574,7 +581,6 @@ function applyLocalLowerRiskOrdering(candidates: AutoDevListing[]): AutoDevListi
       verification: crossCheckVin(c),
       history: buildHistorySummary(c),
       condition: { cpoEvidenceState: buildCpoSummary(c).state },
-      dataConflicts: detectDataConflicts(c),
     });
 
   return [...candidates].sort((a, b) => riskTierRank(tierOf(a)) - riskTierRank(tierOf(b)));
@@ -686,23 +692,28 @@ async function buildResultCard(
   const historySummary = buildHistorySummary(listing);
   const cpoSummary = buildCpoSummary(listing);
   const seatsSummary = buildSeatsSummary(listing, intent.semantic.seatsMin);
-  // Computed once here (feature/lower-risk-mvp), reused both for cardShape's
-  // own dataConflicts field below and for riskTier — avoids calling
-  // detectDataConflicts() twice per card.
+  // Computed once here (feature/lower-risk-mvp), reused for cardShape's
+  // own dataConflicts field below — this is disclosed as verification
+  // information (SYS-20260827: a listing/spec data-quality signal, e.g.
+  // an NHTSA cylinder-count mismatch, useful for a buyer to verify
+  // before relying on a spec like towing configuration), deliberately
+  // NOT passed into classifyRiskTier() below — see lib/risk-tier.ts's
+  // module doc for the full purchase-risk-vs-data-quality boundary.
   const dataConflicts = detectDataConflicts(listing);
   // Risk tier (feature/lower-risk-mvp) — computed for EVERY card, not just
-  // direct-VIN-lookup ones, reusing the exact same evidence BuyerCheck
-  // itself reads. Attached to cardShape below (c.risk.tier) so the
-  // ordinary-search-card RISK badge (amber/red only, never green, never
-  // for unknown/positive — see lib/results-card.ts) can use it without
-  // any new data source. This is display-only here; lower_risk's actual
-  // ranking (applyLocalLowerRiskOrdering(), above) runs earlier, at the
-  // lean stage, using the same classifyRiskTier() function.
+  // direct-VIN-lookup ones, using only genuine purchase-risk evidence
+  // (VIN identity check, reported accident history, CPO status —
+  // deliberately NOT dataConflicts, per SYS-20260827). Attached to
+  // cardShape below (c.risk.tier) so the ordinary-search-card RISK badge
+  // (amber/red only, never green, never for unknown/positive — see
+  // lib/results-card.ts) can use it without any new data source. This is
+  // display-only here; lower_risk's actual ranking
+  // (applyLocalLowerRiskOrdering(), above) runs earlier, at the lean
+  // stage, using the same classifyRiskTier() function.
   const riskTier = classifyRiskTier({
     verification,
     history: historySummary,
     condition: { cpoEvidenceState: cpoSummary.state },
-    dataConflicts,
   });
 
   // Photos must never block the search-results critical path (real evidence:
@@ -864,133 +875,6 @@ async function buildResultCard(
   };
 }
 
-export interface BuyerCheck {
-  outcome: "promising" | "verify_before_proceeding" | "caution" | "significant_concern";
-  goodSigns: string[];
-  concerns: string[];
-  needsVerification: string[];
-  nextSteps: string[];
-}
-
-/**
- * VIN Buyer Check (preview MVP, feature/vin-buyer-check) — attached ONLY to
- * the direct-VIN-lookup result, never to normal search results. Pure
- * function over evidence buildResultCard() already produced for this same
- * card — no new Auto.dev call, no new data source, no new MCP tool.
- *
- * Hard rules this function follows:
- * - unknown is never treated as a concern — every "we don't know" signal
- *   (unreported history, unconfirmed identity attributes, unknown CPO
- *   status, no Carfax link) goes into needsVerification, never concerns.
- * - Never invents an accident/title/CPO/history fact — every string here is
- *   either a verbatim existing field (history.note, dataConflicts entries)
- *   or a generic, evidence-agnostic verification suggestion.
- * - No numeric risk/deal/value score of any kind.
- * - titleStatus is deliberately NOT used — that source field is still
- *   unverified in the current client contract (lib/auto-dev-client.ts
- *   marks retailListing.titleStatus "unconfirmed").
- *
- * Outcome precedence (first match wins):
- * 1. identityVerificationStatus === "failed" -> significant_concern.
- * 2. A known accident/history issue (history.state === "known_issues") or
- *    a material data conflict (dataConflicts.length > 0) -> caution.
- * 3. No concerns at all AND strong positive evidence (identity confirmed,
- *    history reported clean, no data conflicts) -> promising.
- * 4. Otherwise -> verify_before_proceeding (the common, honest default —
- *    e.g. identity only "potential_match," or clean-but-unreported
- *    history: real evidence exists but isn't strong enough either way).
- */
-function buildBuyerCheck(card: {
-  verification: VerificationResult;
-  history: { state: "known_clean" | "known_issues" | "unreported"; note: string; ownerNote: string | null };
-  condition: { cpoEvidenceState: "confirmed_cpo" | "reported_not_cpo" | "unknown" };
-  detail: { carfaxUrl: string | null };
-  dataConflicts: string[];
-}): BuyerCheck {
-  const goodSigns: string[] = [];
-  const concerns: string[] = [];
-  const needsVerification: string[] = [];
-  const nextSteps: string[] = [];
-
-  // Identity verification (lib/vin-cross-check.ts — derived offline from
-  // VIN anatomy: model year, manufacturer, transcription validity).
-  if (card.verification.identityVerificationStatus === "verified_match") {
-    goodSigns.push("VIN identity confirmed — the reported year and make match what's encoded in the VIN itself.");
-  } else if (card.verification.identityVerificationStatus === "failed") {
-    const conflicting = card.verification.conflictingAttributes.join(", ") || "one or more reported attributes";
-    concerns.push(
-      `VIN identity check failed — ${conflicting} reported by this listing does not match what's encoded in the VIN itself.`,
-    );
-  } else {
-    needsVerification.push(
-      "VIN identity could not be fully confirmed from the VIN alone — verify the year and make against the actual vehicle before proceeding.",
-    );
-  }
-  if (card.verification.unknownAttributes.length > 0) {
-    needsVerification.push(
-      `${card.verification.unknownAttributes.join(" and ")} cannot be confirmed from the VIN alone (VIN anatomy doesn't encode this) — confirm independently, e.g. via a dealer VIN decode or the vehicle's window sticker.`,
-    );
-  }
-
-  // History (lib/qualifier-accounting.ts-adjacent buildHistorySummary()) —
-  // verbatim existing note, never re-worded or embellished.
-  if (card.history.state === "known_clean") {
-    goodSigns.push(card.history.note);
-  } else if (card.history.state === "known_issues") {
-    concerns.push(card.history.note);
-  } else {
-    needsVerification.push(card.history.note);
-  }
-
-  // CPO status.
-  if (card.condition.cpoEvidenceState === "confirmed_cpo") {
-    goodSigns.push("Certified Pre-Owned (CPO) — reported by the dealer.");
-  } else if (card.condition.cpoEvidenceState === "unknown") {
-    needsVerification.push("CPO status was not reported for this listing — ask the dealer if certification matters to you.");
-  }
-  // "reported_not_cpo" is neutral (not flagged either way) — this listing
-  // simply wasn't marked CPO, which isn't itself a concern.
-
-  // Data conflicts already curated by detectDataConflicts() (e.g. NHTSA
-  // make/model/cylinder mismatches) — reused verbatim, not re-derived.
-  if (card.dataConflicts.length > 0) {
-    concerns.push(...card.dataConflicts);
-  }
-
-  // Carfax availability.
-  if (card.detail.carfaxUrl) {
-    needsVerification.push("Review the linked Carfax report for full accident/title history before purchase.");
-  } else {
-    needsVerification.push("No Carfax link was available on this listing — request an independent vehicle history report before purchase.");
-  }
-
-  // Generic, evidence-agnostic next steps — never specific to a fact we
-  // don't actually have.
-  if (concerns.length > 0) {
-    nextSteps.push("Ask the dealer directly about the flagged item(s) above and get documentation before proceeding.");
-  }
-  if (needsVerification.length > 0) {
-    nextSteps.push("Independently verify the items listed above — via Carfax, a trusted mechanic, or the dealer — before finalizing a purchase.");
-  }
-  nextSteps.push("Have a pre-purchase inspection done by an independent mechanic if you haven't already.");
-
-  let outcome: BuyerCheck["outcome"];
-  if (card.verification.identityVerificationStatus === "failed") {
-    outcome = "significant_concern";
-  } else if (card.history.state === "known_issues" || card.dataConflicts.length > 0) {
-    outcome = "caution";
-  } else if (
-    card.verification.identityVerificationStatus === "verified_match" &&
-    card.history.state === "known_clean" &&
-    card.dataConflicts.length === 0
-  ) {
-    outcome = "promising";
-  } else {
-    outcome = "verify_before_proceeding";
-  }
-
-  return { outcome, goodSigns, concerns, needsVerification, nextSteps };
-}
 
 const handler = createMcpHandler((server) => {
   // MCP Apps (SEP-1865) result-card widget — a STATIC resource, registered
