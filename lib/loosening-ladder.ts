@@ -125,7 +125,7 @@ export interface WidenOutcome {
   stoppedEarly: boolean;
 }
 
-export type PriorityAxis = "best_for_budget" | "cheapest" | "lowest_mileage" | "newest";
+export type PriorityAxis = "best_for_budget" | "cheapest" | "lowest_mileage" | "newest" | "lower_risk";
 
 export interface WidenOptions {
   /** Injected so the caller keeps its own search strategy (lean vs full). */

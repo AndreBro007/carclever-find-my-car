@@ -14,6 +14,7 @@ import { verifyAgainstConstraints } from "@/lib/post-verify";
 import { parseIntent } from "@/lib/intent-parser";
 import { applyDiversity } from "@/lib/diversity";
 import { crossCheckVin, type VerificationResult } from "@/lib/vin-cross-check";
+import { classifyRiskTier, riskTierRank, type RiskTier } from "@/lib/risk-tier";
 import { computeMatchScore } from "@/lib/match-score";
 import { resolveLinks } from "@/lib/link-resolution";
 import { sanitizeDealerName } from "@/lib/dealer-name";
@@ -121,6 +122,11 @@ Set priorityAxis based on what the user is actually optimizing for, not merely w
 - cheapest — only for explicit lowest-price intent: "cheapest," "lowest price," "spend as little as possible." The word "budget" appearing in the request is NOT by itself a signal for cheapest — "best for budget" and "best in my budget" both mean best_for_budget, precisely because the user is asking for the best vehicle a budget affords, not the least expensive vehicle available. Do not map a request to cheapest merely because it contains the word "budget."
 - lowest_mileage — "lowest mileage"/"as few miles as possible" (this defaults the search to used vehicles only, since a new car's low mileage isn't a meaningful comparison — disclosed to the user, not silent).
 - newest — "newest"/"latest model year".
+- lower_risk — "find me a lower-risk CR-V," "the safer-looking options," "cars with the cleanest-looking history," "which available cars look like the lower-risk buys." See LOWER RISK RANKING below.
+
+LOWER RISK RANKING
+
+lower_risk is ranking guidance, not a filter — every existing hard constraint (price, make/model, trimRequired, year, mileage, radius, drivetrain, etc.) still applies exactly as normal; lower_risk never restricts results to only vehicles with positive history evidence, it only changes the order they're shown in. CarClever prioritizes candidates based on available listing/history evidence (VIN identity verification, reported accident history, CPO status, data conflicts) — genuine positive evidence ranks first, then vehicles with no known concerns either way (incomplete/unreported history is neutral, never treated as risky), then vehicles with a known concern, then vehicles with stronger/multiple known concerns. This is shortlist guidance only, never a guarantee that any vehicle is safe, clean, accident-free, or problem-free. Say so naturally once, briefly, rather than repeating a disclaimer on every individual result — e.g. "I prioritized vehicles with stronger reported history evidence and pushed known accident/data concerns lower. Some listings have incomplete history, so check Carfax and Edmunds before buying." When an individual result does carry a known concern, mention it plainly (the result's own disclosure already states what's known) rather than adding a second generic warning on top.
 
 LOCATION HANDLING
 
@@ -155,7 +161,7 @@ const FindMatchingVehicleInput = z.object({
   priceMax: z.number().optional().describe("Maximum price in USD. A hard ceiling — never send a value higher than what the user actually stated."),
   priceMin: z.number().optional().describe("Minimum price in USD."),
   priceFlexibility: z.enum(["strict", "flexible"]).optional().describe("Whether the price ceiling can flex. Set to 'flexible' only if the user signals approximation ('around', 'roughly', 'about') — otherwise omit; the ceiling stays strict by default."),
-  priorityAxis: z.enum(["best_for_budget", "cheapest", "lowest_mileage", "newest"]).optional().describe("What the user is actually optimizing for, not merely which words appear in the request. 'best_for_budget' (default) for 'best for budget', 'best in my budget', 'best value within my budget', 'best I can get', 'nicest in my budget', or a price ceiling with no other stated optimization. 'cheapest' ONLY for explicit lowest-price intent: 'cheapest', 'lowest price', 'spend as little as possible' — the word 'budget' by itself is NOT a signal for cheapest; 'best for budget' means best_for_budget, never cheapest. 'lowest_mileage' for fewest miles (this defaults the search to used vehicles only — new/demo cars are excluded automatically, disclosed to the user). 'newest' for latest model year. Also protects that same dimension if the search needs automatic widening — see AUTOMATIC WIDENING."),
+  priorityAxis: z.enum(["best_for_budget", "cheapest", "lowest_mileage", "newest", "lower_risk"]).optional().describe("What the user is actually optimizing for, not merely which words appear in the request. 'best_for_budget' (default) for 'best for budget', 'best in my budget', 'best value within my budget', 'best I can get', 'nicest in my budget', or a price ceiling with no other stated optimization. 'cheapest' ONLY for explicit lowest-price intent: 'cheapest', 'lowest price', 'spend as little as possible' — the word 'budget' by itself is NOT a signal for cheapest; 'best for budget' means best_for_budget, never cheapest. 'lowest_mileage' for fewest miles (this defaults the search to used vehicles only — new/demo cars are excluded automatically, disclosed to the user). 'newest' for latest model year. 'lower_risk' for 'lower-risk', 'safer-looking', 'cleanest-looking history', or 'which cars look like the lower-risk buys' — ranking only, based on available listing/history evidence (VIN identity check, reported accidents, CPO status, data conflicts); NEVER a guarantee a vehicle is safe, clean, or problem-free, and never excludes a vehicle for having unreported/unknown history — see LOWER RISK RANKING below. Also protects that same dimension if the search needs automatic widening — see AUTOMATIC WIDENING."),
   yearMin: z.number().optional().describe("Minimum model year."),
   yearMax: z.number().optional().describe("Maximum model year."),
   make: z.string().optional().describe("Vehicle manufacturer, e.g. Toyota, Honda, Ford."),
@@ -361,7 +367,7 @@ function buildHistorySummary(
 }
 
 function resolveSort(
-  priorityAxis: "best_for_budget" | "cheapest" | "lowest_mileage" | "newest" | undefined,
+  priorityAxis: "best_for_budget" | "cheapest" | "lowest_mileage" | "newest" | "lower_risk" | undefined,
   priceMax: number | undefined,
 ): string | undefined {
   switch (priorityAxis) {
@@ -371,7 +377,13 @@ function resolveSort(
       return "miles.asc";
     case "newest":
       return "year.desc";
+    // lower_risk has no natural provider-level sort field (Auto.dev has no
+    // risk/history sort) — ranking happens entirely via local reordering
+    // (applyLocalLowerRiskOrdering(), below), same architecture as
+    // best_for_budget. Provider retrieval falls back to the same
+    // price-aware default best_for_budget already uses.
     case "best_for_budget":
+    case "lower_risk":
     default:
       return priceMax != null ? "price.desc" : "year.desc";
   }
@@ -534,6 +546,41 @@ function applyLocalBestForBudgetOrdering(
 }
 
 /**
+ * lower_risk local ordering (feature/lower-risk-mvp) — ranking only, same
+ * architecture as applyLocalBestForBudgetOrdering() above: provider
+ * retrieval/sort is untouched (resolveSort() above), hard eligibility
+ * filters (price, make/model, trimRequired, year, mileage, radius,
+ * drivetrain, etc.) have already been applied by the time this runs — this
+ * only reorders the already-eligible candidates. Never restricts results
+ * to positive-evidence-only vehicles; it only changes the order they're
+ * presented in.
+ *
+ * Uses classifyRiskTier() (lib/risk-tier.ts) — the exact same evidence
+ * BuyerCheck itself reads (crossCheckVin/buildHistorySummary/
+ * buildCpoSummary/detectDataConflicts), all four of which already operate
+ * directly on a raw AutoDevListing, so this runs at the lean (pre-stage-2)
+ * stage, before diversity/shortlisting, same timing as
+ * applyLocalBestForBudgetOrdering(). Simple, deterministic: sort by tier
+ * rank only (positive < unknown < amber < red), stable — candidates
+ * within the same tier keep their existing relative order (whatever the
+ * provider's own price.desc/year.desc default already produced), no
+ * secondary scoring formula invented on top.
+ */
+function applyLocalLowerRiskOrdering(candidates: AutoDevListing[]): AutoDevListing[] {
+  if (candidates.length === 0) return candidates;
+
+  const tierOf = (c: AutoDevListing): RiskTier =>
+    classifyRiskTier({
+      verification: crossCheckVin(c),
+      history: buildHistorySummary(c),
+      condition: { cpoEvidenceState: buildCpoSummary(c).state },
+      dataConflicts: detectDataConflicts(c),
+    });
+
+  return [...candidates].sort((a, b) => riskTierRank(tierOf(a)) - riskTierRank(tierOf(b)));
+}
+
+/**
  * EXPERIMENT (preview only, follow-up to d5805cc): configuration-variety
  * pass. Observed regression in the F-150 fixture: applyLocalBestForBudgetOrdering()
  * above (unchanged, still exactly as in d5805cc) can legitimately rank a
@@ -639,6 +686,24 @@ async function buildResultCard(
   const historySummary = buildHistorySummary(listing);
   const cpoSummary = buildCpoSummary(listing);
   const seatsSummary = buildSeatsSummary(listing, intent.semantic.seatsMin);
+  // Computed once here (feature/lower-risk-mvp), reused both for cardShape's
+  // own dataConflicts field below and for riskTier — avoids calling
+  // detectDataConflicts() twice per card.
+  const dataConflicts = detectDataConflicts(listing);
+  // Risk tier (feature/lower-risk-mvp) — computed for EVERY card, not just
+  // direct-VIN-lookup ones, reusing the exact same evidence BuyerCheck
+  // itself reads. Attached to cardShape below (c.risk.tier) so the
+  // ordinary-search-card RISK badge (amber/red only, never green, never
+  // for unknown/positive — see lib/results-card.ts) can use it without
+  // any new data source. This is display-only here; lower_risk's actual
+  // ranking (applyLocalLowerRiskOrdering(), above) runs earlier, at the
+  // lean stage, using the same classifyRiskTier() function.
+  const riskTier = classifyRiskTier({
+    verification,
+    history: historySummary,
+    condition: { cpoEvidenceState: cpoSummary.state },
+    dataConflicts,
+  });
 
   // Photos must never block the search-results critical path (real evidence:
   // 868ms median Photos latency, SYS-20260812-014/021). Leave the gallery
@@ -668,6 +733,12 @@ async function buildResultCard(
 
   const cardShape = {
     canonicalVehicleId: listing.vin,
+    // Ordinary-search-card risk badge input (feature/lower-risk-mvp):
+    // amber/red only ever get displayed on an ordinary card (see
+    // cardHtml() in lib/results-card.ts) — "positive"/"unknown" are
+    // carried here for lower_risk ranking's internal use and completeness
+    // of the structured data, never surfaced as a card badge either way.
+    risk: { tier: riskTier },
     identity: {
       vin: listing.vin,
       year: v?.year ?? null,
@@ -783,7 +854,7 @@ async function buildResultCard(
     // the card lean while closing the "text summary only ever warns, never
     // confirms" gap found in the Aug 15 baseline.
     intentConfirmations: buildIntentConfirmations(intentInput, cardShape),
-    dataConflicts: detectDataConflicts(listing),
+    dataConflicts,
     // Constraint evidence (SYS-20260825): additive, observational only —
     // built from the same already-resolved listing the rest of this card
     // uses, never participates in eligibility/ranking/ordering decisions.
@@ -1729,10 +1800,16 @@ const handler = createMcpHandler((server) => {
         // only for that axis (or unset, its default) — cheapest/
         // lowest_mileage/newest pass through unchanged. Provider retrieval/
         // sort (resolveSort() above) is completely untouched.
+        //
+        // lower_risk (feature/lower-risk-mvp): same architecture, its own
+        // local reordering pass (applyLocalLowerRiskOrdering, above) —
+        // mutually exclusive with best_for_budget's pass, never both.
         input.priorityAxis === "best_for_budget" || input.priorityAxis == null
           ? applyConfigurationVarietyPass(
               applyLocalBestForBudgetOrdering(trimOrderedCandidates, intent.semantic.trimPreference),
             )
+          : input.priorityAxis === "lower_risk"
+          ? applyLocalLowerRiskOrdering(trimOrderedCandidates)
           : trimOrderedCandidates,
         targetCount * 2,
       );

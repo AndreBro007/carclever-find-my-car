@@ -333,11 +333,26 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     // ONLY on a direct-VIN-lookup result (see buildBuyerCheck() in
     // app/[transport]/route.ts) — never on a normal search result, so both
     // badges below are naturally scoped to that case with no extra flag.
+    // Buyer Check's own green/amber/red behavior is completely unchanged.
     var buyerCheck = c.buyerCheck;
     var riskTier = !buyerCheck ? null
       : buyerCheck.outcome === "promising" ? "green"
       : buyerCheck.outcome === "significant_concern" ? "red"
       : "amber"; // verify_before_proceeding or caution
+    // Ordinary search card RISK badge (feature/lower-risk-mvp): amber/red
+    // ONLY, reusing the exact same .cc-risk CSS classes as Buyer Check
+    // above — never green (that stays exclusive to Buyer Check's own
+    // "promising" outcome), and never any badge for "positive"/"unknown".
+    // No badge on an ordinary card never means "safe"/"clean"/"verified
+    // low risk" — it only means no known concern was surfaced; unknown/
+    // missing history stays completely silent, same "unknown ≠ false"
+    // principle as everywhere else in this app. Only applies when
+    // buyerCheck is absent, so this can never combine with or override
+    // Buyer Check's own pill on a direct-VIN-lookup card.
+    if (!buyerCheck) {
+      var ordinaryRiskTier = c.risk && c.risk.tier;
+      if (ordinaryRiskTier === "amber" || ordinaryRiskTier === "red") riskTier = ordinaryRiskTier;
+    }
     var riskPill = riskTier ? '<span class="cc-risk is-' + riskTier + '">RISK</span>' : "";
     var exactVinBadge = buyerCheck ? '<div class="cc-exact-vin">EXACT VIN</div>' : "";
     // CTA link/label (fix/affiliate-routing): the card's clickable CTA never
