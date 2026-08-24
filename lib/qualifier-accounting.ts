@@ -111,9 +111,21 @@ export function buildIntentConfirmations(input: CardIntentInput, card: CardForCo
   // honestly instead of it looking like an unqualified "Confirmed: X" line.
   if (input.droppedBodyStyleFilter) {
     const target = input.droppedBodyStyleFilter.toLowerCase();
-    const actual = card.body.bodyStyle ?? card.body.vehicleType;
-    const matches =
-      card.body.bodyStyle?.toLowerCase() === target || card.body.vehicleType?.toLowerCase() === target;
+    // Runtime-safety fix (fix/provider-string-runtime-safety,
+    // SYS-20260828): String()-coerced before .toLowerCase() — plain
+    // optional chaining only guards null/undefined, not a present-but-
+    // wrong-type value. card.body.bodyStyle/vehicleType trace back to
+    // route.ts's `v?.bodyStyle ?? null` (an uncoerced pass-through of the
+    // raw Auto.dev field), and a live production crash confirmed
+    // Auto.dev can return a non-string value for a sibling field
+    // (vehicle.trim, observed as the number 1958) despite its declared
+    // string type — the same unreliable-typing risk applies here. Also
+    // ensures `confirmations.push(actual)` below only ever pushes an
+    // actual string, never a raw non-string value into a string[] array.
+    const bodyStyleStr = card.body.bodyStyle != null ? String(card.body.bodyStyle) : null;
+    const vehicleTypeStr = card.body.vehicleType != null ? String(card.body.vehicleType) : null;
+    const actual = bodyStyleStr ?? vehicleTypeStr;
+    const matches = bodyStyleStr?.toLowerCase() === target || vehicleTypeStr?.toLowerCase() === target;
     if (matches) {
       confirmations.push(actual as string);
     } else if (actual) {

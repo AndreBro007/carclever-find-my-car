@@ -40,11 +40,32 @@ function tokens(s: string): string[] {
  * can never be a CONFIRMED match — callers decide separately whether an
  * unknown trim should be treated as provisional-pass or hard-fail
  * depending on which stage they're at).
+ *
+ * Runtime-safety fix (fix/provider-string-runtime-safety, SYS-20260828):
+ * `actual` accepts `unknown`, not `string | null | undefined` — every
+ * call site here passes a raw AutoDevListing vehicle.trim value straight
+ * through (route.ts:532/1256/1261, lib/constraint-evidence.ts:245), and a
+ * live production crash confirmed vehicle.trim can genuinely be a NUMBER
+ * at runtime (observed: 1958) despite the client's own declared
+ * `trim?: string` type — the same failure class already fixed for model
+ * matching in lib/model-match.ts. The old `if (!actual) return false`
+ * guard only caught falsy values (null/undefined/""); a truthy non-string
+ * like 1958 sailed straight through into normalize()'s unguarded
+ * `.replace()` calls and crashed exactly like the unrelated
+ * configurationKey() bug this same session fixed. String()-coercing here
+ * means a malformed trim becomes its own literal string ("1958") rather
+ * than crashing OR silently vanishing — and per the directional
+ * token-subset matching above, that literal string can only ever satisfy
+ * a requested trim that ALSO contains "1958" as a token, which is
+ * vanishingly unlikely for a real trim name — so a malformed value still
+ * correctly fails to satisfy trimRequired in practice, it just does so
+ * without throwing.
  */
-export function trimMatches(requested: string, actual: string | null | undefined): boolean {
+export function trimMatches(requested: string, actual: unknown): boolean {
   const reqTokens = tokens(requested);
   if (reqTokens.length === 0) return false;
-  if (!actual) return false;
-  const actTokens = new Set(tokens(actual));
+  const actualStr = actual == null ? "" : String(actual);
+  if (!actualStr) return false;
+  const actTokens = new Set(tokens(actualStr));
   return reqTokens.every((t) => actTokens.has(t));
 }

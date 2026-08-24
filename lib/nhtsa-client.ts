@@ -65,13 +65,30 @@ export interface NhtsaElectrificationResult {
  * (timeout, network error, malformed VIN) rather than throwing — callers
  * must treat this as "unknown," never as a negative signal, consistent
  * with the project's "unknown != false" standing principle.
+ *
+ * Runtime-safety fix (fix/provider-string-runtime-safety, SYS-20260828):
+ * claimedMake/claimedModel accept `unknown`, not `string | null`. Both
+ * call sites (app/[transport]/route.ts) pass a raw AutoDevListing
+ * vehicle.make/vehicle.model value straight through on EVERY shortlisted
+ * result (not an edge case — this runs for every search's full-detail
+ * refetch), and a live production crash confirmed Auto.dev can return a
+ * non-string value for a sibling field (vehicle.trim, observed as the
+ * number 1958) despite its declared string type in the client contract.
+ * The old `!!claimedMake` guard only protected against falsy values; a
+ * truthy non-string sailed straight into `.trim().toUpperCase()` and
+ * would crash the same way. String()-coercing here can only ever produce
+ * a literal string comparison that correctly reports a conflict (or
+ * doesn't) without throwing — it never invents agreement/disagreement
+ * that wasn't really there.
  */
 export async function decodeNhtsaElectrification(
   vin: string,
-  claimedMake?: string | null,
-  claimedModel?: string | null,
+  claimedMakeRaw?: unknown,
+  claimedModelRaw?: unknown,
   claimedCylinders?: number | null,
 ): Promise<NhtsaElectrificationResult | null> {
+  const claimedMake = claimedMakeRaw == null ? null : String(claimedMakeRaw);
+  const claimedModel = claimedModelRaw == null ? null : String(claimedModelRaw);
   try {
     const res = await fetch(`${NHTSA_BASE_URL}/${encodeURIComponent(vin)}?format=json`, {
       signal: AbortSignal.timeout(NHTSA_TIMEOUT_MS),

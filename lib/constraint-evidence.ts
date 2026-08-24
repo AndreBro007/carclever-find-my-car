@@ -83,8 +83,24 @@ export interface ResolvedListingForEvidence {
   trim?: string | null;
 }
 
-function normalizeCompareString(s: string): string {
-  return s.trim().toLowerCase();
+/**
+ * Runtime-safety fix (fix/provider-string-runtime-safety, SYS-20260828):
+ * accepts `unknown`, not `string` — several call sites here pass raw
+ * Auto.dev-derived values (actual.bodyStyle, actual.vehicleType,
+ * actual.state) straight through, and a live production crash confirmed
+ * Auto.dev can return a non-string value for a sibling field
+ * (vehicle.trim, observed as the number 1958) despite its declared
+ * string type in the client contract — the guards at each call site
+ * (`actual.bodyStyle ?`) only protect against falsy values, not against
+ * a present-but-wrong-type value, so this shared function is the correct
+ * single place to make the whole comparison path crash-proof rather than
+ * patching each call site individually. String()-coercing a malformed
+ * value here can only ever produce a literal string unlikely to
+ * accidentally equal a real comparison target — never invents a match,
+ * just avoids throwing.
+ */
+export function normalizeCompareString(s: unknown): string {
+  return String(s ?? "").trim().toLowerCase();
 }
 
 /** Comma-OR-list-tolerant, case-insensitive equality — same tolerance the

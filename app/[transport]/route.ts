@@ -16,6 +16,7 @@ import { applyDiversity } from "@/lib/diversity";
 import { crossCheckVin, type VerificationResult } from "@/lib/vin-cross-check";
 import { classifyRiskTier, riskTierRank, type RiskTier } from "@/lib/risk-tier";
 import { buildBuyerCheck, type BuyerCheck } from "@/lib/buyer-check";
+import { applyConfigurationVarietyPass } from "@/lib/configuration-variety";
 import { computeMatchScore } from "@/lib/match-score";
 import { resolveLinks } from "@/lib/link-resolution";
 import { sanitizeDealerName } from "@/lib/dealer-name";
@@ -586,59 +587,6 @@ function applyLocalLowerRiskOrdering(candidates: AutoDevListing[]): AutoDevListi
   return [...candidates].sort((a, b) => riskTierRank(tierOf(a)) - riskTierRank(tierOf(b)));
 }
 
-/**
- * EXPERIMENT (preview only, follow-up to d5805cc): configuration-variety
- * pass. Observed regression in the F-150 fixture: applyLocalBestForBudgetOrdering()
- * above (unchanged, still exactly as in d5805cc) can legitimately rank a
- * batch of near-identical fleet units at the very top when they share the
- * best year+mileage combination in the pool — 5 distinct VINs, same
- * 2026/F-150/STX/price/mileage. That's not a bug in the ranking itself
- * (they genuinely tied on every ranked dimension); it's a visible-shortlist
- * diversity problem this pass addresses separately.
- *
- * Ordering only — never discards a candidate. First pass keeps at most
- * maxPerConfig per (make|model|year|trim) key, in the existing ranked
- * order; anything over the cap is appended to the END, in its own existing
- * relative order, not dropped. So if inventory really is homogeneous (e.g.
- * only 3 total F-150s exist at any price), the normal shortlist/backfill
- * mechanism downstream can still pull the overflow candidates in and fill
- * every result slot exactly as before — this only changes visible-ordering
- * preference among an otherwise-tied pool, not eligibility or count.
- *
- * Missing trim is normalized to "" consistently — never invented/guessed —
- * so two candidates that both lack a reported trim still correctly group
- * together as one "unknown trim" configuration rather than each getting a
- * unique key.
- */
-function configurationKey(c: AutoDevListing): string {
-  const make = (c.vehicle?.make ?? "").trim().toLowerCase();
-  const model = (c.vehicle?.model ?? "").trim().toLowerCase();
-  const year = c.vehicle?.year ?? "";
-  const trim = (c.vehicle?.trim ?? "").trim().toLowerCase(); // missing -> "" — never invented
-  return `${make}|${model}|${year}|${trim}`;
-}
-
-function applyConfigurationVarietyPass(
-  candidates: AutoDevListing[],
-  maxPerConfig = 2,
-): AutoDevListing[] {
-  const seenCount = new Map<string, number>();
-  const withinCap: AutoDevListing[] = [];
-  const overflow: AutoDevListing[] = [];
-
-  for (const c of candidates) {
-    const key = configurationKey(c);
-    const count = seenCount.get(key) ?? 0;
-    if (count < maxPerConfig) {
-      withinCap.push(c);
-      seenCount.set(key, count + 1);
-    } else {
-      overflow.push(c); // never discarded — appended below, existing relative order preserved
-    }
-  }
-
-  return [...withinCap, ...overflow];
-}
 
 // Same deployed origin the widget declares in its CSP resourceDomains
 // (lib/results-card.ts APP_ORIGIN) — kept in sync manually since the two
@@ -753,10 +701,25 @@ async function buildResultCard(
     identity: {
       vin: listing.vin,
       year: v?.year ?? null,
-      make: v?.make ?? null,
-      model: v?.model ?? null,
-      trim: v?.trim ?? null,
-      series: v?.series ?? null,
+      // Runtime-safety fix (fix/provider-string-runtime-safety,
+      // SYS-20260828 follow-up): make/model/trim/series String()-coerced
+      // before reaching the registered output schema (IdentitySchema:
+      // z.string().nullable()). Confirmed live: after fixing the
+      // configurationKey() crash for a malformed vehicle.trim, a
+      // DIFFERENT real listing surfaced a malformed vehicle.model —
+      // passing it through raw as `v?.model ?? null` no longer crashed
+      // (that bug is fixed), but the schema's own `satisfies
+      // FindMatchingVehicleOutput` check correctly rejected the non-
+      // string value, producing a clean "Output validation error"
+      // instead of a real result. Same coercion principle as everywhere
+      // else in this fix: a malformed value becomes its own literal
+      // string, never invented into something else, never silently
+      // dropped — the listing stays usable and the output stays
+      // schema-valid.
+      make: v?.make != null ? String(v.make) : null,
+      model: v?.model != null ? String(v.model) : null,
+      trim: v?.trim != null ? String(v.trim) : null,
+      series: v?.series != null ? String(v.series) : null,
       squishVin: v?.squishVin ?? null,
       bodyStyleConfig: v?.style ?? null, // confirmed real (e.g. "4dr SUV") - short structural descriptor, not narrative text
     },
@@ -1642,8 +1605,21 @@ const handler = createMcpHandler((server) => {
       // (qualifier-accounting.ts) rather than looking like a plain match.
       const bodyStyleMatchFilter = (c: AutoDevListing) => {
         const target = droppedBodyStyle!.toLowerCase();
-        const reportedStyle = c.vehicle?.bodyStyle?.toLowerCase();
-        const reportedType = c.vehicle?.type?.toLowerCase();
+        // Runtime-safety fix (fix/provider-string-runtime-safety,
+        // SYS-20260828): String()-coerced before .toLowerCase() — plain
+        // optional chaining (`c.vehicle?.bodyStyle?.toLowerCase()`) only
+        // guards against null/undefined, not against a present-but-wrong-
+        // type value; a live production crash confirmed Auto.dev can
+        // return a non-string value for a sibling field (vehicle.trim,
+        // observed as the number 1958) despite its declared string type,
+        // and vehicle.bodyStyle/vehicle.type carry the exact same
+        // unreliable-typing risk from the same provider. Coercing to a
+        // literal string here can only ever produce a value that fails
+        // to equal `target` (an unusual coerced string is extremely
+        // unlikely to accidentally match a real body-style name) — never
+        // silently invents a match, just avoids crashing on one.
+        const reportedStyle = c.vehicle?.bodyStyle != null ? String(c.vehicle.bodyStyle).toLowerCase() : null;
+        const reportedType = c.vehicle?.type != null ? String(c.vehicle.type).toLowerCase() : null;
         if (reportedStyle == null && reportedType == null) return true;
         return reportedStyle === target || reportedType === target;
       };
