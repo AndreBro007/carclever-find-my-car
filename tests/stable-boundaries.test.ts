@@ -20,7 +20,7 @@ test("D1a. applyDiversity() normalizes same VIN (case variation) to single occur
 
   const result = applyDiversity(candidates as any, 10);
   assert.equal(result.length, 1, "normalized duplicate VIN should be removed");
-  assert.equal(result[0].retailListing.price, 30000, "first occurrence should be kept");
+  assert.equal(result[0]?.retailListing?.price, 30000, "first occurrence should be kept");
 });
 
 test("D1b. applyDiversity() preserves distinct valid VINs", async () => {
@@ -62,7 +62,7 @@ test("D1d. applyDiversity() make/model diversity works", async () => {
   const result = applyDiversity(candidates as any, 3);
   assert.equal(result.length, 3, "result respects limit");
   
-  const makes = new Set(result.map((c) => c.vehicle.make));
+  const makes = new Set(result.map((c) => c.vehicle?.make));
   assert.ok(makes.size > 1, "diversity should include multiple makes when available");
 });
 
