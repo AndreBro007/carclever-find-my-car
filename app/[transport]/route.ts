@@ -701,25 +701,23 @@ async function buildResultCard(
     identity: {
       vin: listing.vin,
       year: v?.year ?? null,
-      // Runtime-safety fix (fix/provider-string-runtime-safety,
-      // SYS-20260828 follow-up): make/model/trim/series String()-coerced
-      // before reaching the registered output schema (IdentitySchema:
-      // z.string().nullable()). Confirmed live: after fixing the
-      // configurationKey() crash for a malformed vehicle.trim, a
-      // DIFFERENT real listing surfaced a malformed vehicle.model —
-      // passing it through raw as `v?.model ?? null` no longer crashed
-      // (that bug is fixed), but the schema's own `satisfies
-      // FindMatchingVehicleOutput` check correctly rejected the non-
-      // string value, producing a clean "Output validation error"
-      // instead of a real result. Same coercion principle as everywhere
-      // else in this fix: a malformed value becomes its own literal
-      // string, never invented into something else, never silently
-      // dropped — the listing stays usable and the output stays
-      // schema-valid.
-      make: v?.make != null ? String(v.make) : null,
-      model: v?.model != null ? String(v.model) : null,
-      trim: v?.trim != null ? String(v.trim) : null,
-      series: v?.series != null ? String(v.series) : null,
+      // Reverted to plain passthrough (fix/provider-string-runtime-safety
+      // review follow-up, SYS-20260828): the earlier String()-coercion
+      // here prevented an output-schema crash but risked displaying
+      // literal garbage ("1958", "[object Object]") as if it were a real
+      // vehicle fact. Now that lib/auto-dev-client.ts's normalizeListing()/
+      // leanRowToListing() guarantee every AutoDevListing entering this
+      // function already has correct runtime string types (a genuine
+      // string survives, anything malformed becomes undefined at
+      // ingestion — see that module's own doc comment), `v?.make ?? null`
+      // is safe and correct again: `v.make` is either a real string or
+      // already undefined by the time it reaches here, never a stray
+      // number/array/object. Malformed provider data now surfaces as
+      // null ("unknown"), never as a fabricated display string.
+      make: v?.make ?? null,
+      model: v?.model ?? null,
+      trim: v?.trim ?? null,
+      series: v?.series ?? null,
       squishVin: v?.squishVin ?? null,
       bodyStyleConfig: v?.style ?? null, // confirmed real (e.g. "4dr SUV") - short structural descriptor, not narrative text
     },
@@ -930,6 +928,29 @@ const handler = createMcpHandler((server) => {
       },
     },
     async (input) => {
+      // Last-resort seatbelt (fix/provider-string-runtime-safety review
+      // follow-up, SYS-20260828) -- NOT primary bug handling. Every
+      // specific failure mode this tool already knows about (invalid
+      // VIN, no matches, Auto.dev timeout/service error, automatic
+      // widening, etc.) has its own deliberate handling deeper in this
+      // function and is NEVER caught here -- this only exists to stop a
+      // genuinely unanticipated exception (the exact class of bug this
+      // branch was created to fix, in case one still slips through some
+      // path not yet covered) from ever reaching the user as a raw
+      // technical error such as a raw JS exception message. On a real,
+      // unexpected throw: log the full technical error server-side only
+      // (console.error -- never touches apiKey() or any credential,
+      // or any credential, `err` here is a JS exception object, not a
+      // raw HTTP body), then return a normal, schema-valid
+      // FindMatchingVehicleOutput with an empty result set and a short,
+      // user-safe meta.serviceError -- never the exception's own
+      // .message, never a stack trace, never raw provider values. No
+      // widget render is attempted for this fallback (content +
+      // structuredContent only, exactly like every other real error path
+      // in this function already does) so a non-widget host gets the
+      // same safe text, and no host is left trying to render a broken/
+      // blank card.
+      try {
       // Anchored before any upstream work so the widening budget accounts for
       // everything already spent (primary search, facet correction, retries).
       const requestStartedAt = Date.now();
@@ -2314,6 +2335,32 @@ const handler = createMcpHandler((server) => {
         content: [{ type: "text" as const, text: summary }],
         structuredContent: response,
       };
+      } catch (err) {
+        console.error("[find_matching_vehicle] UNEXPECTED ERROR (last-resort boundary):", err);
+        const safeContent: FindMatchingVehicleOutput = {
+          meta: {
+            totalCandidatesConsidered: 0,
+            totalMatches: null,
+            corpusSizeApprox: "unknown",
+            relaxations: [],
+            dataNotes: [],
+            scopeNote: "local",
+            serviceError: "The vehicle search hit an unexpected data issue. Please try the search again.",
+            interpretationNotes: [],
+            qualifierAccounting: [],
+          },
+          results: [],
+        };
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "The vehicle search hit an unexpected data issue. Please try the search again.",
+            },
+          ],
+          structuredContent: safeContent,
+        };
+      }
     },
   );
 

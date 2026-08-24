@@ -126,6 +126,115 @@ export interface AutoDevListing {
   };
 }
 
+/**
+ * Provider string-runtime-safety boundary (fix/provider-string-runtime-safety
+ * follow-up, SYS-20260828). Auto.dev has now violated its own declared
+ * string types for at least two real live fields in one session
+ * (vehicle.trim as the number 1958; a separate real vehicle.model value
+ * that also wasn't a string, causing an output-validation failure once the
+ * first bug was fixed). Rather than patch every downstream string-method
+ * call site individually (the earlier, narrower fix in this same branch),
+ * this normalizes every semantically-string AutoDevListing field to its
+ * correct runtime shape right at ingestion, in ONE place, applied
+ * consistently everywhere a raw provider response becomes an
+ * AutoDevListing (searchListings, searchListingsLean/leanRowToListing,
+ * getListingByVin, searchListingByVinExact below).
+ *
+ * Product rule: a genuine runtime string survives byte-for-byte; anything
+ * else (null, undefined, a number, an array, an object) becomes
+ * `undefined` ("unknown") — never coerced into a display string like
+ * "1958" or "[object Object]". This is intentionally NOT the same as the
+ * local String(x ?? "") patches still present elsewhere in this codebase
+ * for internal comparisons/grouping (configurationKey(), trimMatches(),
+ * etc.) — those remain as defense-in-depth and are still correct for
+ * their own internal-comparison purpose, but user-facing vehicle data
+ * must never display a coerced non-string value as if it were a real fact.
+ *
+ * Deliberately string-only, per the task's own scope: numbers/booleans
+ * (price, miles, cpo, used, year, doors, cylinders, seats, accidents,
+ * accidentCount, ownerCount, oneOwner, personalUse, photoCount) and the
+ * explicitly-still-unknown fields (vehicle.style, vehicle.confidence,
+ * vehicle.condition, baseInvoice, baseMsrp) pass through completely
+ * unchanged — this fix does not invent/coerce malformed numeric or
+ * boolean data into a trustworthy fact, only prevents non-string values
+ * from being displayed as if they were real vehicle strings.
+ */
+export function providerString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * VIN is the one field that's load-bearing for candidate identity. If it
+ * isn't a genuinely usable string, this row can never become a valid
+ * candidate — never invented, never falls back to any other field. An
+ * empty string is also treated as unusable (a real VIN is never "").
+ */
+export function providerVin(value: unknown): string | undefined {
+  const s = providerString(value);
+  return s && s.length > 0 ? s : undefined;
+}
+
+/**
+ * Normalizes a raw, untyped provider response object (from the full
+ * /listings or /listings/{vin} response shapes — NOT the flattened
+ * ?select= lean shape, which leanRowToListing() below handles
+ * separately) into a real AutoDevListing, or null if the row is
+ * unusable (no valid VIN). String fields are routed through
+ * providerString(); everything else (numbers, booleans, the explicitly-
+ * unknown fields) is spread through unchanged via `...rv`/`...rrl`/`...rh`
+ * — out of scope for this string-only fix per the task's own instruction.
+ */
+export function normalizeListing(raw: unknown): AutoDevListing | null {
+  if (raw == null || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const vin = providerVin(r.vin);
+  if (!vin) return null; // unusable VIN -> never a valid candidate
+
+  const rv = (r.vehicle && typeof r.vehicle === "object" ? r.vehicle : {}) as Record<string, unknown>;
+  const rrl = (r.retailListing && typeof r.retailListing === "object" ? r.retailListing : {}) as Record<string, unknown>;
+  const rh = (r.history && typeof r.history === "object" ? r.history : {}) as Record<string, unknown>;
+
+  return {
+    vin,
+    "@id": providerString(r["@id"]),
+    createdAt: providerString(r.createdAt),
+    vehicle: {
+      ...rv,
+      make: providerString(rv.make),
+      model: providerString(rv.model),
+      trim: providerString(rv.trim),
+      series: providerString(rv.series),
+      fuel: providerString(rv.fuel),
+      drivetrain: providerString(rv.drivetrain),
+      transmission: providerString(rv.transmission),
+      bodyStyle: providerString(rv.bodyStyle),
+      engine: providerString(rv.engine),
+      exteriorColor: providerString(rv.exteriorColor),
+      interiorColor: providerString(rv.interiorColor),
+      squishVin: providerString(rv.squishVin),
+      type: providerString(rv.type),
+    } as AutoDevListing["vehicle"],
+    baseInvoice: r.baseInvoice,
+    baseMsrp: r.baseMsrp,
+    retailListing: {
+      ...rrl,
+      city: providerString(rrl.city),
+      state: providerString(rrl.state),
+      zip: providerString(rrl.zip),
+      dealer: providerString(rrl.dealer),
+      dealerId: providerString(rrl.dealerId),
+      vdp: providerString(rrl.vdp),
+      primaryImage: providerString(rrl.primaryImage),
+      carfaxUrl: providerString(rrl.carfaxUrl),
+      titleStatus: providerString(rrl.titleStatus),
+    } as AutoDevListing["retailListing"],
+    history: {
+      ...rh,
+      usageType: providerString(rh.usageType),
+    } as AutoDevListing["history"],
+  };
+}
+
 export interface ListingsQuery {
   make?: string;
   model?: string;
@@ -243,10 +352,10 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
   const params = buildListingsParams(query);
   params.set("includes", query.includeFacets ? "total,facets" : "total");
 
-  const outcome = await autoDevFetch<ListingsResponse>(`/listings?${params.toString()}`);
+  const outcome = await autoDevFetch<{ data: unknown[]; total?: number; facets?: Record<string, Record<string, string>> }>(`/listings?${params.toString()}`);
   if (outcome.ok) {
     return {
-      data: outcome.data.data ?? [],
+      data: (outcome.data.data ?? []).map(normalizeListing).filter((l): l is AutoDevListing => l !== null),
       total: typeof outcome.data.total === "number" ? outcome.data.total : null,
       facets: outcome.data.facets,
     };
@@ -259,10 +368,10 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
     const retryParams = new URLSearchParams(params);
     retryParams.set("limit", "25");
     retryParams.delete("includes");
-    const retry = await autoDevFetch<ListingsResponse>(`/listings?${retryParams.toString()}`, 15_000);
+    const retry = await autoDevFetch<{ data: unknown[]; total?: number }>(`/listings?${retryParams.toString()}`, 15_000);
     if (retry.ok) {
       return {
-        data: retry.data.data ?? [],
+        data: (retry.data.data ?? []).map(normalizeListing).filter((l): l is AutoDevListing => l !== null),
         // Degraded retry deliberately drops `includes=total` (cheaper,
         // faster request) — Auto.dev's total is therefore rarely present
         // here. Missing/unreliable total metadata must never collapse to
@@ -334,14 +443,14 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
 const LEAN_SELECT_FIELDS =
   "vehicle.vin,vehicle.year,vehicle.make,vehicle.model,vehicle.trim,vehicle.bodyStyle,vehicle.type,retailListing.price,retailListing.miles,history.accidents,history.accidentCount,retailListing.cpo";
 
-interface LeanRow {
-  "vehicle.vin"?: string;
+export interface LeanRow {
+  "vehicle.vin"?: unknown;
   "vehicle.year"?: number;
-  "vehicle.make"?: string;
-  "vehicle.model"?: string;
-  "vehicle.trim"?: string;
-  "vehicle.bodyStyle"?: string;
-  "vehicle.type"?: string;
+  "vehicle.make"?: unknown;
+  "vehicle.model"?: unknown;
+  "vehicle.trim"?: unknown;
+  "vehicle.bodyStyle"?: unknown;
+  "vehicle.type"?: unknown;
   "retailListing.price"?: number;
   "retailListing.miles"?: number;
   "history.accidents"?: boolean;
@@ -349,17 +458,18 @@ interface LeanRow {
   "retailListing.cpo"?: boolean;
 }
 
-function leanRowToListing(row: LeanRow): AutoDevListing | null {
-  if (!row["vehicle.vin"]) return null; // can't use a candidate with no VIN
+export function leanRowToListing(row: LeanRow): AutoDevListing | null {
+  const vin = providerVin(row["vehicle.vin"]);
+  if (!vin) return null; // unusable VIN -> never a valid candidate
   return {
-    vin: row["vehicle.vin"],
+    vin,
     vehicle: {
       year: row["vehicle.year"],
-      make: row["vehicle.make"],
-      model: row["vehicle.model"],
-      trim: row["vehicle.trim"],
-      bodyStyle: row["vehicle.bodyStyle"],
-      type: row["vehicle.type"],
+      make: providerString(row["vehicle.make"]),
+      model: providerString(row["vehicle.model"]),
+      trim: providerString(row["vehicle.trim"]),
+      bodyStyle: providerString(row["vehicle.bodyStyle"]),
+      type: providerString(row["vehicle.type"]),
     },
     retailListing: {
       price: row["retailListing.price"],
@@ -489,8 +599,8 @@ export interface VinDecodeResult {
  * specific listing" - the intended mechanism for "give me this exact car."
  */
 export async function getListingByVin(vin: string): Promise<AutoDevListing | null> {
-  const outcome = await autoDevFetch<{ data: AutoDevListing }>(`/listings/${encodeURIComponent(vin)}`);
-  return outcome.ok ? outcome.data.data : null;
+  const outcome = await autoDevFetch<{ data: unknown }>(`/listings/${encodeURIComponent(vin)}`);
+  return outcome.ok ? normalizeListing(outcome.data.data) : null;
 }
 
 /**
@@ -517,10 +627,10 @@ export async function getListingByVin(vin: string): Promise<AutoDevListing | nul
  */
 export async function searchListingByVinExact(vin: string): Promise<AutoDevListing | null> {
   const params = new URLSearchParams({ "vehicle.vin": vin, limit: "1" });
-  const outcome = await autoDevFetch<ListingsResponse>(`/listings?${params.toString()}`);
+  const outcome = await autoDevFetch<{ data: unknown[] }>(`/listings?${params.toString()}`);
   if (!outcome.ok) return null;
   const row = outcome.data.data?.[0];
-  return row ?? null;
+  return row != null ? normalizeListing(row) : null;
 }
 
 export async function decodeVin(vin: string): Promise<VinDecodeResult | null> {
