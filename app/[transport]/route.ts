@@ -114,7 +114,12 @@ Open with real scale: \`corpusSizeApprox\` searched, narrowed to \`totalMatches\
 
 PRIORITY AXIS
 
-Set priorityAxis based on what the user is actually optimizing for: "cheapest"/"lowest price"/"budget option" → cheapest. "Lowest mileage"/"as few miles as possible" → lowest_mileage (this defaults the search to used vehicles only, since a new car's low mileage isn't a meaningful comparison — disclosed to the user, not silent). "Newest"/"latest model year" → newest. "Best," "nicest," a price ceiling with no other stated priority → best_for_budget (default — samples from the top of budget down). When uncertain, use best_for_budget.
+Set priorityAxis based on what the user is actually optimizing for, not merely which words appear in the request:
+
+- best_for_budget (default) — "best for budget," "best in my budget," "best value within my budget," "best," "nicest," or a price ceiling stated with no other explicit optimization ("under $50k," "budget of $50k"). Samples from the top of budget down for genuine value, not the rock-bottom price. When uncertain, use best_for_budget.
+- cheapest — only for explicit lowest-price intent: "cheapest," "lowest price," "spend as little as possible." The word "budget" appearing in the request is NOT by itself a signal for cheapest — "best for budget" and "best in my budget" both mean best_for_budget, precisely because the user is asking for the best vehicle a budget affords, not the least expensive vehicle available. Do not map a request to cheapest merely because it contains the word "budget."
+- lowest_mileage — "lowest mileage"/"as few miles as possible" (this defaults the search to used vehicles only, since a new car's low mileage isn't a meaningful comparison — disclosed to the user, not silent).
+- newest — "newest"/"latest model year".
 
 LOCATION HANDLING
 
@@ -149,7 +154,7 @@ const FindMatchingVehicleInput = z.object({
   priceMax: z.number().optional().describe("Maximum price in USD. A hard ceiling — never send a value higher than what the user actually stated."),
   priceMin: z.number().optional().describe("Minimum price in USD."),
   priceFlexibility: z.enum(["strict", "flexible"]).optional().describe("Whether the price ceiling can flex. Set to 'flexible' only if the user signals approximation ('around', 'roughly', 'about') — otherwise omit; the ceiling stays strict by default."),
-  priorityAxis: z.enum(["best_for_budget", "cheapest", "lowest_mileage", "newest"]).optional().describe("What the user is actually optimizing for. 'best_for_budget' (default) for 'best I can get' or 'nicest in my budget'. 'cheapest' for lowest price. 'lowest_mileage' for fewest miles (this defaults the search to used vehicles only — new/demo cars are excluded automatically, disclosed to the user). 'newest' for latest model year. Also protects that same dimension if the search needs automatic widening — see AUTOMATIC WIDENING."),
+  priorityAxis: z.enum(["best_for_budget", "cheapest", "lowest_mileage", "newest"]).optional().describe("What the user is actually optimizing for, not merely which words appear in the request. 'best_for_budget' (default) for 'best for budget', 'best in my budget', 'best value within my budget', 'best I can get', 'nicest in my budget', or a price ceiling with no other stated optimization. 'cheapest' ONLY for explicit lowest-price intent: 'cheapest', 'lowest price', 'spend as little as possible' — the word 'budget' by itself is NOT a signal for cheapest; 'best for budget' means best_for_budget, never cheapest. 'lowest_mileage' for fewest miles (this defaults the search to used vehicles only — new/demo cars are excluded automatically, disclosed to the user). 'newest' for latest model year. Also protects that same dimension if the search needs automatic widening — see AUTOMATIC WIDENING."),
   yearMin: z.number().optional().describe("Minimum model year."),
   yearMax: z.number().optional().describe("Maximum model year."),
   make: z.string().optional().describe("Vehicle manufacturer, e.g. Toyota, Honda, Ford."),
