@@ -440,13 +440,13 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
         '<div class="cc-price">' + esc(money(listing.price)) + (listing.mileage ? '<span class="cc-mileage">' + esc(miles(listing.mileage)) + '</span>' : '') + "</div>" +
         (function(){
           var extras = [];
-          // Exterior color only when there's no photo to show it visually
-          // — redundant next to a real photo, genuinely useful as a
-          // fallback when the visual channel is missing (André's call,
-          // Aug 19: photo already tells the color story better than text
-          // when present).
-          if (!photo && exteriorColor) extras.push(esc(exteriorColor));
-          if (drivetrain) extras.push(esc(drivetrain));
+          // Ordering (SYS-20260827 follow-up): VIN first, then
+          // drivetrain, then optional no-photo exterior color last — so
+          // the abbreviated VIN (the identity-distinguishing detail) is
+          // the item least likely to be ellipsized away on a narrow/
+          // mobile card, ahead of the lower-priority items. Location
+          // itself always stays first, before this whole extras group.
+          //
           // Abbreviated VIN (SYS-20260827): safe-normalize the same way
           // lib/diversity.ts's safeVin()/isValidVin() do server-side
           // (string coercion, trim, uppercase, exactly-17-chars) so
@@ -462,6 +462,13 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
           } else if (vinVerified) {
             extras.push("VIN \\u2713");
           }
+          if (drivetrain) extras.push(esc(drivetrain));
+          // Exterior color only when there's no photo to show it visually
+          // — redundant next to a real photo, genuinely useful as a
+          // fallback when the visual channel is missing (André's call,
+          // Aug 19: photo already tells the color story better than text
+          // when present).
+          if (!photo && exteriorColor) extras.push(esc(exteriorColor));
           var extrasStr = extras.length ? " \\u00b7 " + extras.join(" \\u00b7 ") : "";
           return '<div class="cc-facts">' + (location ? esc(location) : "") + extrasStr + "</div>";
         })() +
