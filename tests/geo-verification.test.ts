@@ -43,6 +43,28 @@ function check(name: string, cond: boolean, detail?: string) {
 }
 
 // ===========================================================================
+// 1c (locks a deliberate, documented limitation). A far-away listing in
+// the SAME state as the search origin is retained/unverified -- this
+// coarse, state-level guard deliberately does NOT attempt to verify
+// in-state distance (module doc: "never exclude same-state; large
+// in-state distances are a real possibility this coarse check
+// deliberately does not attempt to resolve"). Houston (77002, zip3 anchor
+// 770) to a same-state Texas listing genuinely near El Paso is roughly
+// 750+ real miles apart -- yet must still be retained, even at a radius
+// as tight as 1 mile, precisely because this module only ever reasons at
+// state-bounding-box granularity, never real per-listing distance for a
+// same-state pair. This test exists specifically so nobody later mistakes
+// this module for comprehensive radius enforcement.
+// ===========================================================================
+{
+  check(
+    "1c. Far-away same-state listing (Houston origin, TX listing, real-world El Paso-scale distance) is retained even at a 1-mile radius -- same-state distance is never verified by design",
+    isConfirmedOutsideRadius("77002", 1, "TX") === false,
+  );
+}
+
+
+// ===========================================================================
 // 2. Confirmed far-away listing outside radius -> excluded. This is the
 // deterministic fixture for the confirmed production regression: search
 // ZIP 77002 (Houston), 50-mile radius, listing reported in Colorado (the
@@ -67,21 +89,24 @@ function check(name: string, cond: boolean, detail?: string) {
 }
 
 // ===========================================================================
-// 4. Widened radius uses the widened/effective radius, not the original.
-// Module-level: the exact same far-away listing (Houston->CO) is excluded
-// at the original 50mi radius but retained once a large-enough effective
-// radius is passed in -- proving the function's behavior genuinely tracks
-// whatever radius value it's given, which is the contract the route.ts
-// call site relies on when it passes effectiveQuery.radius specifically.
+// 4. Widened radius uses the widened/effective radius, not the original —
+// proven against the ACTUAL production automatic-widening contract (50 ->
+// 100 miles), not merely that the radius parameter isn't hardcoded.
+// Deterministic anchored fixture: Denver origin (zip3 anchor 802) vs a
+// Wyoming-reported listing. Real, precise computed result (confirmed via
+// direct probing of the real function, not hand-estimated): excluded at
+// the original 50-mile radius, retained once genuinely widened to 100 --
+// this is the exact 50->100 step the production widening ladder performs,
+// so this test proves the real contract, not just non-hardcoding.
 // ===========================================================================
 {
   check(
-    "4a. Houston->CO excluded at original 50mi radius",
-    isConfirmedOutsideRadius("77002", 50, "CO") === true,
+    "4a. Denver origin (80201) -> WY listing excluded at the original 50mi radius",
+    isConfirmedOutsideRadius("80201", 50, "WY") === true,
   );
   check(
-    "4b. Same Houston->CO listing retained once a sufficiently widened radius is passed (proves the function tracks the radius argument, not a hardcoded 50)",
-    isConfirmedOutsideRadius("77002", 5000, "CO") === false,
+    "4b. The SAME Denver->WY listing is retained once the search genuinely widens to 100mi (the real production 50->100 widening step)",
+    isConfirmedOutsideRadius("80201", 100, "WY") === false,
   );
 
   // Structural check: the actual route.ts call site passes
@@ -101,6 +126,24 @@ function check(name: string, cond: boolean, detail?: string) {
     "4d. route.ts's isConfirmedOutsideRadius() call site passes effectiveQuery.radius (the widened value), not baseQuery.radius or input.radiusMiles",
     /effectiveQuery\.radius/.test(callSite) && !/baseQuery\.radius/.test(callSite) && !/input\.radiusMiles/.test(callSite),
     callSite || "call site not found",
+  );
+}
+
+// ===========================================================================
+// 4e (locks the intentional partial-coverage behavior). An unrecognized/
+// unanchored search ZIP prefix must never exclude a listing -- unknown ≠
+// false. ZIP3_ORIGIN_ANCHORS is deliberately non-exhaustive (~22 major-
+// metro prefixes only); "123" is a well-formed 5-digit-ZIP prefix shape
+// but is NOT one of the covered anchors, so the search origin itself is
+// unresolvable. Paired with an obviously-distant state (CO) specifically
+// to prove this isn't accidentally passing only because CO happens to be
+// close to whatever fallback might exist -- there is no fallback, no
+// guess; verification is skipped entirely for the whole search.
+// ===========================================================================
+{
+  check(
+    "4e. Unrecognized/unanchored search ZIP prefix (12345, not in the ~22-entry anchor table) never excludes, even paired with an obviously-distant state",
+    isConfirmedOutsideRadius("12345", 50, "CO") === false,
   );
 }
 
