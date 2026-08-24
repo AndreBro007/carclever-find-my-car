@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "for f in tests/best-for-budget-ranking.test.ts tests/geo-verification.test.ts tests/provider-string-normalization-boundary.test.ts tests/provider-string-runtime-safety.test.ts tests/risk-tier.test.ts; do echo \"--- Running $f ---\"; npx tsx \"$f\" || exit 1; done && echo \"--- Running tests/stable-boundaries.test.ts ---\" && npx tsx --test tests/stable-boundaries.test.ts"
+    "test": "for f in tests/best-for-budget-ranking.test.ts tests/geo-verification.test.ts tests/provider-string-normalization-boundary.test.ts tests/provider-string-runtime-safety.test.ts tests/risk-tier.test.ts; do echo \"--- Running $f ---\"; npx tsx \"$f\" || exit 1; done && echo \"--- Running node:test suites ---\" && npx tsx --test tests/stable-boundaries.test.ts tests/vehicle-title.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
