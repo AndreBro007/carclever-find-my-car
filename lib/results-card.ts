@@ -447,7 +447,21 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
           // when present).
           if (!photo && exteriorColor) extras.push(esc(exteriorColor));
           if (drivetrain) extras.push(esc(drivetrain));
-          if (vinVerified) extras.push("VIN \\u2713");
+          // Abbreviated VIN (SYS-20260827): safe-normalize the same way
+          // lib/diversity.ts's safeVin()/isValidVin() do server-side
+          // (string coercion, trim, uppercase, exactly-17-chars) so
+          // visually-identical-but-genuinely-different vehicles are
+          // distinguishable on the card without ever exposing the full
+          // 17-character VIN. Structured/text data (id.vin itself) is
+          // untouched — this only affects what's displayed in this one
+          // facts-row string.
+          var vinRaw = String(id.vin == null ? "" : id.vin).trim().toUpperCase();
+          var vinValidForDisplay = vinRaw.length === 17;
+          if (vinValidForDisplay) {
+            extras.push("VIN \\u2026" + vinRaw.slice(-5) + (vinVerified ? " \\u2713" : ""));
+          } else if (vinVerified) {
+            extras.push("VIN \\u2713");
+          }
           var extrasStr = extras.length ? " \\u00b7 " + extras.join(" \\u00b7 ") : "";
           return '<div class="cc-facts">' + (location ? esc(location) : "") + extrasStr + "</div>";
         })() +
