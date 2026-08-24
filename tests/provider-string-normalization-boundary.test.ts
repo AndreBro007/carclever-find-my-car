@@ -233,53 +233,106 @@ async function cardRenderingTest() {
 }
 
 // ===========================================================================
-// LAST-RESORT ERROR BOUNDARY
+// LAST-RESORT ERROR BOUNDARY -- executable, not structural. Calls the REAL
+// withFindMatchingVehicleErrorBoundary() (lib/tool-error-boundary.ts) --
+// the exact same function app/[transport]/route.ts's registered handler
+// wraps its entire body in (confirmed by import below) -- with a test-only
+// callback that throws. No fallback logic is duplicated here; every
+// assertion inspects the wrapper's own real return value and the wrapper's
+// own real console.error call.
 // ===========================================================================
-// The actual tool handler can't be unit-invoked in isolation (it's the
-// entire find_matching_vehicle registration body, deeply coupled to the
-// live Auto.dev client and MCP server registration) -- these are
-// structural checks confirming the try/catch boundary exists with the
-// exact required shape, contract, and precedence. Live verification (no
-// raw exception surfaces to the user) was additionally performed against
-// a real preview deployment, reported separately alongside this commit.
-{
-  const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
+async function errorBoundaryTest() {
+  const { withFindMatchingVehicleErrorBoundary, FIND_MATCHING_VEHICLE_UNEXPECTED_ERROR_MESSAGE } = await import(
+    "@/lib/tool-error-boundary"
+  );
+  const { FindMatchingVehicleOutputSchema } = await import("@/lib/find-matching-vehicle-output");
 
+  // Structural confirmation the REAL registered handler actually uses this
+  // exact wrapper (not a copy, not a second inline try/catch) -- ties the
+  // executable test below to the real production code path.
+  const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
   check(
-    "12a. The tool handler wraps its entire body in try/catch",
-    /async \(input\) => \{[\s\S]*?try \{/.test(routeSource),
+    "12a. route.ts imports withFindMatchingVehicleErrorBoundary from lib/tool-error-boundary",
+    /import \{ withFindMatchingVehicleErrorBoundary \} from "@\/lib\/tool-error-boundary";/.test(routeSource),
   );
   check(
-    "12b. On catch, structuredContent is a valid FindMatchingVehicleOutput shape with results: [] and meta.totalMatches: null",
-    /const safeContent: FindMatchingVehicleOutput = \{[\s\S]*?results: \[\],/.test(routeSource) &&
-      /totalMatches: null,/.test(routeSource),
+    "12b. The registered find_matching_vehicle handler's entire body is wrapped by calling that exact function",
+    /async \(input\) => \{\s*\n\s*return withFindMatchingVehicleErrorBoundary\(async \(\) => \{/.test(routeSource),
   );
   check(
-    "12c. meta.serviceError is populated with the exact required user-safe message",
-    routeSource.includes('"The vehicle search hit an unexpected data issue. Please try the search again."'),
+    "12c. No second/duplicate inline try/catch exists anywhere else in the file for this purpose",
+    (routeSource.match(/UNEXPECTED ERROR \(last-resort boundary\)/g) ?? []).length === 0, // this string now lives ONLY in lib/tool-error-boundary.ts, not duplicated in route.ts
+  );
+
+  // 1. Call the REAL wrapper with a test callback that throws a sentinel
+  // error containing a fake secret-shaped string, to prove nothing about
+  // the thrown error's content ever leaks through.
+  const SENTINEL = "RAW_SECRET_SENTINEL";
+  let threw = false;
+  const originalConsoleError = console.error;
+  const loggedCalls: unknown[][] = [];
+  console.error = (...args: unknown[]) => {
+    loggedCalls.push(args);
+  };
+
+  let result;
+  try {
+    result = await withFindMatchingVehicleErrorBoundary(async () => {
+      throw new Error(SENTINEL);
+    });
+  } catch {
+    threw = true;
+  } finally {
+    // 5 (restore). Always restore console.error even if an assertion below fails.
+    console.error = originalConsoleError;
+  }
+
+  // 2. Confirms the thrown error is caught -- withFindMatchingVehicleErrorBoundary
+  // itself never re-throws; it always resolves normally.
+  check("1/2. The thrown error is caught inside the wrapper -- calling code never sees it re-thrown", !threw);
+
+  // 3. structuredContent validates against the REAL schema + exact required shape.
+  check("3a. A result was returned (not undefined)", result !== undefined);
+  const parsed = result ? FindMatchingVehicleOutputSchema.safeParse(result.structuredContent) : { success: false };
+  check(
+    "3b. The returned structuredContent validates against the REAL FindMatchingVehicleOutputSchema",
+    parsed.success,
+    parsed.success ? undefined : JSON.stringify((parsed as { error?: { issues?: unknown } }).error?.issues),
+  );
+  check("3c. results = []", Array.isArray(result?.structuredContent.results) && result?.structuredContent.results.length === 0);
+  check("3d. meta.totalMatches = null", result?.structuredContent.meta.totalMatches === null);
+  check(
+    "3e. meta.serviceError = the exact required user-safe message",
+    result?.structuredContent.meta.serviceError === FIND_MATCHING_VEHICLE_UNEXPECTED_ERROR_MESSAGE &&
+      FIND_MATCHING_VEHICLE_UNEXPECTED_ERROR_MESSAGE === "The vehicle search hit an unexpected data issue. Please try the search again.",
+  );
+
+  // 4. Serialized user-facing content + structuredContent contains NONE of
+  // the sentinel, the exception's own message, or a stack trace.
+  const serialized = JSON.stringify(result);
+  check("4a. Serialized response does NOT contain the RAW_SECRET_SENTINEL", !serialized.includes(SENTINEL));
+  check("4b. Serialized response does NOT contain the literal exception message text", !serialized.includes("Error: " + SENTINEL));
+  check("4c. Serialized response does NOT contain a stack trace (\"at \" / \".ts:\" frame markers)", !/\bat \S+\s*\(?.*:\d+:\d+/.test(serialized));
+
+  // 5. console.error was actually called, and received the real thrown Error.
+  check("5a. console.error was called exactly once", loggedCalls.length === 1, `got ${loggedCalls.length} calls`);
+  check(
+    "5b. console.error's arguments include the real thrown Error object (server-side logging genuinely received it)",
+    loggedCalls[0]?.some((arg) => arg instanceof Error && arg.message === SENTINEL) ?? false,
   );
   check(
-    "12d. The raw exception's .message/stack is NEVER included in the returned content or structuredContent",
-    !/err\.message/.test(routeSource.match(/\} catch \(err\) \{[\s\S]*?\n      \}\n    \},\n  \);/)?.[0] ?? "") &&
-      !/err\.stack/.test(routeSource.match(/\} catch \(err\) \{[\s\S]*?\n      \}\n    \},\n  \);/)?.[0] ?? ""),
+    "5c. console.error was tagged for identification (the same tag route.ts's real call uses)",
+    loggedCalls[0]?.[0] === "[find_matching_vehicle] UNEXPECTED ERROR (last-resort boundary):",
   );
+  check("5d. console.error was restored to the original after the test", console.error === originalConsoleError);
+
+  // 6. No widget/render payload -- only content (plain text) + structuredContent.
   check(
-    "13. Server-side logging path (console.error) is present in the catch block, tagged for identification",
-    /console\.error\("\[find_matching_vehicle\] UNEXPECTED ERROR \(last-resort boundary\):", err\);/.test(routeSource),
-  );
-  check(
-    "14a. The safe fallback populates every required MetaSchema field (not just serviceError) -- would fail real schema validation otherwise",
-    /totalCandidatesConsidered: 0,/.test(routeSource) &&
-      /corpusSizeApprox: "unknown",/.test(routeSource) &&
-      /scopeNote: "local",/.test(routeSource) &&
-      /relaxations: \[\],/.test(routeSource) &&
-      /dataNotes: \[\],/.test(routeSource) &&
-      /interpretationNotes: \[\],/.test(routeSource) &&
-      /qualifierAccounting: \[\],/.test(routeSource),
-  );
-  check(
-    "14b. No widget render is attempted for the fallback -- only content + structuredContent returned, same shape as every other real error path",
-    /return \{\s*\n\s*content: \[\s*\n\s*\{\s*\n\s*type: "text" as const,\s*\n\s*text: "The vehicle search hit an unexpected data issue\. Please try the search again\."/.test(routeSource),
+    "6. No widget/render payload returned on this fallback -- only content (plain text array) + structuredContent, same shape as every other real error path",
+    Array.isArray(result?.content) &&
+      result?.content.length === 1 &&
+      result?.content[0]?.type === "text" &&
+      Object.keys(result ?? {}).sort().join(",") === "content,structuredContent",
   );
 }
 
@@ -304,36 +357,9 @@ async function cardRenderingTest() {
   );
 }
 
-// 14c. The exact safe-fallback object literal (mirrored here from the
-// route.ts catch block for direct validation) DOES validate against the
-// REAL FindMatchingVehicleOutputSchema, not just structurally resemble it.
-async function safeFallbackSchemaTest() {
-  const { FindMatchingVehicleOutputSchema } = await import("@/lib/find-matching-vehicle-output");
-  const safeContent = {
-    meta: {
-      totalCandidatesConsidered: 0,
-      totalMatches: null,
-      corpusSizeApprox: "unknown",
-      relaxations: [],
-      dataNotes: [],
-      scopeNote: "local",
-      serviceError: "The vehicle search hit an unexpected data issue. Please try the search again.",
-      interpretationNotes: [],
-      qualifierAccounting: [],
-    },
-    results: [],
-  };
-  const parsed = FindMatchingVehicleOutputSchema.safeParse(safeContent);
-  check(
-    "14c. The exact safe-fallback shape used in the catch block validates against the REAL FindMatchingVehicleOutputSchema",
-    parsed.success,
-    parsed.success ? undefined : JSON.stringify(parsed.error.issues.slice(0, 5)),
-  );
-}
-
 async function runAll() {
   await cardRenderingTest();
-  await safeFallbackSchemaTest();
+  await errorBoundaryTest();
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail > 0 ? 1 : 0);
 }

@@ -17,6 +17,7 @@ import { crossCheckVin, type VerificationResult } from "@/lib/vin-cross-check";
 import { classifyRiskTier, riskTierRank, type RiskTier } from "@/lib/risk-tier";
 import { buildBuyerCheck, type BuyerCheck } from "@/lib/buyer-check";
 import { applyConfigurationVarietyPass } from "@/lib/configuration-variety";
+import { withFindMatchingVehicleErrorBoundary } from "@/lib/tool-error-boundary";
 import { computeMatchScore } from "@/lib/match-score";
 import { resolveLinks } from "@/lib/link-resolution";
 import { sanitizeDealerName } from "@/lib/dealer-name";
@@ -928,29 +929,7 @@ const handler = createMcpHandler((server) => {
       },
     },
     async (input) => {
-      // Last-resort seatbelt (fix/provider-string-runtime-safety review
-      // follow-up, SYS-20260828) -- NOT primary bug handling. Every
-      // specific failure mode this tool already knows about (invalid
-      // VIN, no matches, Auto.dev timeout/service error, automatic
-      // widening, etc.) has its own deliberate handling deeper in this
-      // function and is NEVER caught here -- this only exists to stop a
-      // genuinely unanticipated exception (the exact class of bug this
-      // branch was created to fix, in case one still slips through some
-      // path not yet covered) from ever reaching the user as a raw
-      // technical error such as a raw JS exception message. On a real,
-      // unexpected throw: log the full technical error server-side only
-      // (console.error -- never touches apiKey() or any credential,
-      // or any credential, `err` here is a JS exception object, not a
-      // raw HTTP body), then return a normal, schema-valid
-      // FindMatchingVehicleOutput with an empty result set and a short,
-      // user-safe meta.serviceError -- never the exception's own
-      // .message, never a stack trace, never raw provider values. No
-      // widget render is attempted for this fallback (content +
-      // structuredContent only, exactly like every other real error path
-      // in this function already does) so a non-widget host gets the
-      // same safe text, and no host is left trying to render a broken/
-      // blank card.
-      try {
+      return withFindMatchingVehicleErrorBoundary(async () => {
       // Anchored before any upstream work so the widening budget accounts for
       // everything already spent (primary search, facet correction, retries).
       const requestStartedAt = Date.now();
@@ -2335,32 +2314,7 @@ const handler = createMcpHandler((server) => {
         content: [{ type: "text" as const, text: summary }],
         structuredContent: response,
       };
-      } catch (err) {
-        console.error("[find_matching_vehicle] UNEXPECTED ERROR (last-resort boundary):", err);
-        const safeContent: FindMatchingVehicleOutput = {
-          meta: {
-            totalCandidatesConsidered: 0,
-            totalMatches: null,
-            corpusSizeApprox: "unknown",
-            relaxations: [],
-            dataNotes: [],
-            scopeNote: "local",
-            serviceError: "The vehicle search hit an unexpected data issue. Please try the search again.",
-            interpretationNotes: [],
-            qualifierAccounting: [],
-          },
-          results: [],
-        };
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: "The vehicle search hit an unexpected data issue. Please try the search again.",
-            },
-          ],
-          structuredContent: safeContent,
-        };
-      }
+      });
     },
   );
 
