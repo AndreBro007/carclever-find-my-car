@@ -160,7 +160,23 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
    extra height, just splits the same footprint into two clickable halves. */
 .cc-cta-row{display:flex;width:100%;min-height:36px;border-radius:9px;overflow:hidden}
 .cc-cta-btn{all:unset;box-sizing:border-box;cursor:pointer;flex:1;min-width:0;min-height:36px;background:var(--cc-button-bg);color:var(--cc-button-text);display:flex;align-items:center;justify-content:center;text-align:center;padding:0 6px;font-size:11px;font-weight:600;letter-spacing:.005em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cc-cta-right{border-left:1px solid rgba(255,255,255,.22)}
+/* CTA link-affordance polish (polish/cta-affordance-and-divider):
+   underline only on hover/focus, never at rest, plus a focus-visible
+   outline for keyboard users using the same --cc-link token the
+   image/title links already use. No height/width/spacing/radius change —
+   text-decoration and outline are both non-layout-affecting properties. */
+.cc-cta-btn:hover{text-decoration:underline}
+.cc-cta-btn:focus-visible{text-decoration:underline;outline:2px solid var(--cc-link);outline-offset:-2px}
+/* Divider fix: --cc-button-bg is light-dark(dark, light) — i.e. the
+   button itself is DARK in light color-scheme and LIGHT in dark
+   color-scheme (a bold contrasting pill against the page, not matching
+   the page's own light/dark background). The old fixed
+   rgba(255,255,255,.22) divider only ever showed up against the dark
+   (light-scheme) button and disappeared against the light (dark-scheme)
+   button. Mirrors --cc-button-bg's own light-dark() pairing so the
+   divider color follows the SAME scheme, staying visible-but-subtle
+   against whichever button color is actually showing. Still 1px. */
+.cc-cta-right{border-left:1px solid light-dark(rgba(255,255,255,.22),rgba(0,0,0,.18))}
 .cc-footer{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 14px 0;color:var(--cc-subtle);font-size:10.5px;line-height:1.3}
 .cc-footer-right{text-align:right}
 .cc-loading{padding:20px 14px;font-size:12px;color:var(--cc-subtle)}
@@ -405,8 +421,8 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 
     var ctaBlock = (links.affiliateUrl && links.affiliateFallbackUrl)
       ? '<div class="cc-cta"><div class="cc-cta-row">' +
-          '<button type="button" class="cc-cta-btn cc-cta-left" data-url="' + esc(links.affiliateUrl) + '">View listing</button>' +
-          '<button type="button" class="cc-cta-btn cc-cta-right" data-url="' + esc(links.affiliateFallbackUrl) + '">View similar</button>' +
+          '<button type="button" class="cc-cta-btn cc-cta-left" data-url="' + esc(links.affiliateUrl) + '">View listing \\u2197</button>' +
+          '<button type="button" class="cc-cta-btn cc-cta-right" data-url="' + esc(links.affiliateFallbackUrl) + '">View similar \\u2197</button>' +
         "</div></div>"
       : primaryUrl
       ? '<div class="cc-cta"><button type="button" class="cc-primary" data-url="' + esc(primaryUrl) + '"><span>' + esc(ctaLabel) + '</span><span class="cc-provider">' + esc(providerLabel) + "</span></button></div>"
