@@ -302,9 +302,37 @@ export async function searchListings(query: ListingsQuery): Promise<ListingsResp
  * Full detail for the eventual shortlist is fetched separately via
  * getListingByVin() (parallel, path-form endpoint) — confirmed working,
  * exact, and fast (4.66s for 5 VINs), SYS-20260812-060.
+ *
+ * lower_risk fields (feature/lower-risk-mvp follow-up): history.accidents,
+ * history.accidentCount, retailListing.cpo added — the minimum evidence
+ * applyLocalLowerRiskOrdering()/classifyRiskTier() (app/[transport]/
+ * route.ts, lib/risk-tier.ts) actually need, deliberately NOT the full
+ * detail payload. history.accidentCount is already documented above (see
+ * ListingsQuery.accidentCount) as "facet-verified filterable" — the same
+ * dot-path convention select= already uses successfully for vehicle.year/
+ * vehicle.make/retailListing.price/retailListing.miles — and retailListing.
+ * cpo is the same field already proven as a working query filter (see
+ * ListingsQuery.cpo).
+ *
+ * Empirically confirmed live against a real preview deployment (temporary
+ * diagnostic logging, removed after confirmation): retailListing.cpo
+ * populated on 100/100 sampled rows across multiple real searches,
+ * including correctly-distinguishable `false` values (never confused with
+ * missing/null). history.accidents/history.accidentCount initially showed
+ * 0/100 populated on a search for brand-new 2026 vehicles — inspecting the
+ * raw response confirmed the field KEYS were present with genuinely null
+ * VALUES, not a rejected/misnamed select field; re-tested against older
+ * vehicles (yearMax 2015) and got 60/100 rows with real accident data
+ * populated, conclusively confirming both field names are correct and
+ * working — new-vehicle inventory simply doesn't have accident history to
+ * report yet, a real fact about the data, not a select= defect.
+ *
+ * No new API call — same single /listings request, three additional
+ * dot-paths on the existing select= parameter, payload impact is a few
+ * bytes per row (a boolean, a small integer, a boolean).
  */
 const LEAN_SELECT_FIELDS =
-  "vehicle.vin,vehicle.year,vehicle.make,vehicle.model,vehicle.trim,vehicle.bodyStyle,vehicle.type,retailListing.price,retailListing.miles";
+  "vehicle.vin,vehicle.year,vehicle.make,vehicle.model,vehicle.trim,vehicle.bodyStyle,vehicle.type,retailListing.price,retailListing.miles,history.accidents,history.accidentCount,retailListing.cpo";
 
 interface LeanRow {
   "vehicle.vin"?: string;
@@ -316,6 +344,9 @@ interface LeanRow {
   "vehicle.type"?: string;
   "retailListing.price"?: number;
   "retailListing.miles"?: number;
+  "history.accidents"?: boolean;
+  "history.accidentCount"?: number;
+  "retailListing.cpo"?: boolean;
 }
 
 function leanRowToListing(row: LeanRow): AutoDevListing | null {
@@ -333,6 +364,11 @@ function leanRowToListing(row: LeanRow): AutoDevListing | null {
     retailListing: {
       price: row["retailListing.price"],
       miles: row["retailListing.miles"],
+      cpo: row["retailListing.cpo"],
+    },
+    history: {
+      accidents: row["history.accidents"],
+      accidentCount: row["history.accidentCount"],
     },
   };
 }

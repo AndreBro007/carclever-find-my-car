@@ -177,8 +177,18 @@ const BuyerCheckSchema = z.object({
   nextSteps: z.array(z.string()),
 });
 
+// Risk tier (feature/lower-risk-mvp) — see lib/risk-tier.ts's own
+// RiskTier type/doc comment for the full classification contract. Present
+// on EVERY result (not optional, unlike buyerCheck above, which is
+// direct-VIN-lookup-only) since buildResultCard() now computes this for
+// every card, ordinary search results included.
+const RiskSchema = z.object({
+  tier: z.enum(["positive", "unknown", "amber", "red"]),
+});
+
 const ResultSchema = z.object({
   canonicalVehicleId: z.string(),
+  risk: RiskSchema,
   identity: IdentitySchema,
   condition: ConditionSchema,
   powertrain: PowertrainSchema,

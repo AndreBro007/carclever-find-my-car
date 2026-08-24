@@ -44,8 +44,13 @@ export interface RiskEvidence {
  *    any existing data conflict (e.g. NHTSA make/model/cylinder
  *    mismatches from detectDataConflicts()) each count as one concern.
  * 2. Zero concerns + at least one genuine positive signal (explicitly
- *    reported clean history, confirmed CPO, or a verified VIN identity
- *    match) -> "positive".
+ *    reported clean history, or confirmed CPO) -> "positive". A
+ *    successful VIN identity check alone is NOT counted as positive
+ *    evidence here — it confirms the vehicle's identity, not that it's a
+ *    lower-risk buy, so "VIN verified, but history unreported and CPO
+ *    unknown" is "unknown", not "positive" (fixed in the lower-risk-mvp
+ *    follow-up; the original version incorrectly treated verified_match
+ *    as a third positive signal on its own).
  * 3. Zero concerns and no positive signal either -> "unknown" (the
  *    common, honest default — most listings simply don't report enough
  *    to say anything either way).
@@ -74,10 +79,12 @@ export function classifyRiskTier(evidence: RiskEvidence): RiskTier {
   if (hasDataConflict) concernCount++;
 
   if (concernCount === 0) {
+    // Deliberately excludes verified_match — VIN identity verification
+    // confirms WHICH vehicle this is, not that it's a lower-risk buy to
+    // purchase. Only genuine condition/history-quality signals count.
     const hasPositiveEvidence =
       evidence.history.state === "known_clean" ||
-      evidence.condition.cpoEvidenceState === "confirmed_cpo" ||
-      evidence.verification.identityVerificationStatus === "verified_match";
+      evidence.condition.cpoEvidenceState === "confirmed_cpo";
     return hasPositiveEvidence ? "positive" : "unknown";
   }
 

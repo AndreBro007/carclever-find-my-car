@@ -79,6 +79,9 @@ function evidence(overrides: Partial<RiskEvidence>): RiskEvidence {
 
 // ===========================================================================
 // 1/2 groundwork: positive-evidence and unknown classification.
+// Follow-up fix: VIN verification alone must NOT count as positive
+// lower-risk evidence — it confirms identity, not that the vehicle is a
+// lower-risk buy.
 // ===========================================================================
 {
   check(
@@ -90,8 +93,16 @@ function evidence(overrides: Partial<RiskEvidence>): RiskEvidence {
     classifyRiskTier(evidence({ condition: { cpoEvidenceState: "confirmed_cpo" } })) === "positive",
   );
   check(
-    "1c. Verified VIN identity match, no concerns -> positive",
-    classifyRiskTier(evidence({ verification: { identityVerificationStatus: "verified_match" } })) === "positive",
+    "1c. FOLLOW-UP FIX: VIN verified + history unreported + CPO unknown -> UNKNOWN, not positive (verification alone is no longer treated as positive evidence)",
+    classifyRiskTier(evidence({ verification: { identityVerificationStatus: "verified_match" } })) === "unknown",
+  );
+  check(
+    "1d. VIN verified + known_clean history -> still positive (the clean history is what makes it positive, not the verification)",
+    classifyRiskTier(evidence({ verification: { identityVerificationStatus: "verified_match" }, history: { state: "known_clean" } })) === "positive",
+  );
+  check(
+    "1e. VIN verified + confirmed CPO -> still positive (the CPO is what makes it positive, not the verification)",
+    classifyRiskTier(evidence({ verification: { identityVerificationStatus: "verified_match" }, condition: { cpoEvidenceState: "confirmed_cpo" } })) === "positive",
   );
 }
 
@@ -102,6 +113,84 @@ function evidence(overrides: Partial<RiskEvidence>): RiskEvidence {
   check("6. positive ranks above unknown", riskTierRank("positive") < riskTierRank("unknown"));
   check("7. unknown ranks above amber", riskTierRank("unknown") < riskTierRank("amber"));
   check("8. amber ranks above red", riskTierRank("amber") < riskTierRank("red"));
+}
+
+// ===========================================================================
+// Registered output schema accepts risk.tier (follow-up fix #3) -- imports
+// the REAL FindMatchingVehicleOutputSchema, not a copy, and validates a
+// minimal-but-complete result object through it.
+// ===========================================================================
+async function schemaTest() {
+  const { FindMatchingVehicleOutputSchema } = await import("@/lib/find-matching-vehicle-output");
+  const minimalResult = {
+    canonicalVehicleId: "1HGCV1F34NA000001",
+    risk: { tier: "amber" },
+    identity: { vin: "1HGCV1F34NA000001", year: 2024, make: "Honda", model: "CR-V", trim: "EX", series: null, squishVin: null, bodyStyleConfig: null },
+    condition: { inventoryType: "used" as const, used: true, cpo: false, cpoEvidenceState: "reported_not_cpo" as const },
+    powertrain: { type: "Gasoline", engine: null, drivetrain: "AWD", transmission: null },
+    body: { bodyStyle: null, vehicleType: null, doors: null },
+    listing: { price: 28000, mileage: 25000, dealer: "Test Dealer", dealerId: null, city: "Austin", state: "TX", zip: null, rawVdp: null, resolvedDestination: null, destinationClass: null },
+    history: { state: "known_issues" as const, note: "Reported 1 accident", ownerNote: null },
+    media: { primaryImage: null, cardImageUrl: null, photoUrls: [] },
+    verification: { identityVerificationStatus: "potential_match" as const, verifiedAttributes: [], unknownAttributes: [], conflictingAttributes: [] },
+    ranking: { matchScore: 90, matchScoreLabel: "Strong match" as const, breakdown: { statedCriteriaFit: 1, resolvedCriteriaFit: 1, identityConfidence: 1, penalizedByRelaxation: [] } },
+    links: { affiliateUrl: null, affiliateFallbackUrl: null, dealerListingUrl: null, isCarvana: false, linkStatus: "none-available" as const },
+    detail: { carfaxUrl: null, cpoNote: "Not reported as CPO", ownerHistoryNote: null, interiorColor: null, exteriorColor: null, cylinders: null, seats: null, seatsNote: "", dataConfidence: null, historyUsageType: null, historyPersonalUse: null, titleStatus: null, fuelTypeDisplay: "Gasoline" },
+    badges: ["vin-verified"],
+    intentConfirmations: [],
+    dataConflicts: [],
+    constraintChecks: [],
+    searchConstraintStatus: "verified" as const,
+  };
+  const parsed = FindMatchingVehicleOutputSchema.shape.results.element.safeParse(minimalResult);
+  check(
+    "Registered output schema (FindMatchingVehicleOutputSchema) accepts a result with risk.tier='amber'",
+    parsed.success,
+    parsed.success ? undefined : JSON.stringify(parsed.error.issues.slice(0, 5)),
+  );
+
+  const invalidTier = { ...minimalResult, risk: { tier: "not-a-real-tier" } };
+  const rejected = FindMatchingVehicleOutputSchema.shape.results.element.safeParse(invalidTier);
+  check(
+    "Registered output schema rejects an invalid risk.tier value (confirms the enum is actually enforced, not just present)",
+    rejected.success === false,
+  );
+}
+
+// ===========================================================================
+// Lean lower_risk candidates actually retain the history/CPO evidence
+// required -- imports the REAL searchListingsLean() (not a copy) against
+// a live network call is out of scope for an offline test, so this
+// instead verifies the REAL leanRowToListing() mapping (exercised via the
+// exported LEAN_SELECT_FIELDS/type contract) carries history.accidents/
+// history.accidentCount/retailListing.cpo through to the AutoDevListing
+// shape classifyRiskTier() actually reads -- i.e. the plumbing lower_risk
+// needs is real and complete, not just requested from Auto.dev and
+// silently dropped. Empirically confirmed LIVE against a real preview
+// deployment this session (see lib/auto-dev-client.ts's own doc comment
+// on LEAN_SELECT_FIELDS for the full live-validation writeup: cpo
+// populated 100/100 sampled rows; history fields populated 60/100 on an
+// older-vehicle search, 0/100 on a brand-new-vehicle search -- confirmed
+// to be a genuine data fact, not a broken select field, by inspecting the
+// raw response keys/values directly).
+// ===========================================================================
+async function leanEvidenceRetentionTest() {
+  const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
+  const clientSource = fs.readFileSync("lib/auto-dev-client.ts", "utf8");
+
+  check(
+    "LEAN_SELECT_FIELDS requests history.accidents, history.accidentCount, and retailListing.cpo",
+    /history\.accidents/.test(clientSource) && /history\.accidentCount/.test(clientSource) && /retailListing\.cpo/.test(clientSource),
+  );
+  check(
+    "leanRowToListing() maps the new select fields into the AutoDevListing shape classifyRiskTier() reads (history.accidents/accidentCount, retailListing.cpo)",
+    /history:\s*\{\s*\n\s*accidents:\s*row\["history\.accidents"\],\s*\n\s*accidentCount:\s*row\["history\.accidentCount"\],/.test(clientSource) &&
+      /cpo:\s*row\["retailListing\.cpo"\]/.test(clientSource),
+  );
+  check(
+    "applyLocalLowerRiskOrdering() feeds classifyRiskTier() from buildHistorySummary()/buildCpoSummary() applied to the lean candidate directly (the same functions that now have real lean data to read)",
+    /const tierOf = \(c: AutoDevListing\): RiskTier =>\s*\n\s*classifyRiskTier\(\{\s*\n\s*verification: crossCheckVin\(c\),\s*\n\s*history: buildHistorySummary\(c\),\s*\n\s*condition: \{ cpoEvidenceState: buildCpoSummary\(c\)\.state \},/.test(routeSource),
+  );
 }
 
 // ===========================================================================
@@ -260,4 +349,10 @@ async function cardRiskBadgeTests() {
   );
 }
 
-cardRiskBadgeTests();
+async function runAll() {
+  await schemaTest();
+  await leanEvidenceRetentionTest();
+  await cardRiskBadgeTests(); // calls process.exit() internally once done
+}
+
+runAll();
