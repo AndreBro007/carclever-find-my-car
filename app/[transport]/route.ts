@@ -122,7 +122,7 @@ Set priorityAxis based on what the user is actually optimizing for, not merely w
 - cheapest — only for explicit lowest-price intent: "cheapest," "lowest price," "spend as little as possible." The word "budget" appearing in the request is NOT by itself a signal for cheapest — "best for budget" and "best in my budget" both mean best_for_budget, precisely because the user is asking for the best vehicle a budget affords, not the least expensive vehicle available. Do not map a request to cheapest merely because it contains the word "budget."
 - lowest_mileage — "lowest mileage"/"as few miles as possible" (this defaults the search to used vehicles only, since a new car's low mileage isn't a meaningful comparison — disclosed to the user, not silent).
 - newest — "newest"/"latest model year".
-- lower_risk — "find me a lower-risk CR-V," "the safer-looking options," "cars with the cleanest-looking history," "which available cars look like the lower-risk buys." See LOWER RISK RANKING below.
+- lower_risk — "find me a lower-risk CR-V," "low risk F-150 for towing," "the safer-looking options," "cars with the cleanest-looking history," "which available cars look like the lower-risk buys." See LOWER RISK RANKING below.
 
 LOWER RISK RANKING
 
@@ -161,7 +161,7 @@ const FindMatchingVehicleInput = z.object({
   priceMax: z.number().optional().describe("Maximum price in USD. A hard ceiling — never send a value higher than what the user actually stated."),
   priceMin: z.number().optional().describe("Minimum price in USD."),
   priceFlexibility: z.enum(["strict", "flexible"]).optional().describe("Whether the price ceiling can flex. Set to 'flexible' only if the user signals approximation ('around', 'roughly', 'about') — otherwise omit; the ceiling stays strict by default."),
-  priorityAxis: z.enum(["best_for_budget", "cheapest", "lowest_mileage", "newest", "lower_risk"]).optional().describe("What the user is actually optimizing for, not merely which words appear in the request. 'best_for_budget' (default) for 'best for budget', 'best in my budget', 'best value within my budget', 'best I can get', 'nicest in my budget', or a price ceiling with no other stated optimization. 'cheapest' ONLY for explicit lowest-price intent: 'cheapest', 'lowest price', 'spend as little as possible' — the word 'budget' by itself is NOT a signal for cheapest; 'best for budget' means best_for_budget, never cheapest. 'lowest_mileage' for fewest miles (this defaults the search to used vehicles only — new/demo cars are excluded automatically, disclosed to the user). 'newest' for latest model year. 'lower_risk' for 'lower-risk', 'safer-looking', 'cleanest-looking history', or 'which cars look like the lower-risk buys' — ranking only, based on available listing/history evidence (VIN identity check, reported accidents, CPO status, data conflicts); NEVER a guarantee a vehicle is safe, clean, or problem-free, and never excludes a vehicle for having unreported/unknown history — see LOWER RISK RANKING below. Also protects that same dimension if the search needs automatic widening — see AUTOMATIC WIDENING."),
+  priorityAxis: z.enum(["best_for_budget", "cheapest", "lowest_mileage", "newest", "lower_risk"]).optional().describe("What the user is actually optimizing for, not merely which words appear in the request. 'best_for_budget' (default) for 'best for budget', 'best in my budget', 'best value within my budget', 'best I can get', 'nicest in my budget', or a price ceiling with no other stated optimization. 'cheapest' ONLY for explicit lowest-price intent: 'cheapest', 'lowest price', 'spend as little as possible' — the word 'budget' by itself is NOT a signal for cheapest; 'best for budget' means best_for_budget, never cheapest. 'lowest_mileage' for fewest miles (this defaults the search to used vehicles only — new/demo cars are excluded automatically, disclosed to the user). 'newest' for latest model year. 'lower_risk' for 'lower-risk', 'low risk', 'safer-looking', 'cleanest-looking history', or 'which cars look like the lower-risk buys' — ranking only, based on available listing/history evidence (VIN identity check, reported accidents, CPO status, data conflicts); NEVER a guarantee a vehicle is safe, clean, or problem-free, and never excludes a vehicle for having unreported/unknown history — see LOWER RISK RANKING below. Also protects that same dimension if the search needs automatic widening — see AUTOMATIC WIDENING."),
   yearMin: z.number().optional().describe("Minimum model year."),
   yearMax: z.number().optional().describe("Maximum model year."),
   make: z.string().optional().describe("Vehicle manufacturer, e.g. Toyota, Honda, Ford."),
@@ -2198,6 +2198,25 @@ const handler = createMcpHandler((server) => {
       // that way by the time they reached it.
       if (input.priorityAxis === "cheapest" || input.priorityAxis === "lowest_mileage" || input.priorityAxis === "newest") {
         // Leave cards in their already-correct fetched order — do not re-sort.
+      } else if (input.priorityAxis === "lower_risk") {
+        // Final-card risk sort (feature/lower-risk-mvp follow-up #2):
+        // applyLocalLowerRiskOrdering() already ranked the LEAN candidates
+        // by risk tier before stage-2, but that lean pre-ranking was
+        // falling into this same Match Score branch below and being
+        // silently overwritten, the same class of bug the cheapest/
+        // lowest_mileage/newest branch above already exists to prevent.
+        // Fixed by re-sorting the FINAL full-detail cards here by their
+        // own c.risk.tier via the same riskTierRank() helper
+        // applyLocalLowerRiskOrdering() uses — preferable to merely
+        // preserving the lean order, since the final card carries the
+        // authoritative full-detail risk evidence (lean is necessarily a
+        // pre-stage-2 approximation). Stable sort by tier rank ONLY —
+        // candidates within the same tier keep whatever relative order
+        // diversity/shortlisting already produced, no secondary scoring
+        // formula invented on top. Match Score itself is completely
+        // untouched by this branch; a higher Match Score amber/red card
+        // can never jump above a lower Match Score positive/unknown card.
+        cards.sort((a, b) => riskTierRank(a.risk.tier) - riskTierRank(b.risk.tier));
       } else {
         cards.sort((a, b) => b.ranking.matchScore - a.ranking.matchScore);
       }

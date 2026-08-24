@@ -116,6 +116,55 @@ function evidence(overrides: Partial<RiskEvidence>): RiskEvidence {
 }
 
 // ===========================================================================
+// FOLLOW-UP FIX #1: final full-detail card sort must not let Match Score
+// override lower_risk. A higher Match Score amber/red card must never
+// jump above a lower Match Score positive/unknown card when priorityAxis
+// is lower_risk.
+// ===========================================================================
+{
+  // Behavioral: exercises the REAL exported riskTierRank() as the actual
+  // comparator route.ts's final cards.sort() now uses, against a fixture
+  // deliberately constructed so Match Score and risk tier disagree.
+  const cardsFixture = [
+    { id: "high-score-amber", matchScore: 99, tier: "amber" as const },
+    { id: "low-score-positive", matchScore: 50, tier: "positive" as const },
+    { id: "mid-score-unknown", matchScore: 75, tier: "unknown" as const },
+    { id: "low-score-red", matchScore: 40, tier: "red" as const },
+  ];
+  const sorted = [...cardsFixture].sort((a, b) => riskTierRank(a.tier) - riskTierRank(b.tier));
+  check(
+    "Final-card lower_risk sort: lower Match Score (50) positive card outranks higher Match Score (99) amber card",
+    sorted[0].id === "low-score-positive",
+  );
+  check(
+    "... mid Match Score (75) unknown card sorts second, still ahead of amber/red regardless of score",
+    sorted[1].id === "mid-score-unknown",
+  );
+  check(
+    "... amber card (highest Match Score in this fixture, 99) still sorts behind unknown -- Match Score never overrides tier",
+    sorted[2].id === "high-score-amber",
+  );
+  check("... red card sorts last", sorted[3].id === "low-score-red");
+
+  // Structural: confirms route.ts's ACTUAL final-card sort dispatch has a
+  // dedicated lower_risk branch using this exact comparator, and that
+  // it's genuinely separate from both the cheapest/lowest_mileage/newest
+  // no-resort branch and the matchScore-sort else branch (i.e. lower_risk
+  // can no longer fall through into the Match Score branch, which was the
+  // bug being fixed here).
+  const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
+  const finalSortBlock = routeSource.match(
+    /if \(input\.priorityAxis === "cheapest"[\s\S]*?cards\.sort\(\(a, b\) => b\.ranking\.matchScore - a\.ranking\.matchScore\);\s*\n\s*\}/,
+  );
+  const block = finalSortBlock ? finalSortBlock[0] : "";
+  check("Final-card sort dispatch block located in route.ts", block.length > 0, block || "regex may need updating if reshaped");
+  check(
+    "route.ts's final-card sort has a dedicated 'else if (lower_risk)' branch using cards.sort by riskTierRank(a.risk.tier), distinct from both the no-resort branch above it and the matchScore else branch below it",
+    /\} else if \(input\.priorityAxis === "lower_risk"\) \{[\s\S]*?cards\.sort\(\(a, b\) => riskTierRank\(a\.risk\.tier\) - riskTierRank\(b\.risk\.tier\)\);\s*\n\s*\} else \{/.test(block),
+  );
+}
+
+// ===========================================================================
 // Registered output schema accepts risk.tier (follow-up fix #3) -- imports
 // the REAL FindMatchingVehicleOutputSchema, not a copy, and validates a
 // minimal-but-complete result object through it.
@@ -313,6 +362,7 @@ async function cardRiskBadgeTests() {
   const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
   const requiredPhrases = [
     "lower-risk CR-V",
+    "low risk F-150 for towing",
     "safer-looking options",
     "cleanest-looking history",
     "lower-risk buys",
@@ -323,6 +373,10 @@ async function cardRiskBadgeTests() {
   check(
     "11b. priorityAxis Zod enum includes lower_risk",
     /z\.enum\(\["best_for_budget", "cheapest", "lowest_mileage", "newest", "lower_risk"\]\)/.test(routeSource),
+  );
+  check(
+    "11c. Zod .describe() ALSO teaches the exact phrase \"low risk\" (not just the prose section) -- real user/OpenAI review prompt: \"low risk F-150 for towing near Denver\"",
+    /'lower_risk' for 'lower-risk', 'low risk', 'safer-looking'/.test(routeSource),
   );
 }
 
