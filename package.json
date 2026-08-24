@@ -2,7 +2,7 @@
   "name": "carclever-find-my-car",
   "version": "0.1.0",
   "private": true,
-  "description": "CarClever - Find My Car: a lean, Starter-tier MCP server for fast, trustworthy used-vehicle matching.",
+  "description": "CarClever - Find My Car: a live MCP server for fast, trustworthy search and matching across new, used, CPO, and demo U.S. vehicle inventory.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
