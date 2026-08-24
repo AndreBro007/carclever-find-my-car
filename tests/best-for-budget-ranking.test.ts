@@ -205,15 +205,39 @@ function check(name: string, cond: boolean, detail?: string) {
 }
 
 // ===========================================================================
-// Contract 6: Explicit condition paths unchanged — structural check.
+// Contract 6: Fair-pool gating rules + Explicit condition paths unchanged
 // ===========================================================================
 {
   const fs = require("fs");
   const routeSource: string = fs.readFileSync("app/[transport]/route.ts", "utf8");
-  const hasNullGate = /if\s*\(\s*baseQuery\.used\s*==\s*null\s*\)/.test(routeSource);
+  
+  // useFairPool is gated behind both:
+  // 1. baseQuery.used == null (condition-neutral input)
+  // 2. priorityAxis is best_for_budget OR null (not cheapest/lowest_mileage/newest/lower_risk)
+  const hasFairPoolLogic = /useFairPool\s*=[\s\S]*?baseQuery\.used\s*==\s*null[\s\S]*?\(input\.priorityAxis\s*===\s*"best_for_budget"\s*\|\|\s*input\.priorityAxis\s*==\s*null\)/.test(routeSource);
+  
+  // Else-branch is unchanged: explicit used:true/used:false should hit the single searchListingsLean(baseQuery) path
   const hasUnchangedElseBranch = /\}\s*else\s*\{\s*rawResult\s*=\s*await\s*searchListingsLean\(baseQuery\);\s*\}/.test(routeSource);
-  check("6a. Fair-pool merge is gated strictly behind baseQuery.used == null", hasNullGate);
+  
+  check("6a. Fair-pool merge is gated by both baseQuery.used==null AND (best_for_budget || null priorityAxis)", hasFairPoolLogic);
   check("6b. Explicit used:true/used:false else-branch is still the single unchanged searchListingsLean(baseQuery) call", hasUnchangedElseBranch);
+}
+
+// ===========================================================================
+// Contract 6c/6d/6e: Verify fair-pool is correctly scoped (best_for_budget/null only)
+// ===========================================================================
+{
+  const fs = require("fs");
+  const routeSource: string = fs.readFileSync("app/[transport]/route.ts", "utf8");
+  
+  // The useFairPool condition should only reference best_for_budget and null,
+  // never cheapest/lowest_mileage/newest/lower_risk
+  const fairPoolBlockMatch = routeSource.match(/const\s+useFairPool\s*=[\s\S]*?(?=;)/);
+  const fairPoolBlock = fairPoolBlockMatch ? fairPoolBlockMatch[0] : "";
+  
+  const hasOnlyBestForBudgetInFairPool = fairPoolBlock.includes("best_for_budget") && !fairPoolBlock.includes("cheapest") && !fairPoolBlock.includes("lowest_mileage") && !fairPoolBlock.includes("newest") && !fairPoolBlock.includes("lower_risk");
+  
+  check("6c. useFairPool condition only references best_for_budget (and null), not cheapest/lowest_mileage/newest/lower_risk", hasOnlyBestForBudgetInFairPool, fairPoolBlock.length > 0 ? "" : "could not locate useFairPool declaration");
 }
 
 // ===========================================================================
