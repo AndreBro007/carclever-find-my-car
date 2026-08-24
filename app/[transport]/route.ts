@@ -9,6 +9,7 @@ import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelF
 // verified 9/9 the same day. Re-enabled via a rewritten, injected API rather
 // than the old call — see lib/loosening-ladder.ts header for exactly why.
 import { widenSearchIfThin, type StepName } from "@/lib/loosening-ladder";
+import { isConfirmedOutsideRadius } from "@/lib/geo-verification";
 import { verifyAgainstConstraints } from "@/lib/post-verify";
 import { parseIntent } from "@/lib/intent-parser";
 import { applyDiversity } from "@/lib/diversity";
@@ -1944,6 +1945,18 @@ const handler = createMcpHandler((server) => {
       // (or partial) shortlist, same as any other hard filter exhausting
       // real inventory — never a silently-included wrong trim.
       let trimDriftDetected = false;
+      // Geographic radius verification, stage 2 (SYS-20260827): same
+      // architecture as body style/trim above — Auto.dev's own radius
+      // filter is not trusted as ground truth. Only fires when the
+      // listing's confirmed reported state is provably outside the
+      // effective (possibly widened) radius from the search ZIP — see
+      // lib/geo-verification.ts for the full "unknown ≠ false, never
+      // guess" design. Uses effectiveQuery.radius specifically (not the
+      // original baseQuery/input radius) so a legitimately widened search
+      // (e.g. 50 -> 100 miles) is verified against the widened radius, not
+      // the original one — the same effectiveQuery discipline already
+      // established for verifyAgainstConstraints() above.
+      let geoDriftDetected = false;
       const applyLocalStage2Filters = (full: AutoDevListing): boolean => {
         let ok = true;
         if (droppedBodyStyle) {
@@ -1961,16 +1974,28 @@ const handler = createMcpHandler((server) => {
           }
           ok = ok && matches;
         }
+        const confirmedOutsideRadius = isConfirmedOutsideRadius(
+          effectiveQuery.zip,
+          effectiveQuery.radius,
+          full.retailListing?.state,
+        );
+        if (confirmedOutsideRadius) {
+          geoDriftDetected = true;
+          console.log(
+            `[find_matching_vehicle] stage2 geo_radius_rejected vin=${full.vin} searchZip=${effectiveQuery.zip ?? null} effectiveRadius=${effectiveQuery.radius ?? null} reportedState=${full.retailListing?.state ?? null} reportedCity=${full.retailListing?.city ?? null}`,
+          );
+        }
+        ok = ok && !confirmedOutsideRadius;
         return ok;
       };
       const shortlist = await (async () => {
         // Shortfall can now come from body-style exclusion, from
-        // full_detail_rejected_due_to_constraint_drift exclusion above, or
-        // from a trimRequired exclusion — all three reduce
-        // shortlistWithPriceCheck below targetCount, so the backfill below
-        // must run for any of these causes, not just when a body style was
-        // dropped.
-        const primaryMatches = (droppedBodyStyle || trimRequired)
+        // full_detail_rejected_due_to_constraint_drift exclusion above, from
+        // a trimRequired exclusion, or from a confirmed-outside-radius
+        // exclusion — all four reduce shortlistWithPriceCheck below
+        // targetCount, so the backfill below must run for any of these
+        // causes, not just when a body style was dropped.
+        const primaryMatches = (droppedBodyStyle || trimRequired || effectiveQuery.zip)
           ? shortlistWithPriceCheck.filter(applyLocalStage2Filters)
           : shortlistWithPriceCheck;
 
@@ -1996,7 +2021,7 @@ const handler = createMcpHandler((server) => {
         if (spareDrift) priceDriftDetected = true;
         if (spareLookupFailed) detailLookupFailedDetected = true;
 
-        const backfillMatches = ((droppedBodyStyle || trimRequired)
+        const backfillMatches = ((droppedBodyStyle || trimRequired || effectiveQuery.zip)
           ? spareResolved.filter(applyLocalStage2Filters)
           : spareResolved
         ).slice(0, shortfall);
@@ -2123,6 +2148,11 @@ const handler = createMcpHandler((server) => {
       if (trimDriftDetected) {
         dataNotes.push(
           `One or more listings turned out not to be a genuine ${trimRequired} at the detailed lookup stage, despite passing the initial search — excluded rather than shown as a mismatch, since ${trimRequired} was a specific requirement, not a preference.`,
+        );
+      }
+      if (geoDriftDetected) {
+        dataNotes.push(
+          "One or more listings were confirmed to be reported far outside the requested search radius at the detailed lookup stage, despite passing the provider's own radius filter — excluded rather than shown as a mismatch.",
         );
       }
       if (violationRate > 0.2) {
