@@ -965,11 +965,20 @@ const handler = createMcpHandler((server) => {
           // domain: intentionally omitted here too, same reasoning as the
           // registration-level _meta.ui above. openai/outputTemplate (on
           // the tool registration, unrelated to this block) is untouched.
+          //
+          // EXPERIMENT (experiment/openai-widget-domain-metadata-only,
+          // André's direction, metadata-only test, preview only): added
+          // openai/widgetDomain as a namespaced compatibility field,
+          // separate from _meta.ui.domain (which stays absent — see
+          // above, do not restore it without re-validating against a
+          // live Claude test first, per SYS-20260825). Registration-level
+          // _meta is intentionally NOT touched in this experiment.
           _meta: {
             ui: {
               csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
               prefersBorder: false,
             },
+            "openai/widgetDomain": "https://carclever-find-my-car.vercel.app",
           },
         },
       ],
