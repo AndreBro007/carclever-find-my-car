@@ -917,7 +917,7 @@ const handler = createMcpHandler((server) => {
       outputSchema: FindMatchingVehicleOutputSchema,
       // Canonical output contract. All live structuredContent construction paths
       // are compile-time validated against this schema via `satisfies`.
-      annotations: { readOnlyHint: true, openWorldHint: true, destructiveHint: false },
+      annotations: { title: "Find Matching Vehicle", readOnlyHint: true, openWorldHint: true, destructiveHint: false },
       // Per SEP-1865: hosts that don't support MCP Apps ignore this field
       // and the tool behaves exactly as before (text/structuredContent
       // only) — this is additive, not a replacement path. Also set the
@@ -2330,7 +2330,7 @@ const handler = createMcpHandler((server) => {
         year: z.number().describe("Model year."),
       },
       outputSchema: ResolveDealerUrlOutput,
-      annotations: { readOnlyHint: true, openWorldHint: true, destructiveHint: false },
+      annotations: { title: "Resolve Dealer URL", readOnlyHint: true, openWorldHint: true, destructiveHint: false },
     },
     async ({ vin, make, model, year }) => {
       // No retailListing data available in this call path (only VIN/make/
