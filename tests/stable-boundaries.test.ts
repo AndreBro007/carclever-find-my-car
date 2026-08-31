@@ -670,6 +670,31 @@ test("D10. getAppOrigin() prefers VERCEL_BRANCH_URL (the stable branch alias a c
   }
 });
 
+// ============================================================================
+// D11. BUILD-IDENTITY VISIBILITY -- diagnostic only, invisible to end users
+// ============================================================================
+//
+// Added Aug 31 2026 to stop chasing symptoms that turn out to be stale/cached
+// code rather than real bugs -- a recurring problem this same session. Pure
+// MCP protocol metadata (serverInfo, exchanged during `initialize`), never
+// rendered to a user, never part of any screenshot -- zero relation to
+// anything submitted to Anthropic or OpenAI. This is intentionally NOT a
+// widget/visual change; see DECISIONS.md SYS-20260831-005 for why a visible
+// marker was considered and rejected (OpenAI's locked submission screenshots).
+
+test("D11a. route.ts passes an explicit serverInfo to createMcpHandler, not the package default", () => {
+  const routeSource = stripComments(fs.readFileSync("app/[transport]/route.ts", "utf8"));
+  assert.ok(/serverInfo:\s*\{/.test(routeSource), "createMcpHandler must be given an explicit serverInfo option");
+  assert.ok(routeSource.includes('name: "carclever-find-my-car"'), "serverInfo.name must identify this specific app");
+});
+
+test("D11b. serverInfo.version derives from VERCEL_GIT_COMMIT_SHA (real build identity), with a static fallback only for environments where it's unset (e.g. local dev)", () => {
+  const routeSource = stripComments(fs.readFileSync("app/[transport]/route.ts", "utf8"));
+  assert.ok(routeSource.includes("process.env.VERCEL_GIT_COMMIT_SHA"), "version must be derived from the real per-deployment commit SHA, not a hand-maintained number");
+  assert.ok(/VERCEL_GIT_COMMIT_SHA\?\.slice\(0,\s*7\)\s*\?\?\s*"0\.1\.0"/.test(routeSource), "must have a safe static fallback for environments without this env var (e.g. local dev), never throw or return undefined");
+});
+
+
 test("D9d. route.ts's img-proxy URL construction and widget domain metadata all derive from the single shared getAppOrigin() — no second hardcoded copy exists anymore", () => {
   const routeSource = stripComments(fs.readFileSync("app/[transport]/route.ts", "utf8"));
   assert.ok(!routeSource.includes('"https://carclever-find-my-car.vercel.app"'), "no literal production URL should remain hardcoded in route.ts — everything must derive from the imported getAppOrigin()");

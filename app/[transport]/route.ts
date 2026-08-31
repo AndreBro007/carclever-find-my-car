@@ -2383,6 +2383,26 @@ const handler = createMcpHandler((server) => {
       };
     },
   );
+}, {
+  // Purely diagnostic, invisible to end users: automatically identifies
+  // exactly which commit is actually running, checkable only via a raw
+  // MCP `initialize` call (never rendered, never part of any screenshot,
+  // zero relation to anything submitted to Anthropic or OpenAI -- this
+  // is the SAME serverInfo field every MCP server already returns, just
+  // populated with real, always-current build identity instead of a
+  // static placeholder).
+  //
+  // Added Aug 31 2026 specifically to stop chasing symptoms that turn
+  // out to be stale/cached code rather than real bugs -- a recurring
+  // problem this same session (see DECISIONS.md SYS-20260831-001/003/004).
+  // VERCEL_GIT_COMMIT_SHA is set automatically by Vercel on every
+  // deployment; no manual version-bump step to forget. Falls back to
+  // package.json's version for any environment where it's unset (e.g.
+  // local dev).
+  serverInfo: {
+    name: "carclever-find-my-car",
+    version: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "0.1.0",
+  },
 });
 
 export { handler as GET, handler as POST, handler as DELETE };
