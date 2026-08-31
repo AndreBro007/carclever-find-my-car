@@ -431,3 +431,84 @@ test("D6. MCP metadata contract: domain absent, single widgetDomain, prefersBord
   const resultsCardSource = fs.readFileSync("lib/results-card.ts", "utf8");
   assert.ok(resultsCardSource.includes('"ui://carclever-find-my-car/results-card"'), "RESULTS_CARD_RESOURCE_URI must resolve to ui://carclever-find-my-car/results-card");
 });
+
+// ============================================================================
+// D7. RESULT-COUNT DISPLAY — resultsShown ground-truth contract
+// ============================================================================
+//
+// Regression guard for the resurfaced totalMatches count-display bug
+// (Aug 17 testing: host narrated "5 strong matches" while only 4 result
+// cards were actually returned). Root cause was the tool description
+// priming the calling LLM to state totalMatches right before "here are the
+// strongest options," inviting it to treat a corpus/candidate-pool-scale
+// number as if it were the count of items about to be shown. Fix adds a
+// ground-truth `resultsShown` field, set from the same array as `results`
+// at every response-construction site, plus rewritten guidance telling the
+// calling LLM to use ONLY resultsShown for that purpose.
+
+test("D7a. FindMatchingVehicleOutputSchema requires meta.resultsShown as a number", async () => {
+  const { FindMatchingVehicleOutputSchema } = await import("../lib/find-matching-vehicle-output");
+
+  const base = {
+    meta: {
+      totalCandidatesConsidered: 5,
+      totalMatches: 5,
+      corpusSizeApprox: "3,000,000+",
+      relaxations: [],
+      dataNotes: [],
+      scopeNote: "local" as const,
+      serviceError: null,
+      interpretationNotes: [],
+      qualifierAccounting: [],
+    },
+    results: [],
+  };
+
+  // Missing resultsShown must fail validation.
+  assert.throws(() => FindMatchingVehicleOutputSchema.parse(base));
+
+  // Present as a number must pass.
+  const withField = { ...base, meta: { ...base.meta, resultsShown: 0 } };
+  assert.doesNotThrow(() => FindMatchingVehicleOutputSchema.parse(withField));
+});
+
+test("D7b. every meta object literal in route.ts sets resultsShown from the same array as its results field, never a different variable", () => {
+  const routeSource = stripComments(fs.readFileSync("app/[transport]/route.ts", "utf8"));
+
+  // Every one of the four response-construction sites identified in the
+  // fix (2 VIN-error paths, 1 VIN-success path, 1 normal-search path) must
+  // set resultsShown. This count must stay in lockstep with any future
+  // response-construction site added to route.ts.
+  const resultsShownMatches = routeSource.match(/resultsShown:\s*[^,]+,/g) ?? [];
+  assert.equal(resultsShownMatches.length, 4, `expected exactly 4 resultsShown assignments, found ${resultsShownMatches.length} — every meta object must set it`);
+
+  // The two empty-result error paths must use the literal 0, not a variable
+  // that could silently drift from the actual (empty) results array.
+  const zeroAssignments = routeSource.match(/resultsShown:\s*0,/g) ?? [];
+  assert.equal(zeroAssignments.length, 2, "both VIN-error paths (invalid format, not found) must set resultsShown: 0 to match their empty results: [] arrays");
+
+  // The VIN-success and normal-search paths must derive resultsShown from
+  // a `.length` expression (ground truth), never a hardcoded/copied number.
+  const lengthDerivedAssignments = routeSource.match(/resultsShown:\s*\w+(\.\w+)*\.length,/g) ?? [];
+  assert.equal(lengthDerivedAssignments.length, 2, "VIN-success and normal-search paths must derive resultsShown via .length, not a separate hardcoded number");
+});
+
+test("D7c. tool description no longer instructs opening with totalMatches immediately before introducing results, and explicitly names resultsShown as the authoritative shown-count field", () => {
+  const routeSource = stripComments(fs.readFileSync("app/[transport]/route.ts", "utf8"));
+
+  // The old priming phrase ("...matching this request, here are the
+  // strongest options:") juxtaposed totalMatches directly against the
+  // results that followed — must not reappear verbatim.
+  assert.ok(
+    !routeSource.includes("matching this request, here are the strongest options"),
+    "the old totalMatches-priming phrasing must not reappear — it directly caused the resurfaced count-display bug",
+  );
+
+  // The description must explicitly tell the calling LLM to use
+  // resultsShown, not totalMatches/totalCandidatesConsidered, for stating
+  // how many results are shown.
+  assert.ok(
+    /use \\`resultsShown\\`/.test(routeSource) || /use `resultsShown`/.test(routeSource),
+    "tool description must explicitly instruct using resultsShown for the shown-result count",
+  );
+});

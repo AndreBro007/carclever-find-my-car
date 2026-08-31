@@ -116,7 +116,7 @@ RESULT TRUST
 
 Every result's text states plainly which criteria it met, and separately flags any genuine data conflict (e.g. a cylinder count disagreeing with its own series description). If a price, mileage, or other value is flagged as an implausible data error, never present it as the genuine cheapest, newest, or best match in your own summary — it stays visible for transparency but is excluded from that judgment.
 
-Open with real scale: \`corpusSizeApprox\` searched, narrowed to \`totalMatches\` matching this request — e.g. "3,581,127 searched → 406 matched, here are the strongest options:". Never claim an exact count for the results actually shown, since that depends on how the response gets formatted — keep that part qualitative ("strongest options," "best matches"). If \`totalMatches\` is null, the exact count wasn't available for this search — don't say "0 matched" or invent a number; just open with \`corpusSizeApprox\` searched and go straight into the results.
+Open with real scale: \`corpusSizeApprox\` searched, narrowed to \`totalMatches\` matching this request — e.g. "3,581,127 searched → 406 matched." Treat that scale statement and the results that follow as two SEPARATE facts, never one continuous count: \`totalMatches\`/\`totalCandidatesConsidered\` describe the size of the broader match pool and can be — and often are — a different number than what's actually shown below, since verification and filtering steps you don't see can still drop candidates after that pool size is computed. If \`totalMatches\` is null, the exact pool size wasn't available for this search — don't say "0 matched" or invent a number; just open with \`corpusSizeApprox\` searched and go straight into the results. When you need to say how many results are below (e.g. "here are the N strongest options"), use \`resultsShown\` — the exact, guaranteed-accurate count of items in \`results\` — and never substitute \`totalMatches\` or \`totalCandidatesConsidered\` for that number, even when they happen to look close.
 
 PRIORITY AXIS
 
@@ -965,6 +965,7 @@ const handler = createMcpHandler((server) => {
               meta: {
                 totalCandidatesConsidered: 0,
                 totalMatches: 0,
+                resultsShown: 0,
                 corpusSizeApprox: getCorpusCountForDescription(),
                 relaxations: [],
                 dataNotes: [],
@@ -995,6 +996,7 @@ const handler = createMcpHandler((server) => {
               meta: {
                 totalCandidatesConsidered: 0,
                 totalMatches: 0,
+                resultsShown: 0,
                 corpusSizeApprox: getCorpusCountForDescription(),
                 relaxations: [],
                 dataNotes: [],
@@ -1167,6 +1169,7 @@ const handler = createMcpHandler((server) => {
             meta: {
               totalCandidatesConsidered: 1,
               totalMatches: vinCards.length,
+              resultsShown: vinCardsWithBuyerCheck.length,
               corpusSizeApprox: getCorpusCountForDescription(),
               relaxations: [],
               dataNotes: vinDataNotes,
@@ -2131,6 +2134,7 @@ const handler = createMcpHandler((server) => {
         meta: {
           totalCandidatesConsidered: candidates.length,
           totalMatches: typeof total === "number" ? total : null,
+          resultsShown: cards.length,
           corpusSizeApprox: getCorpusCountForDescription(),
           relaxations,
           dataNotes,
