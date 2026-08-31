@@ -434,6 +434,26 @@ test("D6. MCP metadata contract: domain absent, single widgetDomain, prefersBord
 
 // ============================================================================
 // D7. RESULT-COUNT DISPLAY — resultsShown ground-truth contract
+test("D7c. tool description no longer instructs opening with totalMatches immediately before introducing results, and explicitly names resultsShown as the authoritative shown-count field", () => {
+  const routeSource = stripComments(fs.readFileSync("app/[transport]/route.ts", "utf8"));
+
+  // The old priming phrase ("...matching this request, here are the
+  // strongest options:") juxtaposed totalMatches directly against the
+  // results that followed — must not reappear verbatim.
+  assert.ok(
+    !routeSource.includes("matching this request, here are the strongest options"),
+    "the old totalMatches-priming phrasing must not reappear — it directly caused the resurfaced count-display bug",
+  );
+
+  // The description must explicitly tell the calling LLM to use
+  // resultsShown, not totalMatches/totalCandidatesConsidered, for stating
+  // how many results are shown.
+  assert.ok(
+    /use \\`resultsShown\\`/.test(routeSource) || /use `resultsShown`/.test(routeSource),
+    "tool description must explicitly instruct using resultsShown for the shown-result count",
+  );
+});
+
 // ============================================================================
 //
 // Regression guard for the resurfaced totalMatches count-display bug
@@ -493,22 +513,80 @@ test("D7b. every meta object literal in route.ts sets resultsShown from the same
   assert.equal(lengthDerivedAssignments.length, 2, "VIN-success and normal-search paths must derive resultsShown via .length, not a separate hardcoded number");
 });
 
-test("D7c. tool description no longer instructs opening with totalMatches immediately before introducing results, and explicitly names resultsShown as the authoritative shown-count field", () => {
-  const routeSource = stripComments(fs.readFileSync("app/[transport]/route.ts", "utf8"));
+// ============================================================================
+// D8. WIDGET CARD-COUNT HONESTY — real jsdom render, results.length > 5
+// ============================================================================
+//
+// Real bug found via live testing (Aug 31, screenshot from a "bodyType: SUV,
+// zip: 90210" search): the text summary correctly said "Found 8 closely
+// matching vehicles," but the rendered widget's header said only "Top 5
+// shown" with no indication 3 more results existed in the same response.
+// buildResultsCardHtml()'s own render() function hardcodes
+// `results.slice(0, 5)` for the carousel — a deliberate, reasonable display
+// cap — but the header label previously read the sliced array's own length
+// ("Top " + visible.length + " shown"), which is tautological and can never
+// reveal a cap is in effect. This is the same class of bug as D7 (a stated
+// count that doesn't reflect the true result count) in a different surface
+// (the widget DOM, not the text/meta contract).
 
-  // The old priming phrase ("...matching this request, here are the
-  // strongest options:") juxtaposed totalMatches directly against the
-  // results that followed — must not reappear verbatim.
-  assert.ok(
-    !routeSource.includes("matching this request, here are the strongest options"),
-    "the old totalMatches-priming phrasing must not reappear — it directly caused the resurfaced count-display bug",
-  );
+async function renderCardWithResults(resultCount: number) {
+  const { buildResultsCardHtml } = await import("@/lib/results-card");
+  const { JSDOM } = await import("jsdom");
 
-  // The description must explicitly tell the calling LLM to use
-  // resultsShown, not totalMatches/totalCandidatesConsidered, for stating
-  // how many results are shown.
-  assert.ok(
-    /use \\`resultsShown\\`/.test(routeSource) || /use `resultsShown`/.test(routeSource),
-    "tool description must explicitly instruct using resultsShown for the shown-result count",
-  );
+  const html = buildResultsCardHtml();
+  const dom = new JSDOM(html, { runScripts: "dangerously", resources: "usable", url: "https://carclever-find-my-car.vercel.app/" });
+  const { window } = dom;
+  await new Promise((r) => setTimeout(r, 200));
+
+  const results = Array.from({ length: resultCount }, (_, i) => ({
+    identity: { vin: `1FTEW2KP9TKE6060${i}`, year: 2027, make: "Kia", model: "Seltos", trim: "EX" },
+    condition: { inventoryType: "used", used: true, cpo: false },
+    powertrain: { drivetrain: "FWD" },
+    listing: { price: 31899, mileage: 102, dealer: "Test Dealer", city: "Cerritos", state: "CA" },
+    media: { cardImageUrl: null },
+    detail: { carfaxUrl: null, exteriorColor: "Blue", fuelTypeDisplay: "Gasoline" },
+    ranking: { matchScore: 100 },
+    links: { affiliateUrl: null, affiliateFallbackUrl: null, dealerListingUrl: null, isCarvana: false, linkStatus: "none-available" },
+    badges: [],
+    intentConfirmations: [],
+    risk: { tier: "unknown" },
+  }));
+
+  const mockResult = {
+    structuredContent: {
+      meta: { corpusSizeApprox: "3.4 million", totalMatches: 61455 },
+      results,
+    },
+  };
+
+  window.postMessage({ method: "ui/notifications/tool-result", params: mockResult }, "*");
+  await new Promise((r) => setTimeout(r, 200));
+
+  return window.document;
+}
+
+test("D8a. Widget header discloses the cap when results.length (8) exceeds the display slice (5): 'Top 5 of 8 shown', not the tautological 'Top 5 shown'", async () => {
+  const doc = await renderCardWithResults(8);
+  const header = doc.querySelector(".cc-header-center");
+  assert.ok(header, "cc-header-center element must exist");
+  assert.equal(header?.textContent, "Top 5 of 8 shown", `expected 'Top 5 of 8 shown', got '${header?.textContent}'`);
 });
+
+test("D8b. Widget header does NOT claim a cap when results.length (5) does not exceed the display slice (5)", async () => {
+  const doc = await renderCardWithResults(5);
+  const header = doc.querySelector(".cc-header-center");
+  assert.equal(header?.textContent, "5 shown", `expected '5 shown' with no false 'Top' cap language, got '${header?.textContent}'`);
+});
+
+test("D8c. Widget header uses singular phrasing for exactly one result", async () => {
+  const doc = await renderCardWithResults(1);
+  const header = doc.querySelector(".cc-header-center");
+  assert.equal(header?.textContent, "1 match shown", `expected '1 match shown', got '${header?.textContent}'`);
+});
+
+test("D8d. Carousel itself still renders at most 5 cards even when more results are present (display cap unchanged, only its label was dishonest)", async () => {
+  const doc = await renderCardWithResults(8);
+  const cards = doc.querySelectorAll("#cc-carousel > article");
+  assert.equal(cards.length, 5, `expected exactly 5 rendered cards (unchanged display cap), got ${cards.length}`);
+});
+

@@ -512,7 +512,11 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     var html = '<section class="cc-shell">' +
       '<header class="cc-header">' +
         '<div class="cc-header-left"><div class="cc-scale">' + esc(scaleHeaderText(meta)) + "</div></div>" +
-        '<div class="cc-header-center">Top ' + visible.length + " shown</div>" +
+        '<div class="cc-header-center">' + esc(
+          results.length > visible.length
+            ? "Top " + visible.length + " of " + results.length + " shown"
+            : visible.length + (visible.length === 1 ? " match shown" : " shown")
+        ) + "</div>" +
         '<div class="cc-header-right"><img class="cc-header-logo" src="' + APP_ORIGIN + '/cc-logo-round.png" alt="CarClever" width="22" height="22"/><span class="cc-brand">CarClever</span></div>' +
       "</header>" +
       '<div class="cc-carousel-wrap">' +
