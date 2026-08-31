@@ -41,6 +41,19 @@ const QualifierAccountingEntrySchema = z.object({
 const MetaSchema = z.object({
   totalCandidatesConsidered: z.number(),
   totalMatches: z.number().nullable(),
+  // Ground-truth count of items actually present in `results` below,
+  // added to fix the resurfaced totalMatches count-display bug (Aug 17
+  // testing: host narrated "5 strong matches" while only 4 result cards
+  // were actually returned). `totalCandidatesConsidered` and `totalMatches`
+  // are both corpus/candidate-pool-scale figures from earlier pipeline
+  // stages — they are NOT guaranteed to equal `results.length`, since
+  // verification, body-style exclusion, trim/geo/price drift checks, and
+  // diversity capping can all still drop candidates after those numbers
+  // are computed. `resultsShown` is set from the same array as `results`
+  // (never a separate count) so it can never drift from it, and is the
+  // ONLY field the calling LLM should use when stating how many results
+  // are below — never totalMatches or totalCandidatesConsidered.
+  resultsShown: z.number(),
   corpusSizeApprox: z.string(),
   relaxations: z.array(RelaxationSchema),
   dataNotes: z.array(z.string()),
