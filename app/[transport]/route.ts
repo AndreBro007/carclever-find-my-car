@@ -26,7 +26,7 @@ import { decodeNhtsaElectrification, nhtsaIndicatesElectrified, type NhtsaElectr
 import { getCorpusCountForDescription, initCorpusCount } from "@/lib/corpus-count";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting, type CardIntentInput } from "@/lib/qualifier-accounting";
-import { RESULTS_CARD_RESOURCE_URI, buildResultsCardHtml } from "@/lib/results-card";
+import { RESULTS_CARD_RESOURCE_URI, buildResultsCardHtml, getAppOrigin } from "@/lib/results-card";
 import { signImageUrl } from "@/lib/image-proxy-sign";
 import { trimMatches } from "@/lib/trim-match";
 import { formatVehicleTitle } from "@/lib/vehicle-title";
@@ -590,10 +590,11 @@ function applyLocalLowerRiskOrdering(candidates: AutoDevListing[]): AutoDevListi
 }
 
 
-// Same deployed origin the widget declares in its CSP resourceDomains
-// (lib/results-card.ts APP_ORIGIN) — kept in sync manually since the two
-// files are independent per the MCP Apps static-resource split.
-const IMG_PROXY_ORIGIN = "https://carclever-find-my-car.vercel.app";
+// Same deployed origin the widget declares in its CSP resourceDomains —
+// imported directly from lib/results-card.ts's getAppOrigin() rather than a
+// second hardcoded copy, so the two can never drift out of sync again
+// (this constant used to be a manually-duplicated literal; that's exactly
+// the class of bug fixed in SYS-20260831-002 — one dynamic source now).
 
 function signedImageProxyUrl(rawImageUrl: string | null): string | null {
   if (!rawImageUrl) return null;
@@ -604,7 +605,7 @@ function signedImageProxyUrl(rawImageUrl: string | null): string | null {
   // route itself still fails closed (403) for any unsigned/invalid request.
   try {
     const sig = signImageUrl(rawImageUrl);
-    return IMG_PROXY_ORIGIN + "/api/img-proxy?u=" + encodeURIComponent(rawImageUrl) + "&sig=" + sig;
+    return getAppOrigin() + "/api/img-proxy?u=" + encodeURIComponent(rawImageUrl) + "&sig=" + sig;
   } catch {
     return null;
   }
@@ -869,7 +870,7 @@ const handler = createMcpHandler((server) => {
           // once the field was removed, ChatGPT unaffected either way.
           // Do NOT restore a plain Vercel-origin value without
           // re-validating against a live Claude test first.
-          csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
+          csp: { resourceDomains: [getAppOrigin()] },
           prefersBorder: false,
         },
       },
@@ -899,10 +900,10 @@ const handler = createMcpHandler((server) => {
           // _meta is intentionally NOT touched in this experiment.
           _meta: {
             ui: {
-              csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
+              csp: { resourceDomains: [getAppOrigin()] },
               prefersBorder: false,
             },
-            "openai/widgetDomain": "https://carclever-find-my-car.vercel.app",
+            "openai/widgetDomain": getAppOrigin(),
           },
         },
       ],

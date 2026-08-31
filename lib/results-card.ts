@@ -26,7 +26,29 @@ export const RESULTS_CARD_RESOURCE_URI = "ui://carclever-find-my-car/results-car
 
 // Set to the real deployed origin. Used both for the CSP resourceDomains
 // declaration and for building proxied photo URLs client-side.
-const APP_ORIGIN = "https://carclever-find-my-car.vercel.app";
+// Widget-serving origin, declared to hosts via CSP resourceDomains and
+// openai/widgetDomain (route.ts) so it must always match wherever this
+// code is *actually* running, not just production.
+//
+// Derived from Vercel's own system env vars (verified against Vercel's
+// docs, Aug 31 2026) rather than hardcoded, to fix a real live failure:
+// this value was hardcoded to production everywhere, so any preview
+// deployment declared a domain it wasn't actually being served from —
+// matching the exact "fetch it, then fail to mount/render it" failure
+// class already documented below as SYS-20260825, just never revisited
+// for a *preview* domain since that scenario didn't exist in August.
+//
+// SAFETY, load-bearing: for VERCEL_ENV === "production" this resolves to
+// the exact same literal string that was hardcoded before, with that same
+// string kept as the fallback — so production's declared domain is
+// byte-identical whether or not this branch is ever merged. See the
+// dedicated tests in tests/stable-boundaries.test.ts (D9a-d) that assert
+// this invariant directly against this function, not just by inspection.
+export function getAppOrigin(): string {
+  return process.env.VERCEL_ENV === "production"
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL ?? "carclever-find-my-car.vercel.app"}`
+    : `https://${process.env.VERCEL_URL ?? "carclever-find-my-car.vercel.app"}`;
+}
 
 export function buildResultsCardHtml(): string {
   return `<!DOCTYPE html>
@@ -197,7 +219,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     var stageEl = document.getElementById("cc-stage");
     if (stageEl) stageEl.textContent = "script error: " + (e && e.message);
   });
-  var APP_ORIGIN = ${JSON.stringify(APP_ORIGIN)};
+  var APP_ORIGIN = ${JSON.stringify(getAppOrigin())};
   var nextId = 1;
   var pending = {};
 

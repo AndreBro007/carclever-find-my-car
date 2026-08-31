@@ -406,9 +406,11 @@ test("D6. MCP metadata contract: domain absent, single widgetDomain, prefersBord
   const hasUnquotedDomainField = /\bdomain\s*:\s*["'`]/.test(routeSource);
   assert.ok(!hasUnquotedDomainField, "_meta.ui.domain must be absent as an actual executable field");
 
-  // b. Exactly ONE actual "openai/widgetDomain": "https://carclever-find-my-car.vercel.app"
-  const widgetDomainMatches = routeSource.match(/"openai\/widgetDomain":\s*"https:\/\/carclever-find-my-car\.vercel\.app"/g) ?? [];
-  assert.equal(widgetDomainMatches.length, 1, `expected exactly one openai/widgetDomain field, found ${widgetDomainMatches.length}`);
+  // b. Exactly ONE actual openai/widgetDomain field, now derived dynamically via
+  //    getAppOrigin() rather than hardcoded (SYS-20260831-002 — hardcoding this to
+  //    production broke any preview deployment's widget domain declaration).
+  const widgetDomainMatches = routeSource.match(/"openai\/widgetDomain":\s*getAppOrigin\(\)/g) ?? [];
+  assert.equal(widgetDomainMatches.length, 1, `expected exactly one dynamic openai/widgetDomain field, found ${widgetDomainMatches.length}`);
 
   // c. prefersBorder is exactly false (boolean literal, not just the word present)
   const prefersBorderMatches = routeSource.match(/prefersBorder:\s*false/g) ?? [];
@@ -418,8 +420,11 @@ test("D6. MCP metadata contract: domain absent, single widgetDomain, prefersBord
   const mimeMatches = routeSource.match(/mimeType:\s*"text\/html;profile=mcp-app"/g) ?? [];
   assert.ok(mimeMatches.length >= 1, "mimeType text/html;profile=mcp-app must be present");
 
-  // e. exact production origin appears in CSP resourceDomains
-  assert.ok(routeSource.includes('"https://carclever-find-my-car.vercel.app"'), "production origin must appear as an actual string literal");
+  // e. CSP resourceDomains is derived dynamically via getAppOrigin(), never a hardcoded
+  //    production literal (SYS-20260831-002 — same reasoning as (b) above).
+  const cspMatches = routeSource.match(/csp:\s*\{\s*resourceDomains:\s*\[getAppOrigin\(\)\]\s*\}/g) ?? [];
+  assert.equal(cspMatches.length, 2, `expected exactly two dynamic csp.resourceDomains fields (registration + resources/read), found ${cspMatches.length}`);
+  assert.ok(!routeSource.includes('"https://carclever-find-my-car.vercel.app"'), "no hardcoded production literal should remain in route.ts's widget metadata — everything must derive from getAppOrigin()");
 
   // f. exact resource URI wired through resourceUri
   assert.ok(/ui:\s*\{\s*resourceUri:\s*RESULTS_CARD_RESOURCE_URI\s*\}/.test(routeSource), "tool registration must wire resourceUri: RESULTS_CARD_RESOURCE_URI");
@@ -588,5 +593,68 @@ test("D8d. Carousel itself still renders at most 5 cards even when more results 
   const doc = await renderCardWithResults(8);
   const cards = doc.querySelectorAll("#cc-carousel > article");
   assert.equal(cards.length, 5, `expected exactly 5 rendered cards (unchanged display cap), got ${cards.length}`);
+});
+
+// ============================================================================
+// D9. WIDGET-ORIGIN SAFETY — production output must stay byte-identical
+// ============================================================================
+//
+// Real bug found live (Aug 31, 2026): APP_ORIGIN, csp.resourceDomains,
+// openai/widgetDomain, and a since-removed duplicate (IMG_PROXY_ORIGIN)
+// were all hardcoded to the production URL. Any preview deployment
+// declared a domain it wasn't actually being served from, matching an
+// already-documented failure class (SYS-20260825: "fetch it, then fail to
+// mount/render it"). Fixed by deriving APP_ORIGIN from Vercel's own
+// VERCEL_ENV/VERCEL_PROJECT_PRODUCTION_URL/VERCEL_URL system env vars.
+//
+// This is the safety invariant that made the fix acceptable to ship on a
+// branch of an app currently IN REVIEW with Anthropic: production's
+// declared domain must be byte-identical to the old hardcoded value,
+// regardless of whether these env vars are even correctly populated.
+// These tests assert that directly against the real module, not by
+// inspection of the diff.
+
+test("D9a. getAppOrigin() returns the exact pre-existing hardcoded production URL when VERCEL_ENV=production, even with no other Vercel env vars set", async () => {
+  const { getAppOrigin } = await import("@/lib/results-card");
+  const originalEnv = { ...process.env };
+  try {
+    delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
+    delete process.env.VERCEL_URL;
+    process.env.VERCEL_ENV = "production";
+    assert.equal(getAppOrigin(), "https://carclever-find-my-car.vercel.app", `production fallback must be byte-identical to the pre-fix hardcoded value, got '${getAppOrigin()}'`);
+  } finally {
+    process.env = originalEnv;
+  }
+});
+
+test("D9b. getAppOrigin() uses VERCEL_PROJECT_PRODUCTION_URL when present and VERCEL_ENV=production (correct precedence, not VERCEL_URL)", async () => {
+  const { getAppOrigin } = await import("@/lib/results-card");
+  const originalEnv = { ...process.env };
+  try {
+    process.env.VERCEL_ENV = "production";
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = "custom-prod-domain.example.com";
+    process.env.VERCEL_URL = "should-not-be-used-in-production.vercel.app";
+    assert.equal(getAppOrigin(), "https://custom-prod-domain.example.com");
+  } finally {
+    process.env = originalEnv;
+  }
+});
+
+test("D9c. getAppOrigin() uses VERCEL_URL (the actual serving domain) for any non-production environment, e.g. preview", async () => {
+  const { getAppOrigin } = await import("@/lib/results-card");
+  const originalEnv = { ...process.env };
+  try {
+    process.env.VERCEL_ENV = "preview";
+    process.env.VERCEL_URL = "carclever-find-my-car-git-some-branch-team.vercel.app";
+    assert.equal(getAppOrigin(), "https://carclever-find-my-car-git-some-branch-team.vercel.app", "preview must declare its own actual serving domain, not production's");
+  } finally {
+    process.env = originalEnv;
+  }
+});
+
+test("D9d. route.ts's img-proxy URL construction and widget domain metadata all derive from the single shared getAppOrigin() — no second hardcoded copy exists anymore", () => {
+  const routeSource = stripComments(fs.readFileSync("app/[transport]/route.ts", "utf8"));
+  assert.ok(!routeSource.includes('"https://carclever-find-my-car.vercel.app"'), "no literal production URL should remain hardcoded in route.ts — everything must derive from the imported getAppOrigin()");
+  assert.ok(routeSource.includes("getAppOrigin()"), "route.ts must import and call the shared getAppOrigin() function");
 });
 
