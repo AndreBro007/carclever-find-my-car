@@ -38,16 +38,35 @@ export const RESULTS_CARD_RESOURCE_URI = "ui://carclever-find-my-car/results-car
 // class already documented below as SYS-20260825, just never revisited
 // for a *preview* domain since that scenario didn't exist in August.
 //
+// REAL BUG CAUGHT LIVE, same day (SYS-20260831-004): the first version of
+// this fix used VERCEL_URL for non-production, which is the deployment's
+// own unique per-deployment hash URL (e.g. carclever-find-my-76cqhr7vq-...),
+// NOT the stable git-branch alias URL (e.g. carclever-find-my-car-git-
+// fix-total-matches-count-bug-...) that a connector is actually configured
+// against and that the browser is actually connected through. Confirmed
+// via a raw resources/read call showing the widget declaring a domain
+// that didn't match window.location.origin on the live page -- the exact
+// SYS-20260825 mismatch, just reintroduced by this fix instead of fixed
+// by it. VERCEL_BRANCH_URL is the correct field for this (confirmed
+// against Vercel's own docs): the stable branch alias, not the
+// per-deployment hash.
+//
 // SAFETY, load-bearing: for VERCEL_ENV === "production" this resolves to
 // the exact same literal string that was hardcoded before, with that same
 // string kept as the fallback — so production's declared domain is
 // byte-identical whether or not this branch is ever merged. See the
-// dedicated tests in tests/stable-boundaries.test.ts (D9a-d) that assert
-// this invariant directly against this function, not just by inspection.
+// dedicated tests in tests/stable-boundaries.test.ts (D9a-d, D10) that
+// assert this invariant directly against this function, not just by
+// inspection.
 export function getAppOrigin(): string {
-  return process.env.VERCEL_ENV === "production"
-    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL ?? "carclever-find-my-car.vercel.app"}`
-    : `https://${process.env.VERCEL_URL ?? "carclever-find-my-car.vercel.app"}`;
+  if (process.env.VERCEL_ENV === "production") {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL ?? "carclever-find-my-car.vercel.app"}`;
+  }
+  // Preview (or any other non-production env): prefer the stable branch
+  // alias -- the domain any connector/browser actually reaches this
+  // deployment through -- and only fall back to the per-deployment hash
+  // URL (VERCEL_URL) if the branch alias somehow isn't set.
+  return `https://${process.env.VERCEL_BRANCH_URL ?? process.env.VERCEL_URL ?? "carclever-find-my-car.vercel.app"}`;
 }
 
 export function buildResultsCardHtml(): string {

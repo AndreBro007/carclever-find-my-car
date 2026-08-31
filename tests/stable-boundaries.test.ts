@@ -640,13 +640,31 @@ test("D9b. getAppOrigin() uses VERCEL_PROJECT_PRODUCTION_URL when present and VE
   }
 });
 
-test("D9c. getAppOrigin() uses VERCEL_URL (the actual serving domain) for any non-production environment, e.g. preview", async () => {
+test("D9c. getAppOrigin() falls back to VERCEL_URL only when VERCEL_BRANCH_URL is absent, for any non-production environment", async () => {
   const { getAppOrigin } = await import("@/lib/results-card");
   const originalEnv = { ...process.env };
   try {
     process.env.VERCEL_ENV = "preview";
+    delete process.env.VERCEL_BRANCH_URL;
     process.env.VERCEL_URL = "carclever-find-my-car-git-some-branch-team.vercel.app";
     assert.equal(getAppOrigin(), "https://carclever-find-my-car-git-some-branch-team.vercel.app", "preview must declare its own actual serving domain, not production's");
+  } finally {
+    process.env = originalEnv;
+  }
+});
+
+test("D10. getAppOrigin() prefers VERCEL_BRANCH_URL (the stable branch alias a connector actually reaches) over VERCEL_URL (the per-deployment hash), for preview -- SYS-20260831-004, a real bug caught live where these two were confused", async () => {
+  const { getAppOrigin } = await import("@/lib/results-card");
+  const originalEnv = { ...process.env };
+  try {
+    process.env.VERCEL_ENV = "preview";
+    process.env.VERCEL_BRANCH_URL = "carclever-find-my-car-git-fix-total-matches-count-bug-andre-broekmans-projects.vercel.app";
+    process.env.VERCEL_URL = "carclever-find-my-76cqhr7vq-andre-broekmans-projects.vercel.app";
+    assert.equal(
+      getAppOrigin(),
+      "https://carclever-find-my-car-git-fix-total-matches-count-bug-andre-broekmans-projects.vercel.app",
+      "must use the stable branch alias (VERCEL_BRANCH_URL), never the per-deployment hash URL (VERCEL_URL), when both are present",
+    );
   } finally {
     process.env = originalEnv;
   }
