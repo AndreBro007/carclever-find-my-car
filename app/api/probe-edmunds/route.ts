@@ -26,6 +26,8 @@ type ProbeResult = {
   redirected: boolean;
   contentType: string | null;
   bodyBytes: number | null;
+  bodySnippet?: string;
+  headers?: Record<string, string>;
   error: string | null;
 };
 
@@ -45,6 +47,28 @@ async function probe(label: string, url: string): Promise<ProbeResult> {
       cache: 'no-store',
     });
     const body = await res.text();
+    const headerDump: Record<string, string> = {};
+    // Grab headers most likely to reveal the bot-detection vendor
+    // (Cloudflare, Akamai, PerimeterX, DataDome, etc.) without dumping
+    // everything — cookies/set-cookie in particular are excluded since
+    // they can carry session identifiers we don't need to log.
+    const interesting = [
+      'server',
+      'cf-ray',
+      'cf-mitigated',
+      'x-akamai-transformed',
+      'akamai-x-cache',
+      'x-datadome',
+      'x-px-block',
+      'x-perimeterx',
+      'content-type',
+      'via',
+      'x-cache',
+    ];
+    for (const h of interesting) {
+      const v = res.headers.get(h);
+      if (v) headerDump[h] = v;
+    }
     return {
       label,
       requestedUrl: url,
@@ -53,6 +77,8 @@ async function probe(label: string, url: string): Promise<ProbeResult> {
       redirected: res.redirected,
       contentType: res.headers.get('content-type'),
       bodyBytes: body.length,
+      bodySnippet: body.slice(0, 300),
+      headers: headerDump,
       error: null,
     };
   } catch (e) {
