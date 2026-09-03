@@ -150,8 +150,22 @@ export function resolveLinks(listing: AutoDevListing, hostSearchResult?: HostSea
   // URL exists to confirm or fall back from in this case; affiliateUrl
   // relies entirely on affiliateFallbackUrl below.
 
+  // View similar (affiliateFallbackUrl) — 2026-09-03 fix (SYS-20260903-009,
+  // Andre-flagged live-test finding): this must genuinely be a WIDER,
+  // looser alternative to Check avail, not the same precision tier. When
+  // Check avail is confirmed-exact, this specific vehicle is nailed down,
+  // so a close (trim-specific) "similar options" page is fine. But when
+  // Check avail is itself only a close/unconfirmed match (targeted-fallback,
+  // unconfirmed, or none), offering an equally trim-specific View similar
+  // was redundant — two near-identical links with no real alternative
+  // between them. In those cases, drop trim (and therefore year too, for
+  // used vehicles — buildEdmundsCategoryUrl only uses year in the
+  // trim-absent branch) so View similar falls to its widest tier
+  // (bare make/model), a genuinely broader net than the close-match
+  // Check avail link sitting next to it.
+  const useLooseFallback = checkAvailSource !== "confirmed-exact";
   const rawFallback = buildEdmundsCategoryUrl(
-    { make, model, year, trim },
+    useLooseFallback ? { make, model } : { make, model, year, trim },
     { used },
   );
   const affiliateFallbackUrl = rawFallback ? wrapWithCJ(rawFallback) : null;
