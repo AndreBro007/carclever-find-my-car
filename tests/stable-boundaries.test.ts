@@ -263,11 +263,13 @@ test("D3a. Card routing: affiliateUrl + affiliateFallbackUrl + dealerListingUrl 
   assert.ok(titleLink, "title link should exist");
   assert.equal(titleLink!.getAttribute("data-url"), "https://cj.example.com/affiliate-vin-specific", "title destination must be affiliateUrl");
 
-  assert.ok(leftBtn, "View listing CTA should exist");
-  assert.equal(leftBtn!.getAttribute("data-url"), "https://cj.example.com/affiliate-vin-specific", "'View listing' must use affiliateUrl");
+  assert.ok(leftBtn, "Check avail. CTA should exist");
+  assert.equal(leftBtn!.getAttribute("data-url"), "https://cj.example.com/affiliate-vin-specific", "'Check avail.' must use affiliateUrl");
+  assert.ok(leftBtn!.textContent!.includes("Check avail."), "split left button must be labeled 'Check avail.' per 2026-09-03 design decision, not 'View listing'");
 
   assert.ok(rightBtn, "View similar CTA should exist");
   assert.equal(rightBtn!.getAttribute("data-url"), "https://cj.example.com/affiliate-fallback", "'View similar' must use affiliateFallbackUrl");
+  assert.ok(rightBtn!.textContent!.includes("View similar"), "split right button must be labeled 'View similar'");
 
   const cardHtml = doc.querySelector(".cc-card")!.innerHTML;
   assert.ok(!cardHtml.includes("https://dealer.example.com/vdp/999"), "dealerListingUrl must never appear as any clickable destination");
@@ -298,8 +300,20 @@ test("D3b. Card routing: fallback-only -> photo/title/CTA all use affiliateFallb
   assert.equal(primaryBtn!.getAttribute("data-url"), "https://cj.example.com/affiliate-fallback-only");
 
   // Split CTA buttons must NOT be present in fallback-only mode
-  assert.equal(doc.querySelector(".cc-cta-left"), null, "split 'View listing' button must not render in fallback-only mode");
+  assert.equal(doc.querySelector(".cc-cta-left"), null, "split 'Check avail.' button must not render in fallback-only mode");
   assert.equal(doc.querySelector(".cc-cta-right"), null, "split 'View similar' button must not render in fallback-only mode");
+
+  // Fallback-only label deliberately stays "Similar options on Edmunds",
+  // NOT "Check avail." — affiliateFallbackUrl is a make/model category page,
+  // not a VIN-specific destination, so labeling it as an availability check
+  // would misrepresent what the link does. See 2026-09-03 design decision
+  // comment in results-card.ts for the reasoning (the "Check avail." fallback
+  // tier described in the design doc is a separate, unbuilt targeted-search
+  // feature, not this category link).
+  assert.ok(
+    primaryBtn!.textContent!.includes("Similar options on Edmunds"),
+    "fallback-only primary CTA must keep 'Similar options on Edmunds' label, not be relabeled 'Check avail.'"
+  );
 
   const cardHtml = doc.querySelector(".cc-card")!.innerHTML;
   assert.ok(!cardHtml.includes("https://dealer.example.com/vdp/888"), "dealerListingUrl must not be substituted anywhere");
