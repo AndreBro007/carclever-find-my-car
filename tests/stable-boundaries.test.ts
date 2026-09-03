@@ -346,6 +346,53 @@ test("D2n. resolveLinks() alone (no redaction) still returns a real, unconfirmed
   );
 });
 
+test("D2q. resolveLinks() CPO listing: affiliateFallbackUrl always routes to the dedicated used-certified-pre-owned-{make}-{model} page, never plain used-/new-, regardless of close vs. loose -- SYS-20260903-011, Andre live-test finding", async () => {
+  const { resolveLinks } = await import("../lib/link-resolution");
+
+  const cpoListing = {
+    vin: "KM8HFCAB1TU453247",
+    vehicle: { make: "Hyundai", model: "Kona", year: 2026, trim: "SEL Sport" },
+    retailListing: { used: true, cpo: true, dealer: "Example Hyundai" },
+  };
+
+  // confirmed-exact -- would normally get the trim-specific "close" URL,
+  // but CPO should still route to the dedicated CPO page instead.
+  const confirmed = resolveLinks(cpoListing as any, {
+    vinFound: true,
+    edmundsFound: true,
+    edmundsUrl: "https://www.edmunds.com/hyundai/kona/2026/vin/KM8HFCAB1TU453247/featured-listing/",
+    fallbackUsed: false,
+  });
+  assert.equal(confirmed.checkAvailSource, "confirmed-exact");
+  const decodedConfirmed = decodeURIComponent(confirmed.affiliateFallbackUrl!.split("url=")[1]);
+  assert.equal(decodedConfirmed, "https://www.edmunds.com/used-certified-pre-owned-hyundai-kona/", "CPO must override the close-tier trim URL, not just the loose one");
+
+  // targeted-fallback (loose case) -- same dedicated CPO page.
+  const targeted = resolveLinks(cpoListing as any, {
+    vinFound: false,
+    edmundsFound: true,
+    edmundsUrl: "https://www.edmunds.com/2026-hyundai-kona-sel-sport/",
+    fallbackUsed: true,
+  });
+  const decodedTargeted = decodeURIComponent(targeted.affiliateFallbackUrl!.split("url=")[1]);
+  assert.equal(decodedTargeted, "https://www.edmunds.com/used-certified-pre-owned-hyundai-kona/");
+
+  // Non-CPO listing (cpo undefined/false) must NOT be affected by this change at all.
+  const nonCpoListing = {
+    vin: "3CZRZ2H52TM772942",
+    vehicle: { make: "Honda", model: "HR-V", year: 2026, trim: "Sport" },
+    retailListing: { used: true, dealer: "Example Honda" },
+  };
+  const nonCpo = resolveLinks(nonCpoListing as any, {
+    vinFound: false,
+    edmundsFound: true,
+    edmundsUrl: "https://edmunds.com/2026-honda-hr-v-sport",
+    fallbackUsed: true,
+  });
+  const decodedNonCpo = decodeURIComponent(nonCpo.affiliateFallbackUrl!.split("url=")[1]);
+  assert.ok(!decodedNonCpo.includes("certified-pre-owned"), "non-CPO listings must keep the existing plain used-{make}-{model} fallback, unaffected by this change");
+});
+
 test("D2o. resolveLinks() affiliateFallbackUrl (View similar) widens when Check avail is not confirmed-exact -- must not offer a near-duplicate of an already-unconfirmed Check avail link", async () => {
   const { resolveLinks } = await import("../lib/link-resolution");
 
