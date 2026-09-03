@@ -122,13 +122,36 @@ function isSafeTrimForSlug(trim: string): boolean {
 
 export function buildEdmundsCategoryUrl(
   vehicle: { make?: string; model?: string; year?: number; trim?: string },
-  opts?: { used?: boolean },
+  opts?: { used?: boolean; cpo?: boolean },
 ): string | null {
   const makeSlug = slugify(vehicle.make);
   if (!makeSlug) return null;
 
   const modelSlug = slugify(vehicle.model);
   if (!modelSlug) return null;
+
+  // CPO (2026-09-03, Andre live-test finding): live-confirmed real URL
+  // shape, make/model granularity ONLY — `used-certified-pre-owned-
+  // {make}-{model}/` (e.g. https://www.edmunds.com/used-certified-pre-owned-
+  // hyundai-kona/). No confirmed trim- or year-specific CPO shape exists —
+  // searching for one (e.g. `...-hyundai-kona-sel-sport/`) redirected back
+  // to the plain make/model CPO page, so this deliberately does not try to
+  // combine cpo with trim/year the way the non-CPO tiers below do.
+  //
+  // When a listing is known CPO, this takes priority over the used/new
+  // branch below and over trim, regardless of `opts.used` (CPO is
+  // inherently a used-vehicle program). Real reason this exists: live
+  // testing found that routing a confirmed-CPO, near-zero-mileage vehicle
+  // to the plain `used-{make}-{model}-{trim}/` page (a) labels a
+  // certified/delivery-mileage vehicle as generic "used" when we
+  // specifically know it's CPO, and (b) Edmunds' own `used-` pages mix
+  // in non-CPO used listings alongside CPO ones — the dedicated CPO URL
+  // is a materially different, more precise destination, not just
+  // cosmetic. Only applied when `opts.cpo === true` (i.e. our own data
+  // confirms CPO) — never inferred or guessed from anything else.
+  if (opts?.cpo === true) {
+    return `${EDMUNDS_BASE}/used-certified-pre-owned-${makeSlug}-${modelSlug}/`;
+  }
 
   const isUsed = opts?.used !== false; // default true — matches prior behavior when condition is unknown
 
