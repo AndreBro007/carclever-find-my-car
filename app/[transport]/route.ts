@@ -2527,6 +2527,30 @@ const handler = createMcpHandler((server) => {
       };
     },
   );
+}, {
+  // Purely diagnostic, invisible to end users: automatically identifies
+  // exactly which commit is actually running, checkable only via a raw
+  // MCP `initialize` call (never rendered, never part of any screenshot,
+  // zero relation to anything submitted to Anthropic or OpenAI -- this
+  // is the SAME serverInfo field every MCP server already returns, just
+  // populated with real, always-current build identity instead of a
+  // static placeholder).
+  //
+  // Ported 2026-09-03 (SYS-20260903-007) from fix/total-matches-count-bug
+  // (originally added there Aug 31, SYS-20260831-005) -- that fix was
+  // never on `main`, so it wasn't on this branch either (cut from `main`)
+  // until now. Same mechanism, same field, ported verbatim rather than
+  // reinvented: check this FIRST, before trusting any other live-test
+  // result on this branch's preview, exactly per the standing practice
+  // documented in DECISIONS.md SYS-20260831-005/SYS-20260901-001.
+  // VERCEL_GIT_COMMIT_SHA is set automatically by Vercel on every
+  // deployment; no manual version-bump step to forget. Falls back to
+  // package.json's version for any environment where it's unset (e.g.
+  // local dev).
+  serverInfo: {
+    name: "carclever-find-my-car",
+    version: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "0.1.0",
+  },
 });
 
 export { handler as GET, handler as POST, handler as DELETE };
