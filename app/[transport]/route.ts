@@ -620,7 +620,7 @@ async function buildResultCard(
 ) {
   const verification = crossCheckVin(listing); // now local/synchronous — no API call
   const { matchScore, matchScoreLabel, breakdown } = computeMatchScore(listing, intent, verification);
-  const links = resolveLinks(listing);
+  const links = await resolveLinks(listing);
 
   // Suppress entirely if no usable outbound link — a result with zero
   // actionable CTAs isn't useful regardless of Match Score (SYS-20260812-023/024).
@@ -2338,7 +2338,7 @@ const handler = createMcpHandler((server) => {
       // evaluates false via isCarvanaListing()'s dealer/vdp checks — moot
       // either way now, since dealerListingUrl is never routed to as the
       // resolved link regardless of Carvana status (see primary below).
-      const links = resolveLinks({ vin, vehicle: { make, model, year } } as AutoDevListing);
+      const links = await resolveLinks({ vin, vehicle: { make, model, year } } as AutoDevListing);
 
       if (links.linkStatus === "none-available") {
         return {
