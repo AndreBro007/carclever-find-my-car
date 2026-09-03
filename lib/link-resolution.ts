@@ -37,14 +37,22 @@
  * turned out to be closed to new customers — see SYS-20260903-004):
  * the live search is performed by whichever host AI is calling this MCP
  * server, using ITS OWN web-search capability — not a vendor API this
- * server calls out to. resolveLinks() is synchronous again; it takes an
+ * server calls out to. resolveLinks() is synchronous; it takes an
  * optional `hostSearchResult` describing what the host's search found
- * (see HostSearchResult below). No credential, no vendor, no per-query
- * cost on this server. Every case where hostSearchResult is absent or
- * inconclusive fails open to the exact pre-2026-09-03 default behavior —
- * this can only upgrade confidence in the destination, never remove or
- * corrupt it. See app/[transport]/route.ts's `resolve_vehicle_availability`
- * tool for how the host actually supplies this.
+ * (see HostSearchResult below).
+ *
+ * 2026-09-03 v3 (mandatory two-call flow, SYS-20260903-006): v2 made the
+ * verification step optional/additive — find_matching_vehicle still
+ * rendered a widget immediately with an unconfirmed best-effort link, and
+ * a host could optionally upgrade it later. That left a real gap: a host
+ * that skipped verification (or didn't know about it) still showed the
+ * user a working-looking "Check avail." button backed by an unconfirmed
+ * link. v3 closes that gap architecturally: find_matching_vehicle no
+ * longer renders anything and never returns a real affiliateUrl/
+ * affiliateFallbackUrl at all (see redactLinksForDataOnlyResponse() below)
+ * — only resolve_vehicle_availability, which requires the host's search
+ * findings as input, produces a real link and triggers the widget. See
+ * app/[transport]/route.ts for how the two tools are wired together.
  */
 import { buildEdmundsUrl, buildEdmundsCategoryUrl, wrapWithCJ } from "./edmunds-cj";
 import type { AutoDevListing } from "./auto-dev-client";
@@ -159,4 +167,21 @@ export function resolveLinks(listing: AutoDevListing, hostSearchResult?: HostSea
   else linkStatus = "none-available";
 
   return { affiliateUrl, affiliateFallbackUrl, dealerListingUrl, isCarvana, linkStatus, checkAvailSource };
+}
+
+/**
+ * 2026-09-03 v3 (mandatory two-call flow, SYS-20260903-006): find_matching_vehicle
+ * is now data-only and must never expose a real, clickable affiliate
+ * destination — every link on that call's response has to come from the
+ * separate resolve_vehicle_availability call instead, after the host has
+ * actually run its verification search. This is a small, pure, deliberately
+ * separate function (rather than inline logic in app/[transport]/route.ts)
+ * specifically so it's unit-testable: the contract it enforces — "these two
+ * fields are always null, no matter what resolveLinks() computed" — is the
+ * one thing standing between "data-only" and "an unverified link leaking to
+ * the user," so it needs its own direct test coverage, not just indirect
+ * coverage via whatever route.ts happens to do with it.
+ */
+export function redactLinksForDataOnlyResponse(links: LinkResolution): LinkResolution {
+  return { ...links, affiliateUrl: null, affiliateFallbackUrl: null };
 }
