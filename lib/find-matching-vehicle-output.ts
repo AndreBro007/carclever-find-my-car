@@ -135,6 +135,13 @@ const LinksSchema = z.object({
   dealerListingUrl: z.string().nullable(),
   isCarvana: z.boolean(),
   linkStatus: z.enum(["both-available", "edmunds-only", "dealer-only", "fallback-only", "none-available"]),
+  // Added 2026-09-03 (SYS-20260903-006) alongside the same field on
+  // ResolveDealerUrlOutput (SYS-20260903-005) — was missing here too,
+  // same latent zod-key-stripping gap. On find_matching_vehicle's output
+  // this is always "unconfirmed" or "none" (affiliateUrl/affiliateFallbackUrl
+  // are redacted to null on that tool regardless); on
+  // resolve_vehicle_availability's output it reflects the real outcome.
+  checkAvailSource: z.enum(["confirmed-exact", "targeted-fallback", "unconfirmed", "none"]),
 });
 
 const DetailSchema = z.object({
