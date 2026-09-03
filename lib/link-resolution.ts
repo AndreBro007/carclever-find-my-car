@@ -111,6 +111,7 @@ export function resolveLinks(listing: AutoDevListing, hostSearchResult?: HostSea
   const year = listing.vehicle?.year;
   const trim = listing.vehicle?.trim;
   const used = listing.retailListing?.used;
+  const cpo = listing.retailListing?.cpo === true;
 
   const rawEdmunds = isCarvana ? null : buildEdmundsUrl({ vin, make, model, year });
 
@@ -163,10 +164,17 @@ export function resolveLinks(listing: AutoDevListing, hostSearchResult?: HostSea
   // trim-absent branch) so View similar falls to its widest tier
   // (bare make/model), a genuinely broader net than the close-match
   // Check avail link sitting next to it.
+  // CPO (2026-09-03, SYS-20260903-011, Andre live-test finding): when the
+  // listing is known CPO, buildEdmundsCategoryUrl() routes to the
+  // dedicated used-certified-pre-owned-{make}-{model} tier regardless of
+  // the close/loose distinction above — see that function's own doc for
+  // why (no confirmed trim-level CPO URL shape exists). Passing `trim`
+  // here even in the loose-fallback case is harmless: the function
+  // ignores it whenever cpo=true.
   const useLooseFallback = checkAvailSource !== "confirmed-exact";
   const rawFallback = buildEdmundsCategoryUrl(
-    useLooseFallback ? { make, model } : { make, model, year, trim },
-    { used },
+    useLooseFallback && !cpo ? { make, model } : { make, model, year, trim },
+    { used, cpo },
   );
   const affiliateFallbackUrl = rawFallback ? wrapWithCJ(rawFallback) : null;
 
