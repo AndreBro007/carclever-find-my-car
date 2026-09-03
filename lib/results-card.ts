@@ -363,6 +363,21 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     // (that label implies this specific vehicle). If neither exists, no CTA
     // button is rendered at all — dealerListingUrl stays available on the
     // underlying data, just never surfaced as the clickable destination.
+    // Label update (2026-09-03, per getcarwise-docs
+    // HANDOFF_EDMUNDS_VIN_SEARCH_EXPERIMENT_20260903.md "Final design
+    // decision"): the split two-button case (affiliateUrl AND
+    // affiliateFallbackUrl both present) now uses "Check avail." / "View
+    // similar" instead of "View listing" / "View similar" — same URLs, same
+    // routing, label only. Deliberately scoped to the split case only. The
+    // fallback-only single-button case below keeps "Similar options on
+    // Edmunds" rather than "Check avail." — relabeling it would claim an
+    // availability check against a specific vehicle when affiliateFallbackUrl
+    // is a make/model category page, not a VIN-specific destination. The
+    // approved design's "Check avail." fallback tier is a targeted,
+    // Google-search-derived Edmunds destination (design doc §"Internal
+    // destination logic" steps 3/6) which does not exist in this codebase
+    // yet — that is separate, unbuilt work, not a relabel. Do not point
+    // "Check avail." at affiliateFallbackUrl to paper over that gap.
     var usingFallbackLink = !links.affiliateUrl && !!links.affiliateFallbackUrl;
     var primaryUrl = links.affiliateUrl || links.affiliateFallbackUrl || null;
     var providerLabel = "Edmunds \\u2197";
@@ -436,7 +451,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 
     var ctaBlock = (links.affiliateUrl && links.affiliateFallbackUrl)
       ? '<div class="cc-cta"><div class="cc-cta-row">' +
-          '<button type="button" class="cc-cta-btn cc-cta-left" data-url="' + esc(links.affiliateUrl) + '">View listing \\u2197</button>' +
+          '<button type="button" class="cc-cta-btn cc-cta-left" data-url="' + esc(links.affiliateUrl) + '">Check avail. \\u2197</button>' +
           '<button type="button" class="cc-cta-btn cc-cta-right" data-url="' + esc(links.affiliateFallbackUrl) + '">View similar \\u2197</button>' +
         "</div></div>"
       : primaryUrl
