@@ -30,17 +30,38 @@
  * Edmunds ignores both the `zip` and `price` query parameters on this URL
  * shape, so those are never sent. Any user-facing text describing this
  * fallback must not claim it narrows to the user's area or budget.
+ *
+ * 2026-09-03 addition (Andre-approved live confirmation, see
+ * lib/edmunds-search.ts for the full design/blocker/cost writeup):
+ * resolveLinks() is now async. Before trusting the deterministic exact-VIN
+ * URL, it optionally runs a live Google Custom Search confirmation (if
+ * GOOGLE_CSE_API_KEY/GOOGLE_CSE_CX are configured) and, if that misses,
+ * one targeted non-VIN search (year+make+model+trim+dealer/location only —
+ * never stock/price/mileage/color). Every failure mode (missing
+ * credentials, network error, timeout, no results) fails open to the
+ * exact pre-2026-09-03 behavior — this addition can only upgrade
+ * confidence in the destination, never remove or corrupt it.
  */
 import { buildEdmundsUrl, buildEdmundsCategoryUrl, wrapWithCJ } from "./edmunds-cj";
+import { confirmExactVinListing, findTargetedEdmundsFallback, isGoogleSearchConfigured } from "./edmunds-search";
 import type { AutoDevListing } from "./auto-dev-client";
 
 export interface LinkResolution {
-  affiliateUrl: string | null; // Edmunds VIN-specific link; null if unusable OR known-dead (Carvana)
+  affiliateUrl: string | null; // Edmunds destination behind "Check avail."; see checkAvailSource for what it actually points to
   affiliateFallbackUrl: string | null; // Edmunds category link (make/model, +trim when safely known, else +year if used) — live-tested to never dead-end; present whenever make+model are known. Not zip/price-filtered — see module doc. Year and trim are never combined.
   dealerListingUrl: string | null; // direct dealer/marketplace link (e.g. the real, live Carvana vdp link)
   isCarvana: boolean; // true when this listing is confirmed Carvana-sourced — see module doc above
   linkStatus: "both-available" | "edmunds-only" | "dealer-only" | "fallback-only" | "none-available";
+  // 2026-09-03 addition (Andre-approved live Google-search confirmation,
+  // see lib/edmunds-search.ts): which tier affiliateUrl actually came from.
+  // "unconfirmed" means Google Search wasn't configured, or ran but found
+  // no evidence either way — affiliateUrl is then the deterministic exact
+  // VIN URL used on a best-effort basis, exactly matching pre-2026-09-03
+  // behavior. This field is diagnostic only; it does not change what's
+  // rendered (results-card.ts still shows "Check avail." either way).
+  checkAvailSource: "confirmed-exact" | "targeted-fallback" | "unconfirmed" | "none";
 }
+
 
 // Known-bad URL patterns worth dropping without even attempting a request —
 // cheap, obvious cases (SYS-20260812-016/021/024).
@@ -57,22 +78,60 @@ function isCarvanaListing(listing: AutoDevListing): boolean {
   return dealer === "carvana" || vdp.includes("carvana.com");
 }
 
-export function resolveLinks(listing: AutoDevListing): LinkResolution {
+export async function resolveLinks(listing: AutoDevListing): Promise<LinkResolution> {
   const isCarvana = isCarvanaListing(listing);
 
-  const rawEdmunds = isCarvana
-    ? null
-    : buildEdmundsUrl({
-        vin: listing.vin,
-        make: listing.vehicle?.make,
-        model: listing.vehicle?.model,
-        year: listing.vehicle?.year,
-      });
-  const affiliateUrl = rawEdmunds ? wrapWithCJ(rawEdmunds) : null;
+  const vin = listing.vin;
+  const make = listing.vehicle?.make;
+  const model = listing.vehicle?.model;
+  const year = listing.vehicle?.year;
+  const trim = listing.vehicle?.trim;
+  const used = listing.retailListing?.used;
+  const dealer = listing.retailListing?.dealer;
+  const location = [listing.retailListing?.city, listing.retailListing?.state].filter(Boolean).join(", ") || null;
+
+  const rawEdmunds = isCarvana ? null : buildEdmundsUrl({ vin, make, model, year });
+
+  // 2026-09-03 (Andre-approved, see lib/edmunds-search.ts module doc for
+  // the credential blocker and cost/volume notes): live confirmation of
+  // the exact VIN listing, with one targeted non-VIN fallback search when
+  // the exact one isn't confirmed. Every branch below fails open to the
+  // pre-existing default (unconfirmed exact URL, or null) — a Google
+  // Search outage or missing credential can never remove or corrupt the
+  // existing CJ-monetized destination, only fail to upgrade its confidence.
+  let affiliateUrl: string | null = null;
+  let checkAvailSource: LinkResolution["checkAvailSource"] = "none";
+
+  if (rawEdmunds && isGoogleSearchConfigured()) {
+    const confirmedUrl = await confirmExactVinListing(vin);
+    if (confirmedUrl) {
+      // Use our own deterministic URL once Google confirms it's indexed,
+      // not Google's returned URL string — avoids trusting Google's own
+      // URL shape/tracking params for the actual monetized destination.
+      affiliateUrl = wrapWithCJ(rawEdmunds);
+      checkAvailSource = "confirmed-exact";
+    } else {
+      const targetedUrl = await findTargetedEdmundsFallback({ year, make, model, trim, dealer, location });
+      if (targetedUrl) {
+        affiliateUrl = wrapWithCJ(targetedUrl);
+        checkAvailSource = "targeted-fallback";
+      } else {
+        // Neither search found evidence either way — fail open to the
+        // pre-existing default rather than dropping the CTA.
+        affiliateUrl = wrapWithCJ(rawEdmunds);
+        checkAvailSource = "unconfirmed";
+      }
+    }
+  } else if (rawEdmunds) {
+    // Google Search not configured — exact pre-2026-09-03 behavior,
+    // zero regression.
+    affiliateUrl = wrapWithCJ(rawEdmunds);
+    checkAvailSource = "unconfirmed";
+  }
 
   const rawFallback = buildEdmundsCategoryUrl(
-    { make: listing.vehicle?.make, model: listing.vehicle?.model, year: listing.vehicle?.year, trim: listing.vehicle?.trim },
-    { used: listing.retailListing?.used },
+    { make, model, year, trim },
+    { used },
   );
   const affiliateFallbackUrl = rawFallback ? wrapWithCJ(rawFallback) : null;
 
@@ -86,5 +145,5 @@ export function resolveLinks(listing: AutoDevListing): LinkResolution {
   else if (affiliateFallbackUrl) linkStatus = "fallback-only";
   else linkStatus = "none-available";
 
-  return { affiliateUrl, affiliateFallbackUrl, dealerListingUrl, isCarvana, linkStatus };
+  return { affiliateUrl, affiliateFallbackUrl, dealerListingUrl, isCarvana, linkStatus, checkAvailSource };
 }
