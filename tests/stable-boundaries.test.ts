@@ -323,6 +323,33 @@ test("D2n. resolveLinks() alone (no redaction) still returns a real, unconfirmed
   );
 });
 
+test("D2o. resolveLinks() affiliateFallbackUrl (View similar) widens when Check avail is not confirmed-exact -- must not offer a near-duplicate of an already-unconfirmed Check avail link", async () => {
+  const { resolveLinks } = await import("../lib/link-resolution");
+
+  const l = {
+    vin: "1FTEW2KP9TKE60602",
+    vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" },
+    retailListing: { used: true, dealer: "Example Ford" },
+  };
+
+  // confirmed-exact -> View similar stays trim-specific (a "close" match is fine, since Check avail already nailed this exact vehicle)
+  const confirmed = resolveLinks(l as any, { vinFound: true, edmundsFound: true, edmundsUrl: "https://www.edmunds.com/ford/f-150/2026/vin/1FTEW2KP9TKE60602/featured-listing/", fallbackUsed: false });
+  assert.equal(confirmed.checkAvailSource, "confirmed-exact");
+  assert.ok(confirmed.affiliateFallbackUrl!.includes("lariat"), "confirmed-exact: View similar should stay trim-specific ('close')");
+
+  // targeted-fallback -> Check avail is itself only a close match, so View similar must widen (drop trim/year), not mirror it
+  const targeted = resolveLinks(l as any, { vinFound: false, edmundsFound: true, edmundsUrl: "https://www.edmunds.com/ford/f-150/2026/vin/DIFFERENT/featured-listing/", fallbackUsed: true });
+  assert.equal(targeted.checkAvailSource, "targeted-fallback");
+  assert.ok(!targeted.affiliateFallbackUrl!.includes("lariat"), "targeted-fallback: View similar must widen -- must not repeat the trim");
+  const decodedTargeted = decodeURIComponent(targeted.affiliateFallbackUrl!.split("url=")[1]);
+  assert.ok(decodedTargeted.includes("used-ford-f-150"), "should fall to the bare make/model tier");
+
+  // unconfirmed -> Check avail is also not confirmed here, so View similar should widen the same way
+  const unconfirmed = resolveLinks(l as any);
+  assert.equal(unconfirmed.checkAvailSource, "unconfirmed");
+  assert.ok(!unconfirmed.affiliateFallbackUrl!.includes("lariat"), "unconfirmed: View similar must widen too, not just the targeted-fallback case");
+});
+
 test("D2l. resolveLinks() all final links remain CJ-wrapped across every host-search outcome, including affiliateFallbackUrl", async () => {
   const { resolveLinks } = await import("../lib/link-resolution");
 
