@@ -143,7 +143,7 @@ test("D2a. resolveLinks() normal non-Carvana listing: affiliateUrl is VIN-specif
     retailListing: { used: true, vdp: "https://dealer.example.com/vdp/12345", dealer: "Example Ford" },
   };
 
-  const links = resolveLinks(l as any);
+  const links = await resolveLinks(l as any);
 
   assert.ok(links.affiliateUrl, "affiliateUrl should be present for a normal non-Carvana listing");
   assert.ok(links.affiliateUrl!.includes("1FTEW2KP9TKE60602"), "affiliateUrl should be VIN-specific");
@@ -151,6 +151,7 @@ test("D2a. resolveLinks() normal non-Carvana listing: affiliateUrl is VIN-specif
   assert.equal(links.dealerListingUrl, "https://dealer.example.com/vdp/12345", "dealerListingUrl must remain the raw dealer VDP, separate from affiliateUrl");
   assert.notEqual(links.dealerListingUrl, links.affiliateUrl, "dealer VDP must never replace/equal affiliateUrl");
   assert.equal(links.isCarvana, false);
+  assert.equal(links.checkAvailSource, "unconfirmed", "no GOOGLE_CSE credentials in test env -> fails open to pre-2026-09-03 default");
 });
 
 test("D2b. resolveLinks() Carvana listing: affiliateUrl is null, dealerListingUrl and fallback remain available", async () => {
@@ -162,12 +163,134 @@ test("D2b. resolveLinks() Carvana listing: affiliateUrl is null, dealerListingUr
     retailListing: { used: true, vdp: "https://www.carvana.com/vehicle/1234567", dealer: "Carvana" },
   };
 
-  const links = resolveLinks(l as any);
+  const links = await resolveLinks(l as any);
 
   assert.equal(links.isCarvana, true, "Carvana dealer name should be detected");
   assert.equal(links.affiliateUrl, null, "affiliateUrl must be null for a Carvana listing (known-dead on Edmunds)");
   assert.equal(links.dealerListingUrl, "https://www.carvana.com/vehicle/1234567", "dealerListingUrl must remain available for internal use");
   assert.ok(links.affiliateFallbackUrl, "affiliateFallbackUrl (category page) should still be available since make/model are valid");
+  assert.equal(links.checkAvailSource, "none", "Carvana never gets an exact-VIN attempt, confirmed or otherwise");
+});
+
+// ----------------------------------------------------------------------------
+// D2d-g. Live Google-search confirmation tier (2026-09-03, Andre-approved)
+// These stub globalThis.fetch directly rather than hitting the real Google
+// Custom Search API — deterministic, no network dependency, no real quota
+// consumed by the test suite. Restores the original fetch after each test
+// even on failure, and always clears the env vars afterward so later tests
+// (D2a/D2b above run before these in file order, but any future test added
+// after this block must not silently inherit "configured" state).
+// ----------------------------------------------------------------------------
+
+function withMockedGoogleSearch(responses: Array<{ items?: Array<{ link: string }> } | null>) {
+  const originalFetch = globalThis.fetch;
+  let callIndex = 0;
+  globalThis.fetch = (async () => {
+    const body = responses[Math.min(callIndex, responses.length - 1)];
+    callIndex++;
+    if (body === null) {
+      throw new Error("simulated network failure");
+    }
+    return {
+      ok: true,
+      json: async () => body,
+    } as Response;
+  }) as typeof fetch;
+
+  process.env.GOOGLE_CSE_API_KEY = "test-key";
+  process.env.GOOGLE_CSE_CX = "test-cx";
+
+  return () => {
+    globalThis.fetch = originalFetch;
+    delete process.env.GOOGLE_CSE_API_KEY;
+    delete process.env.GOOGLE_CSE_CX;
+  };
+}
+
+test("D2h. resolveLinks() with Google Search configured: exact VIN confirmed -> checkAvailSource 'confirmed-exact', affiliateUrl still the deterministic exact URL (not Google's raw returned URL)", async () => {
+  const { resolveLinks } = await import("../lib/link-resolution");
+
+  const restore = withMockedGoogleSearch([
+    { items: [{ link: "https://www.edmunds.com/ford/f-150/2026/vin/1FTEW2KP9TKE60602/featured-listing/?utm=whatever" }] },
+  ]);
+  try {
+    const l = {
+      vin: "1FTEW2KP9TKE60602",
+      vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" },
+      retailListing: { used: true, dealer: "Example Ford", city: "Dallas", state: "TX" },
+    };
+    const links = await resolveLinks(l as any);
+
+    assert.equal(links.checkAvailSource, "confirmed-exact");
+    assert.ok(links.affiliateUrl, "affiliateUrl should be present");
+    // Must use our own canonical URL (no ?utm= tracking params from Google's result).
+    assert.ok(!links.affiliateUrl!.includes("utm="), "must not adopt Google's raw returned URL/tracking params as the monetized destination");
+    assert.ok(links.affiliateUrl!.includes("1FTEW2KP9TKE60602"));
+  } finally {
+    restore();
+  }
+});
+
+test("D2i. resolveLinks() with Google Search configured: exact VIN misses, targeted fallback search finds a page -> checkAvailSource 'targeted-fallback'", async () => {
+  const { resolveLinks } = await import("../lib/link-resolution");
+
+  const restore = withMockedGoogleSearch([
+    { items: [] }, // exact VIN query: no match
+    { items: [{ link: "https://www.edmunds.com/ford/f-150/2026/vin/DIFFERENTVIN12345/featured-listing/" }] }, // targeted query: found a page
+  ]);
+  try {
+    const l = {
+      vin: "1FTEW2KP9TKE60602",
+      vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" },
+      retailListing: { used: true, dealer: "Example Ford", city: "Dallas", state: "TX" },
+    };
+    const links = await resolveLinks(l as any);
+
+    assert.equal(links.checkAvailSource, "targeted-fallback");
+    assert.ok(links.affiliateUrl, "affiliateUrl should be present from the targeted-fallback tier");
+    assert.ok(links.affiliateUrl!.includes("DIFFERENTVIN12345"), "must use the targeted search's own found URL, not fabricate the original VIN's URL");
+  } finally {
+    restore();
+  }
+});
+
+test("D2j. resolveLinks() with Google Search configured: both searches miss -> fails open to unconfirmed exact URL, CTA never dropped", async () => {
+  const { resolveLinks } = await import("../lib/link-resolution");
+
+  const restore = withMockedGoogleSearch([{ items: [] }, { items: [] }]);
+  try {
+    const l = {
+      vin: "1FTEW2KP9TKE60602",
+      vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" },
+      retailListing: { used: true, dealer: "Example Ford" },
+    };
+    const links = await resolveLinks(l as any);
+
+    assert.equal(links.checkAvailSource, "unconfirmed");
+    assert.ok(links.affiliateUrl, "affiliateUrl must still be present (the deterministic exact URL) even when neither search finds evidence");
+    assert.ok(links.affiliateUrl!.includes("1FTEW2KP9TKE60602"));
+  } finally {
+    restore();
+  }
+});
+
+test("D2k. resolveLinks() with Google Search configured but the API call throws/network-fails: fails open exactly like 'not configured', never throws, CTA never dropped", async () => {
+  const { resolveLinks } = await import("../lib/link-resolution");
+
+  const restore = withMockedGoogleSearch([null, null]);
+  try {
+    const l = {
+      vin: "1FTEW2KP9TKE60602",
+      vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" },
+      retailListing: { used: true, dealer: "Example Ford" },
+    };
+    const links = await resolveLinks(l as any);
+
+    assert.equal(links.checkAvailSource, "unconfirmed");
+    assert.ok(links.affiliateUrl, "a search API failure must never remove the existing monetized CTA");
+  } finally {
+    restore();
+  }
 });
 
 test("D2c. buildEdmundsCategoryUrl() USED + safe trim: exact trim URL, no year in path", async () => {
