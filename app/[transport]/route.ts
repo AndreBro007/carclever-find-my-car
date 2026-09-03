@@ -160,6 +160,10 @@ Two links belong on every result.
 
 For the top result, embed its \`primaryImage\` directly using markdown image syntax so it renders inline — the URL is already present in the result data, no separate tool call needed. Only do this if \`primaryImage\` is present; never substitute a placeholder or generic image.
 
+HOST-DRIVEN AVAILABILITY VERIFICATION (recommended, optional)
+
+The \`affiliateUrl\` returned above is a best-effort, unconfirmed link by default. For higher-confidence "Check avail." links — actually confirming the specific vehicle is indexed on Edmunds rather than guessing — call the \`resolve_vehicle_availability\` tool after this one, using YOUR OWN web-search capability (not a call this server makes): for each of the (up to 5) results, search \`site:edmunds.com "<VIN>"\`; if that finds nothing useful, run exactly one more search, \`site:edmunds.com "<year> <make> <model> <trim>" "<dealer>" "<city/state>"\`. Pass what you found (found/not-found plus the URL, per vehicle) to \`resolve_vehicle_availability\`, which returns freshly CJ-wrapped links to use instead of this call's \`affiliateUrl\`/\`affiliateFallbackUrl\` for those vehicles. Never run any other search variant (no stock number, price, mileage, color, or listing-date searches), and never display a raw Google/Edmunds/dealer/search-provider URL yourself — always relay the CJ-wrapped URL that tool returns. This step is optional and additive: skipping it is fine, the unconfirmed \`affiliateUrl\` from this call is still a safe, live-tested destination.
+
 MAPS
 
 For local vehicle searches, when results include 3+ dealer locations, present the recommended results on an interactive map using any available map visualization tool — this applies whenever geographic/dealer location data is returned, using the dealer/location data already returned by the tool.`;
@@ -203,6 +207,40 @@ const ResolveDealerUrlOutput = z.object({
   dealerListingUrl: z.string().nullable(),
   isCarvana: z.boolean(),
   linkStatus: z.enum(["both-available", "edmunds-only", "dealer-only", "fallback-only", "none-available"]),
+  // Added 2026-09-03 (SYS-20260903-005) alongside checkAvailSource on
+  // LinkResolution — was previously missing from this schema entirely,
+  // which meant zod's default key-stripping behavior silently dropped it
+  // from structuredContent even after it existed on the TS type. Caught
+  // while wiring up the host-search-driven verification flow.
+  checkAvailSource: z.enum(["confirmed-exact", "targeted-fallback", "unconfirmed", "none"]),
+});
+
+// Per-vehicle input to the batch verification tool below — the minimum the
+// host AI needs to supply per the approved flow: enough vehicle identity to
+// rebuild the exact-VIN and category-fallback URLs, plus its own web-search
+// findings (never more than the two required queries' worth of signal).
+const VehicleAvailabilityCheckInput = z.object({
+  vin: z.string().describe("The vehicle's 17-character VIN."),
+  make: z.string().describe("Vehicle manufacturer, e.g. Toyota."),
+  model: z.string().describe("Vehicle model name, e.g. Camry."),
+  year: z.number().describe("Model year."),
+  trim: z.string().optional().describe("Trim level, if known — used only for the fallback destination and to help the host construct its wider search query."),
+  used: z.boolean().optional().describe("true for a used vehicle, false for new — affects which affiliateFallbackUrl shape is built. Omit if unknown."),
+  vinFound: z
+    .boolean()
+    .describe(
+      'Did the host\'s exact-VIN search (site:edmunds.com "<VIN>") return a usable Edmunds result for this specific vehicle?',
+    ),
+  edmundsFound: z
+    .boolean()
+    .describe("Did EITHER search (the exact-VIN search, or the one wider fallback search) find a usable Edmunds result? False if neither search ran, timed out, or found nothing."),
+  edmundsUrl: z.string().nullable().describe("The Edmunds URL found by whichever search succeeded, if any. Null if edmundsFound is false. Raw URL — this tool wraps it as a CJ affiliate link; never pass or expect a pre-wrapped URL here."),
+  fallbackUsed: z.boolean().describe("true if edmundsUrl came from the wider fallback search rather than the exact-VIN search."),
+});
+
+const ResolveVehicleAvailabilityOutput = z.object({
+  vin: z.string(),
+  links: ResolveDealerUrlOutput,
 });
 
 const SHORTLIST_SIZE = 5;
@@ -620,7 +658,7 @@ async function buildResultCard(
 ) {
   const verification = crossCheckVin(listing); // now local/synchronous — no API call
   const { matchScore, matchScoreLabel, breakdown } = computeMatchScore(listing, intent, verification);
-  const links = await resolveLinks(listing);
+  const links = resolveLinks(listing);
 
   // Suppress entirely if no usable outbound link — a result with zero
   // actionable CTAs isn't useful regardless of Match Score (SYS-20260812-023/024).
@@ -2338,7 +2376,7 @@ const handler = createMcpHandler((server) => {
       // evaluates false via isCarvanaListing()'s dealer/vdp checks — moot
       // either way now, since dealerListingUrl is never routed to as the
       // resolved link regardless of Carvana status (see primary below).
-      const links = await resolveLinks({ vin, vehicle: { make, model, year } } as AutoDevListing);
+      const links = resolveLinks({ vin, vehicle: { make, model, year } } as AutoDevListing);
 
       if (links.linkStatus === "none-available") {
         return {
@@ -2375,6 +2413,61 @@ const handler = createMcpHandler((server) => {
       return {
         content: [{ type: "text" as const, text: primary }],
         structuredContent: links,
+      };
+    },
+  );
+
+  server.registerTool(
+    "resolve_vehicle_availability",
+    {
+      description:
+        'Host-AI-driven Edmunds verification (SYS-20260903-005): call this AFTER you (the host AI) have run your own web search for each vehicle from find_matching_vehicle\'s results, to get back the correct CJ-affiliate-wrapped "Check avail." and "View similar" destinations. ' +
+        'Required search sequence per vehicle, using YOUR web-search tool (not this server\'s): ' +
+        '(1) exact search: site:edmunds.com "<VIN>" — if this returns a usable Edmunds result for that VIN, set vinFound=true, edmundsFound=true, edmundsUrl to that page, fallbackUsed=false. ' +
+        '(2) ONLY if step 1 finds nothing useful, run exactly one fallback search: site:edmunds.com "<year> <make> <model> <trim>" "<dealer>" "<city/state>" — if that finds a usable Edmunds result, set vinFound=false, edmundsFound=true, edmundsUrl to that page, fallbackUsed=true. ' +
+        "If neither search finds anything useful, or a search fails/times out, set vinFound=false, edmundsFound=false, edmundsUrl=null — this tool fails open to the same reliable fallback behavior as if verification had never run, it never drops the Check avail. button. " +
+        "Never run any other search (no stock number, price, mileage, color, or listing-date queries) — those are explicitly out of scope for this flow. " +
+        "Works identically for new and used vehicles; do not branch your search behavior on condition. " +
+        'This tool always returns Check avail./View similar destinations already wrapped as CJ affiliate URLs — never construct or display a raw Google, Edmunds, dealer, or search-provider URL to the user yourself; always relay the URLs this tool returns.',
+      inputSchema: {
+        vehicles: z.array(VehicleAvailabilityCheckInput).max(5).describe("Up to 5 vehicles (matches find_matching_vehicle's shortlist size) with your web-search findings for each."),
+      },
+      outputSchema: { results: z.array(ResolveVehicleAvailabilityOutput) },
+      annotations: { title: "Resolve Vehicle Availability (host-search-driven)", readOnlyHint: true, openWorldHint: false, destructiveHint: false },
+    },
+    async ({ vehicles }) => {
+      const results = vehicles.map((v) => {
+        const listing = {
+          vin: v.vin,
+          vehicle: { make: v.make, model: v.model, year: v.year, trim: v.trim },
+          retailListing: { used: v.used },
+        } as AutoDevListing;
+        const hostSearchResult = {
+          vinFound: v.vinFound,
+          edmundsFound: v.edmundsFound,
+          edmundsUrl: v.edmundsUrl,
+          fallbackUsed: v.fallbackUsed,
+        };
+        const links = resolveLinks(listing, hostSearchResult);
+        return { vin: v.vin, links };
+      });
+
+      const summary = results
+        .map((r) => {
+          const dest = r.links.affiliateUrl ?? r.links.affiliateFallbackUrl ?? null;
+          const label =
+            r.links.checkAvailSource === "confirmed-exact"
+              ? "confirmed"
+              : r.links.checkAvailSource === "targeted-fallback"
+              ? "close match, not confirmed"
+              : "unconfirmed, best-effort";
+          return `${r.vin}: ${dest ?? "no link available"} (${label})`;
+        })
+        .join("\n");
+
+      return {
+        content: [{ type: "text" as const, text: summary }],
+        structuredContent: { results },
       };
     },
   );
