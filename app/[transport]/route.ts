@@ -26,7 +26,7 @@ import { decodeNhtsaElectrification, nhtsaIndicatesElectrified, type NhtsaElectr
 import { getCorpusCountForDescription, initCorpusCount } from "@/lib/corpus-count";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting, type CardIntentInput } from "@/lib/qualifier-accounting";
-import { RESULTS_CARD_RESOURCE_URI, buildResultsCardHtml } from "@/lib/results-card";
+import { RESULTS_CARD_RESOURCE_URI, buildResultsCardHtml, getAppOrigin } from "@/lib/results-card";
 import { signImageUrl } from "@/lib/image-proxy-sign";
 import { trimMatches } from "@/lib/trim-match";
 import { formatVehicleTitle } from "@/lib/vehicle-title";
@@ -116,7 +116,7 @@ RESULT TRUST
 
 Every result's text states plainly which criteria it met, and separately flags any genuine data conflict (e.g. a cylinder count disagreeing with its own series description). If a price, mileage, or other value is flagged as an implausible data error, never present it as the genuine cheapest, newest, or best match in your own summary — it stays visible for transparency but is excluded from that judgment.
 
-Open with real scale: \`corpusSizeApprox\` searched, narrowed to \`totalMatches\` matching this request — e.g. "3,581,127 searched → 406 matched, here are the strongest options:". Never claim an exact count for the results actually shown, since that depends on how the response gets formatted — keep that part qualitative ("strongest options," "best matches"). If \`totalMatches\` is null, the exact count wasn't available for this search — don't say "0 matched" or invent a number; just open with \`corpusSizeApprox\` searched and go straight into the results.
+Open with real scale: \`corpusSizeApprox\` searched, narrowed to \`totalMatches\` matching this request — e.g. "3,581,127 searched → 406 matched." Treat that scale statement and the results that follow as two SEPARATE facts, never one continuous count: \`totalMatches\`/\`totalCandidatesConsidered\` describe the size of the broader match pool and can be — and often are — a different number than what's actually shown below, since verification and filtering steps you don't see can still drop candidates after that pool size is computed. If \`totalMatches\` is null, the exact pool size wasn't available for this search — don't say "0 matched" or invent a number; just open with \`corpusSizeApprox\` searched and go straight into the results. When you need to say how many results are below (e.g. "here are the N strongest options"), use \`resultsShown\` — the exact, guaranteed-accurate count of items in \`results\` — and never substitute \`totalMatches\` or \`totalCandidatesConsidered\` for that number, even when they happen to look close.
 
 PRIORITY AXIS
 
@@ -615,10 +615,11 @@ function applyLocalLowerRiskOrdering(candidates: AutoDevListing[]): AutoDevListi
 }
 
 
-// Same deployed origin the widget declares in its CSP resourceDomains
-// (lib/results-card.ts APP_ORIGIN) — kept in sync manually since the two
-// files are independent per the MCP Apps static-resource split.
-const IMG_PROXY_ORIGIN = "https://carclever-find-my-car.vercel.app";
+// Same deployed origin the widget declares in its CSP resourceDomains —
+// imported directly from lib/results-card.ts's getAppOrigin() rather than a
+// second hardcoded copy, so the two can never drift out of sync again
+// (this constant used to be a manually-duplicated literal; that's exactly
+// the class of bug fixed in SYS-20260831-002 — one dynamic source now).
 
 function signedImageProxyUrl(rawImageUrl: string | null): string | null {
   if (!rawImageUrl) return null;
@@ -629,7 +630,7 @@ function signedImageProxyUrl(rawImageUrl: string | null): string | null {
   // route itself still fails closed (403) for any unsigned/invalid request.
   try {
     const sig = signImageUrl(rawImageUrl);
-    return IMG_PROXY_ORIGIN + "/api/img-proxy?u=" + encodeURIComponent(rawImageUrl) + "&sig=" + sig;
+    return getAppOrigin() + "/api/img-proxy?u=" + encodeURIComponent(rawImageUrl) + "&sig=" + sig;
   } catch {
     return null;
   }
@@ -908,7 +909,7 @@ const handler = createMcpHandler((server) => {
           // once the field was removed, ChatGPT unaffected either way.
           // Do NOT restore a plain Vercel-origin value without
           // re-validating against a live Claude test first.
-          csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
+          csp: { resourceDomains: [getAppOrigin()] },
           prefersBorder: false,
         },
       },
@@ -938,10 +939,10 @@ const handler = createMcpHandler((server) => {
           // _meta is intentionally NOT touched in this experiment.
           _meta: {
             ui: {
-              csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
+              csp: { resourceDomains: [getAppOrigin()] },
               prefersBorder: false,
             },
-            "openai/widgetDomain": "https://carclever-find-my-car.vercel.app",
+            "openai/widgetDomain": getAppOrigin(),
           },
         },
       ],
@@ -1004,6 +1005,7 @@ const handler = createMcpHandler((server) => {
               meta: {
                 totalCandidatesConsidered: 0,
                 totalMatches: 0,
+                resultsShown: 0,
                 corpusSizeApprox: getCorpusCountForDescription(),
                 relaxations: [],
                 dataNotes: [],
@@ -1034,6 +1036,7 @@ const handler = createMcpHandler((server) => {
               meta: {
                 totalCandidatesConsidered: 0,
                 totalMatches: 0,
+                resultsShown: 0,
                 corpusSizeApprox: getCorpusCountForDescription(),
                 relaxations: [],
                 dataNotes: [],
@@ -1206,6 +1209,7 @@ const handler = createMcpHandler((server) => {
             meta: {
               totalCandidatesConsidered: 1,
               totalMatches: vinCards.length,
+              resultsShown: vinCardsWithBuyerCheck.length,
               corpusSizeApprox: getCorpusCountForDescription(),
               relaxations: [],
               dataNotes: vinDataNotes,
@@ -2176,6 +2180,7 @@ const handler = createMcpHandler((server) => {
         meta: {
           totalCandidatesConsidered: candidates.length,
           totalMatches: typeof total === "number" ? total : null,
+          resultsShown: cards.length,
           corpusSizeApprox: getCorpusCountForDescription(),
           relaxations,
           dataNotes,
@@ -2512,6 +2517,7 @@ const handler = createMcpHandler((server) => {
           meta: {
             totalCandidatesConsidered: vehicles.length,
             totalMatches: cards.length,
+            resultsShown: cards.length,
             corpusSizeApprox: getCorpusCountForDescription(),
             relaxations: [],
             dataNotes,
@@ -2536,13 +2542,16 @@ const handler = createMcpHandler((server) => {
   // populated with real, always-current build identity instead of a
   // static placeholder).
   //
+  // Added Aug 31 2026 specifically to stop chasing symptoms that turn
+  // out to be stale/cached code rather than real bugs -- a recurring
+  // problem this same session (see DECISIONS.md SYS-20260831-001/003/004).
+  //
   // Ported 2026-09-03 (SYS-20260903-007) from fix/total-matches-count-bug
-  // (originally added there Aug 31, SYS-20260831-005) -- that fix was
-  // never on `main`, so it wasn't on this branch either (cut from `main`)
-  // until now. Same mechanism, same field, ported verbatim rather than
-  // reinvented: check this FIRST, before trusting any other live-test
-  // result on this branch's preview, exactly per the standing practice
-  // documented in DECISIONS.md SYS-20260831-005/SYS-20260901-001.
+  // to this branch (cut from `main`, which never had this fix) -- same
+  // mechanism, same field, ported verbatim rather than reinvented: check
+  // this FIRST, before trusting any other live-test result on this
+  // branch's preview, exactly per the standing practice documented in
+  // DECISIONS.md SYS-20260831-005/SYS-20260901-001.
   // VERCEL_GIT_COMMIT_SHA is set automatically by Vercel on every
   // deployment; no manual version-bump step to forget. Falls back to
   // package.json's version for any environment where it's unset (e.g.

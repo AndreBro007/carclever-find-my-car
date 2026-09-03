@@ -22,11 +22,52 @@
 // is completely untouched (see route.ts) — this widget is additive, never a
 // replacement for the existing tool response.
 
-export const RESULTS_CARD_RESOURCE_URI = "ui://carclever-find-my-car/results-card";
+export const RESULTS_CARD_RESOURCE_URI = "ui://carclever-find-my-car/results-card-v2";
 
 // Set to the real deployed origin. Used both for the CSP resourceDomains
 // declaration and for building proxied photo URLs client-side.
-const APP_ORIGIN = "https://carclever-find-my-car.vercel.app";
+// Widget-serving origin, declared to hosts via CSP resourceDomains and
+// openai/widgetDomain (route.ts) so it must always match wherever this
+// code is *actually* running, not just production.
+//
+// Derived from Vercel's own system env vars (verified against Vercel's
+// docs, Aug 31 2026) rather than hardcoded, to fix a real live failure:
+// this value was hardcoded to production everywhere, so any preview
+// deployment declared a domain it wasn't actually being served from —
+// matching the exact "fetch it, then fail to mount/render it" failure
+// class already documented below as SYS-20260825, just never revisited
+// for a *preview* domain since that scenario didn't exist in August.
+//
+// REAL BUG CAUGHT LIVE, same day (SYS-20260831-004): the first version of
+// this fix used VERCEL_URL for non-production, which is the deployment's
+// own unique per-deployment hash URL (e.g. carclever-find-my-76cqhr7vq-...),
+// NOT the stable git-branch alias URL (e.g. carclever-find-my-car-git-
+// fix-total-matches-count-bug-...) that a connector is actually configured
+// against and that the browser is actually connected through. Confirmed
+// via a raw resources/read call showing the widget declaring a domain
+// that didn't match window.location.origin on the live page -- the exact
+// SYS-20260825 mismatch, just reintroduced by this fix instead of fixed
+// by it. VERCEL_BRANCH_URL is the correct field for this (confirmed
+// against Vercel's own docs): the stable branch alias, not the
+// per-deployment hash.
+//
+// SAFETY, load-bearing: for VERCEL_ENV === "production" this resolves to
+// the exact same literal string that was hardcoded before, with that same
+// string kept as the fallback — so production's declared domain is
+// byte-identical whether or not this branch is ever merged. See the
+// dedicated tests in tests/stable-boundaries.test.ts (D9a-d, D10) that
+// assert this invariant directly against this function, not just by
+// inspection.
+export function getAppOrigin(): string {
+  if (process.env.VERCEL_ENV === "production") {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL ?? "carclever-find-my-car.vercel.app"}`;
+  }
+  // Preview (or any other non-production env): prefer the stable branch
+  // alias -- the domain any connector/browser actually reaches this
+  // deployment through -- and only fall back to the per-deployment hash
+  // URL (VERCEL_URL) if the branch alias somehow isn't set.
+  return `https://${process.env.VERCEL_BRANCH_URL ?? process.env.VERCEL_URL ?? "carclever-find-my-car.vercel.app"}`;
+}
 
 export function buildResultsCardHtml(): string {
   return `<!DOCTYPE html>
@@ -197,7 +238,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     var stageEl = document.getElementById("cc-stage");
     if (stageEl) stageEl.textContent = "script error: " + (e && e.message);
   });
-  var APP_ORIGIN = ${JSON.stringify(APP_ORIGIN)};
+  var APP_ORIGIN = ${JSON.stringify(getAppOrigin())};
   var nextId = 1;
   var pending = {};
 
@@ -527,7 +568,11 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     var html = '<section class="cc-shell">' +
       '<header class="cc-header">' +
         '<div class="cc-header-left"><div class="cc-scale">' + esc(scaleHeaderText(meta)) + "</div></div>" +
-        '<div class="cc-header-center">Top ' + visible.length + " shown</div>" +
+        '<div class="cc-header-center">' + esc(
+          results.length > visible.length
+            ? "Top " + visible.length + " of " + results.length + " shown"
+            : visible.length + (visible.length === 1 ? " match shown" : " shown")
+        ) + "</div>" +
         '<div class="cc-header-right"><img class="cc-header-logo" src="' + APP_ORIGIN + '/cc-logo-round.png" alt="CarClever" width="22" height="22"/><span class="cc-brand">CarClever</span></div>' +
       "</header>" +
       '<div class="cc-carousel-wrap">' +
