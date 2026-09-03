@@ -172,6 +172,29 @@ test("D2b. resolveLinks() Carvana listing: affiliateUrl is null, dealerListingUr
   assert.equal(links.checkAvailSource, "none", "Carvana has no exact-VIN URL to confirm or fall back from in the first place");
 });
 
+test("D2p. resolveLinks() unavailable-bare: neither VIN-specific nor category fallback available (make/model missing) -- the 4th required deterministic outcome per the approved design doc (exact VIN / targeted fallback / unavailable-with-similar / unavailable-bare)", async () => {
+  const { resolveLinks } = await import("../lib/link-resolution");
+
+  // Carvana (kills affiliateUrl) AND make/model missing (kills
+  // affiliateFallbackUrl too, since buildEdmundsCategoryUrl requires both
+  // to build even the widest bare-make/model tier) -- the one combination
+  // that genuinely has no CJ destination at all, matching Edmunds' own
+  // "unavailable, no similar grid" case from the design doc's Chrome
+  // ground-truth testing (2/24 URLs, both 2027 MINI Cooper Countryman).
+  const l = {
+    vin: "1FTEW2KPXTKE60933",
+    vehicle: { make: undefined, model: undefined, year: 2026 },
+    retailListing: { used: true, vdp: "https://www.carvana.com/vehicle/1234567", dealer: "Carvana" },
+  };
+
+  const links = resolveLinks(l as any);
+
+  assert.equal(links.affiliateUrl, null);
+  assert.equal(links.affiliateFallbackUrl, null, "unavailable-bare: no category fallback either when make/model are unknown");
+  assert.equal(links.linkStatus, "dealer-only", "dealerListingUrl is the only thing left -- never routed to as a user-facing link, but present internally");
+  assert.equal(links.checkAvailSource, "none");
+});
+
 // ----------------------------------------------------------------------------
 // D2h-l. Host-AI-driven Edmunds verification (SYS-20260903-005). Unlike the
 // earlier (blocked, see SYS-20260903-004) Google-CSE design, there's no
