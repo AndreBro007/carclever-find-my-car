@@ -273,6 +273,56 @@ test("D2k. resolveLinks() host search timeout/failure (no hostSearchResult suppl
   assert.ok(links.affiliateUrl!.startsWith(CJ_PREFIX));
 });
 
+test("D2m. redactLinksForDataOnlyResponse() enforces the mandatory two-call sequence contract (SYS-20260903-006): always nulls affiliateUrl/affiliateFallbackUrl regardless of input, never touches other fields — this is what makes it structurally impossible for find_matching_vehicle to leak a real link no matter what resolveLinks() computed", async () => {
+  const { resolveLinks, redactLinksForDataOnlyResponse } = await import("../lib/link-resolution");
+
+  const l = {
+    vin: "1FTEW2KP9TKE60602",
+    vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" },
+    retailListing: { used: true, vdp: "https://dealer.example.com/vdp/12345", dealer: "Example Ford" },
+  };
+
+  const scenarios: Array<{ vinFound: boolean; edmundsFound: boolean; edmundsUrl: string | null; fallbackUsed: boolean } | undefined> = [
+    { vinFound: true, edmundsFound: true, edmundsUrl: "https://www.edmunds.com/ford/f-150/2026/vin/1FTEW2KP9TKE60602/featured-listing/", fallbackUsed: false },
+    { vinFound: false, edmundsFound: true, edmundsUrl: "https://www.edmunds.com/ford/f-150/2026/vin/DIFFERENTVIN12345/featured-listing/", fallbackUsed: true },
+    { vinFound: false, edmundsFound: false, edmundsUrl: null, fallbackUsed: false },
+    undefined,
+  ];
+
+  for (const s of scenarios) {
+    const resolved = resolveLinks(l as any, s);
+    const redacted = redactLinksForDataOnlyResponse(resolved);
+
+    assert.equal(redacted.affiliateUrl, null, `affiliateUrl must always be null after redaction, scenario ${JSON.stringify(s)}`);
+    assert.equal(redacted.affiliateFallbackUrl, null, `affiliateFallbackUrl must always be null after redaction, scenario ${JSON.stringify(s)}`);
+    // Everything else must pass through unchanged — redaction is
+    // link-only, it must not hide other diagnostic fields.
+    assert.equal(redacted.dealerListingUrl, resolved.dealerListingUrl);
+    assert.equal(redacted.isCarvana, resolved.isCarvana);
+    assert.equal(redacted.linkStatus, resolved.linkStatus);
+    assert.equal(redacted.checkAvailSource, resolved.checkAvailSource);
+  }
+});
+
+test("D2n. resolveLinks() alone (no redaction) still returns a real, unconfirmed link — confirming redaction in route.ts's data-only paths is load-bearing and not redundant with resolveLinks()'s own fail-open default", async () => {
+  const { resolveLinks } = await import("../lib/link-resolution");
+
+  const l = {
+    vin: "1FTEW2KP9TKE60602",
+    vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" },
+    retailListing: { used: true, dealer: "Example Ford" },
+  };
+
+  // Mirrors exactly how find_matching_vehicle calls buildResultCard() (via
+  // resolveLinks(listing) with no second argument) before route.ts's own
+  // redactLinksForDataOnlyResponse() step runs.
+  const withoutRedaction = resolveLinks(l as any);
+  assert.ok(
+    withoutRedaction.affiliateUrl,
+    "resolveLinks() alone still returns a real (unconfirmed) link — the redaction call site in route.ts, not resolveLinks() itself, is what must never be skipped or removed",
+  );
+});
+
 test("D2l. resolveLinks() all final links remain CJ-wrapped across every host-search outcome, including affiliateFallbackUrl", async () => {
   const { resolveLinks } = await import("../lib/link-resolution");
 
