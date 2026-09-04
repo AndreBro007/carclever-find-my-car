@@ -134,7 +134,7 @@ test("D1g. applyDiversity() make/model diversity: alternative make preferred bef
 // D2. LINK RESOLUTION — REAL resolveLinks() + buildEdmundsCategoryUrl()
 // ============================================================================
 
-test("D2a. resolveLinks() normal non-Carvana listing: affiliateUrl is VIN-specific, fallback exists, dealerListingUrl separate, isCarvana false", async () => {
+test("D2a. resolveLinks() normal non-Carvana used listing: affiliateUrl is the exact-VIN URL, fallback exists, dealerListingUrl separate, isCarvana false", async () => {
   const { resolveLinks } = await import("../lib/link-resolution");
 
   const l = {
@@ -145,16 +145,16 @@ test("D2a. resolveLinks() normal non-Carvana listing: affiliateUrl is VIN-specif
 
   const links = resolveLinks(l as any);
 
-  assert.ok(links.affiliateUrl, "affiliateUrl should be present for a normal non-Carvana listing");
-  assert.ok(links.affiliateUrl!.includes("1FTEW2KP9TKE60602"), "affiliateUrl should be VIN-specific");
+  assert.ok(links.affiliateUrl, "affiliateUrl should be present for a normal Used listing");
+  assert.ok(links.affiliateUrl!.includes("1FTEW2KP9TKE60602"), "affiliateUrl should be the exact-VIN URL");
   assert.ok(links.affiliateFallbackUrl, "affiliateFallbackUrl should be present");
   assert.equal(links.dealerListingUrl, "https://dealer.example.com/vdp/12345", "dealerListingUrl must remain the raw dealer VDP, separate from affiliateUrl");
   assert.notEqual(links.dealerListingUrl, links.affiliateUrl, "dealer VDP must never replace/equal affiliateUrl");
   assert.equal(links.isCarvana, false);
-  assert.equal(links.checkAvailSource, "unconfirmed", "no hostSearchResult supplied -> fails open to the pre-verification default");
+  assert.equal(links.checkAvailSource, "exact", "Used vehicles get the exact-VIN tier by default (SYS-20260904-002)");
 });
 
-test("D2b. resolveLinks() Carvana listing: affiliateUrl is null, dealerListingUrl and fallback remain available", async () => {
+test("D2b. resolveLinks() Carvana listing: SYS-20260904-002 -- gets the same close/loose treatment as New, not a null Check avail. anymore", async () => {
   const { resolveLinks } = await import("../lib/link-resolution");
 
   const l = {
@@ -166,21 +166,23 @@ test("D2b. resolveLinks() Carvana listing: affiliateUrl is null, dealerListingUr
   const links = resolveLinks(l as any);
 
   assert.equal(links.isCarvana, true, "Carvana dealer name should be detected");
-  assert.equal(links.affiliateUrl, null, "affiliateUrl must be null for a Carvana listing (known-dead on Edmunds)");
-  assert.equal(links.dealerListingUrl, "https://www.carvana.com/vehicle/1234567", "dealerListingUrl must remain available for internal use");
-  assert.ok(links.affiliateFallbackUrl, "affiliateFallbackUrl (category page) should still be available since make/model are valid");
-  assert.equal(links.checkAvailSource, "none", "Carvana has no exact-VIN URL to confirm or fall back from in the first place");
+  assert.ok(links.affiliateUrl, "Carvana now gets a real Check avail. link -- the close (trim-specific) category URL, per the Andre/ChatGPT-approved refinement");
+  assert.ok(!links.affiliateUrl!.includes("1FTEW2KPXTKE60933"), "must never be the exact-VIN URL -- Carvana's exact-VIN link is confirmed 100% dead, no attempt is ever made");
+  assert.ok(links.affiliateUrl!.includes("honda-cr-v"), "should be the trim-specific/category construction, not a VIN page");
+  assert.equal(links.dealerListingUrl, "https://www.carvana.com/vehicle/1234567", "dealerListingUrl must remain available for internal use, never surfaced as the user-facing link");
+  assert.ok(links.affiliateFallbackUrl, "affiliateFallbackUrl (loose category page) should still be available");
+  assert.equal(links.checkAvailSource, "close", "Carvana takes the same 'close' tier as New vehicles");
 });
 
-test("D2p. resolveLinks() unavailable-bare: neither VIN-specific nor category fallback available (make/model missing) -- the 4th required deterministic outcome per the approved design doc (exact VIN / targeted fallback / unavailable-with-similar / unavailable-bare)", async () => {
+test("D2p. resolveLinks() unavailable-bare: neither exact-VIN nor category fallback available (make/model missing) -- the one combination with genuinely no CJ destination", async () => {
   const { resolveLinks } = await import("../lib/link-resolution");
 
-  // Carvana (kills affiliateUrl) AND make/model missing (kills
-  // affiliateFallbackUrl too, since buildEdmundsCategoryUrl requires both
-  // to build even the widest bare-make/model tier) -- the one combination
-  // that genuinely has no CJ destination at all, matching Edmunds' own
-  // "unavailable, no similar grid" case from the design doc's Chrome
-  // ground-truth testing (2/24 URLs, both 2027 MINI Cooper Countryman).
+  // Carvana (routes to the close/loose path) AND make/model missing (kills
+  // both the close and loose category tiers, since buildEdmundsCategoryUrl
+  // requires both) -- the one combination that genuinely has no CJ
+  // destination at all, matching Edmunds' own "unavailable, no similar
+  // grid" case from the original design doc's Chrome ground-truth testing
+  // (2/24 URLs, both 2027 MINI Cooper Countryman).
   const l = {
     vin: "1FTEW2KPXTKE60933",
     vehicle: { make: undefined, model: undefined, year: 2026 },
@@ -196,89 +198,15 @@ test("D2p. resolveLinks() unavailable-bare: neither VIN-specific nor category fa
 });
 
 // ----------------------------------------------------------------------------
-// D2h-l. Host-AI-driven Edmunds verification (SYS-20260903-005). Unlike the
-// earlier (blocked, see SYS-20260903-004) Google-CSE design, there's no
-// vendor API for these tests to mock — resolveLinks() just takes a plain
-// HostSearchResult object, exactly what the resolve_vehicle_availability
-// tool in app/[transport]/route.ts constructs from its input. Covers the 5
-// scenarios Andre asked for explicitly: exact VIN found; VIN not found but
-// wider match found; neither found; timeout/failure (modeled as the host
-// simply not supplying a result, e.g. because its search infra failed);
-// and that every final link stays CJ-wrapped in every case.
+// D2h-l. Deterministic condition-aware design (SYS-20260904-002) --
+// supersedes the host-AI-driven live-search design (SYS-20260903-005
+// through -013), which worked and was verified live but cost 85-100
+// seconds per search. No host search, no vendor API, fully synchronous.
 // ----------------------------------------------------------------------------
 
 const CJ_PREFIX = "https://www.anrdoezrs.net/click-";
 
-test("D2h. resolveLinks() exact VIN found by host search -> checkAvailSource 'confirmed-exact', uses the deterministic canonical URL (not the host's raw found URL)", async () => {
-  const { resolveLinks } = await import("../lib/link-resolution");
-
-  const l = {
-    vin: "1FTEW2KP9TKE60602",
-    vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" },
-    retailListing: { used: true, dealer: "Example Ford", city: "Dallas", state: "TX" },
-  };
-  const hostSearchResult = {
-    vinFound: true,
-    edmundsFound: true,
-    edmundsUrl: "https://www.edmunds.com/ford/f-150/2026/vin/1FTEW2KP9TKE60602/featured-listing/?src=serp",
-    fallbackUsed: false,
-  };
-
-  const links = resolveLinks(l as any, hostSearchResult);
-
-  assert.equal(links.checkAvailSource, "confirmed-exact");
-  assert.ok(links.affiliateUrl, "affiliateUrl should be present");
-  assert.ok(links.affiliateUrl!.startsWith(CJ_PREFIX), "must be CJ-wrapped");
-  const decoded = decodeURIComponent(links.affiliateUrl!.split("url=")[1]);
-  assert.ok(!decoded.includes("src=serp"), "must use our own canonical URL, not the host's raw found URL/tracking params");
-  assert.ok(decoded.includes("1FTEW2KP9TKE60602"));
-});
-
-test("D2i. resolveLinks() VIN not found, wider Edmunds match found -> checkAvailSource 'targeted-fallback', uses the host's actual found URL", async () => {
-  const { resolveLinks } = await import("../lib/link-resolution");
-
-  const l = {
-    vin: "1FTEW2KP9TKE60602",
-    vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" },
-    retailListing: { used: true, dealer: "Example Ford", city: "Dallas", state: "TX" },
-  };
-  const hostSearchResult = {
-    vinFound: false,
-    edmundsFound: true,
-    edmundsUrl: "https://www.edmunds.com/ford/f-150/2026/vin/DIFFERENTVIN12345/featured-listing/",
-    fallbackUsed: true,
-  };
-
-  const links = resolveLinks(l as any, hostSearchResult);
-
-  assert.equal(links.checkAvailSource, "targeted-fallback");
-  assert.ok(links.affiliateUrl);
-  assert.ok(links.affiliateUrl!.startsWith(CJ_PREFIX), "must be CJ-wrapped");
-  const decoded = decodeURIComponent(links.affiliateUrl!.split("url=")[1]);
-  assert.ok(decoded.includes("DIFFERENTVIN12345"), "must use the host's actual found URL for a close match, not fabricate the original VIN's URL");
-  assert.ok(!decoded.includes("1FTEW2KP9TKE60602"), "a wider-search result must never be presented as if it confirmed the exact VIN");
-});
-
-test("D2j. resolveLinks() neither search finds a useful result -> checkAvailSource 'unconfirmed', fails open to the deterministic exact URL, CTA never dropped", async () => {
-  const { resolveLinks } = await import("../lib/link-resolution");
-
-  const l = {
-    vin: "1FTEW2KP9TKE60602",
-    vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" },
-    retailListing: { used: true, dealer: "Example Ford" },
-  };
-  const hostSearchResult = { vinFound: false, edmundsFound: false, edmundsUrl: null, fallbackUsed: false };
-
-  const links = resolveLinks(l as any, hostSearchResult);
-
-  assert.equal(links.checkAvailSource, "unconfirmed");
-  assert.ok(links.affiliateUrl, "affiliateUrl must still be present even when neither search finds evidence");
-  assert.ok(links.affiliateUrl!.startsWith(CJ_PREFIX));
-  const decoded = decodeURIComponent(links.affiliateUrl!.split("url=")[1]);
-  assert.ok(decoded.includes("1FTEW2KP9TKE60602"));
-});
-
-test("D2k. resolveLinks() host search timeout/failure (no hostSearchResult supplied at all) -> identical fail-open behavior to 'neither found', never throws, CTA never dropped", async () => {
+test("D2h. resolveLinks() Used vehicle -> checkAvailSource 'exact', Check avail. is the deterministic exact-VIN URL", async () => {
   const { resolveLinks } = await import("../lib/link-resolution");
 
   const l = {
@@ -287,163 +215,106 @@ test("D2k. resolveLinks() host search timeout/failure (no hostSearchResult suppl
     retailListing: { used: true, dealer: "Example Ford" },
   };
 
-  // No second argument at all — represents the host's verification step
-  // never completing (timed out, errored, or was simply never called).
   const links = resolveLinks(l as any);
 
-  assert.equal(links.checkAvailSource, "unconfirmed");
-  assert.ok(links.affiliateUrl, "a missing/failed host verification must never remove the existing monetized CTA");
+  assert.equal(links.checkAvailSource, "exact");
   assert.ok(links.affiliateUrl!.startsWith(CJ_PREFIX));
+  const decoded = decodeURIComponent(links.affiliateUrl!.split("url=")[1]);
+  assert.ok(decoded.includes("1FTEW2KP9TKE60602"));
 });
 
-test("D2m. redactLinksForDataOnlyResponse() enforces the mandatory two-call sequence contract (SYS-20260903-006): always nulls affiliateUrl/affiliateFallbackUrl regardless of input, never touches other fields — this is what makes it structurally impossible for find_matching_vehicle to leak a real link no matter what resolveLinks() computed", async () => {
-  const { resolveLinks, redactLinksForDataOnlyResponse } = await import("../lib/link-resolution");
+test("D2i. resolveLinks() New vehicle (used: false) -> checkAvailSource 'close', Check avail. is the trim-specific category URL, no exact-VIN attempt at all", async () => {
+  const { resolveLinks } = await import("../lib/link-resolution");
 
   const l = {
     vin: "1FTEW2KP9TKE60602",
     vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" },
-    retailListing: { used: true, vdp: "https://dealer.example.com/vdp/12345", dealer: "Example Ford" },
+    retailListing: { used: false, dealer: "Example Ford" },
   };
 
-  const scenarios: Array<{ vinFound: boolean; edmundsFound: boolean; edmundsUrl: string | null; fallbackUsed: boolean } | undefined> = [
-    { vinFound: true, edmundsFound: true, edmundsUrl: "https://www.edmunds.com/ford/f-150/2026/vin/1FTEW2KP9TKE60602/featured-listing/", fallbackUsed: false },
-    { vinFound: false, edmundsFound: true, edmundsUrl: "https://www.edmunds.com/ford/f-150/2026/vin/DIFFERENTVIN12345/featured-listing/", fallbackUsed: true },
-    { vinFound: false, edmundsFound: false, edmundsUrl: null, fallbackUsed: false },
-    undefined,
-  ];
+  const links = resolveLinks(l as any);
 
-  for (const s of scenarios) {
-    const resolved = resolveLinks(l as any, s);
-    const redacted = redactLinksForDataOnlyResponse(resolved);
-
-    assert.equal(redacted.affiliateUrl, null, `affiliateUrl must always be null after redaction, scenario ${JSON.stringify(s)}`);
-    assert.equal(redacted.affiliateFallbackUrl, null, `affiliateFallbackUrl must always be null after redaction, scenario ${JSON.stringify(s)}`);
-    // Everything else must pass through unchanged — redaction is
-    // link-only, it must not hide other diagnostic fields.
-    assert.equal(redacted.dealerListingUrl, resolved.dealerListingUrl);
-    assert.equal(redacted.isCarvana, resolved.isCarvana);
-    assert.equal(redacted.linkStatus, resolved.linkStatus);
-    assert.equal(redacted.checkAvailSource, resolved.checkAvailSource);
-  }
+  assert.equal(links.checkAvailSource, "close");
+  assert.ok(links.affiliateUrl!.startsWith(CJ_PREFIX));
+  const decoded = decodeURIComponent(links.affiliateUrl!.split("url=")[1]);
+  assert.ok(!decoded.includes("1FTEW2KP9TKE60602"), "New must never attempt the exact-VIN URL -- ~15-23% real hit rate doesn't justify presenting it");
+  assert.ok(decoded.includes("new-ford-f-150-lariat-for-sale"), "should be the trim-specific new-vehicle category URL");
 });
 
-test("D2n. resolveLinks() alone (no redaction) still returns a real, unconfirmed link — confirming redaction in route.ts's data-only paths is load-bearing and not redundant with resolveLinks()'s own fail-open default", async () => {
+test("D2j. resolveLinks() View similar: close (trim-specific) for Used, loose (bare make/model) for New/Carvana -- must be a genuinely different tier than Check avail., not a near-duplicate", async () => {
   const { resolveLinks } = await import("../lib/link-resolution");
 
-  const l = {
+  const usedListing = {
     vin: "1FTEW2KP9TKE60602",
     vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" },
     retailListing: { used: true, dealer: "Example Ford" },
   };
+  const used = resolveLinks(usedListing as any);
+  assert.equal(used.checkAvailSource, "exact");
+  assert.ok(used.affiliateFallbackUrl!.includes("lariat"), "Used: View similar stays trim-specific ('close') -- a genuine upgrade next to the exact-VIN Check avail.");
 
-  // Mirrors exactly how find_matching_vehicle calls buildResultCard() (via
-  // resolveLinks(listing) with no second argument) before route.ts's own
-  // redactLinksForDataOnlyResponse() step runs.
-  const withoutRedaction = resolveLinks(l as any);
-  assert.ok(
-    withoutRedaction.affiliateUrl,
-    "resolveLinks() alone still returns a real (unconfirmed) link — the redaction call site in route.ts, not resolveLinks() itself, is what must never be skipped or removed",
-  );
+  const newListing = {
+    vin: "1FTEW2KP9TKE60602",
+    vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" },
+    retailListing: { used: false, dealer: "Example Ford" },
+  };
+  const newVehicle = resolveLinks(newListing as any);
+  assert.equal(newVehicle.checkAvailSource, "close");
+  assert.ok(!newVehicle.affiliateFallbackUrl!.includes("lariat"), "New: View similar must widen (drop trim) -- Check avail. is already the close tier, so View similar must be a genuinely broader alternative");
+  const decodedNew = decodeURIComponent(newVehicle.affiliateFallbackUrl!.split("url=")[1]);
+  assert.ok(decodedNew.includes("new-ford-f-150-for-sale"), "should fall to the bare make/model tier");
+
+  const carvanaListing = {
+    vin: "1FTEW2KPXTKE60933",
+    vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" },
+    retailListing: { used: true, dealer: "Carvana" },
+  };
+  const carvana = resolveLinks(carvanaListing as any);
+  assert.equal(carvana.checkAvailSource, "close");
+  assert.ok(!carvana.affiliateFallbackUrl!.includes("lariat"), "Carvana: same loose treatment as New");
 });
 
-test("D2q. resolveLinks() CPO listing: affiliateFallbackUrl always routes to the dedicated used-certified-pre-owned-{make}-{model} page, never plain used-/new-, regardless of close vs. loose -- SYS-20260903-011, Andre live-test finding", async () => {
+test("D2k. resolveLinks() CPO listing: affiliateFallbackUrl always routes to the dedicated used-certified-pre-owned-{make}-{model} page, regardless of Used/New/Carvana branch -- SYS-20260903-011", async () => {
   const { resolveLinks } = await import("../lib/link-resolution");
 
-  const cpoListing = {
+  const cpoUsed = {
     vin: "KM8HFCAB1TU453247",
     vehicle: { make: "Hyundai", model: "Kona", year: 2026, trim: "SEL Sport" },
     retailListing: { used: true, cpo: true, dealer: "Example Hyundai" },
   };
+  const used = resolveLinks(cpoUsed as any);
+  const decodedUsed = decodeURIComponent(used.affiliateFallbackUrl!.split("url=")[1]);
+  assert.equal(decodedUsed, "https://www.edmunds.com/used-certified-pre-owned-hyundai-kona/", "CPO must override the close-tier trim URL even on the Used branch");
 
-  // confirmed-exact -- would normally get the trim-specific "close" URL,
-  // but CPO should still route to the dedicated CPO page instead.
-  const confirmed = resolveLinks(cpoListing as any, {
-    vinFound: true,
-    edmundsFound: true,
-    edmundsUrl: "https://www.edmunds.com/hyundai/kona/2026/vin/KM8HFCAB1TU453247/featured-listing/",
-    fallbackUsed: false,
-  });
-  assert.equal(confirmed.checkAvailSource, "confirmed-exact");
-  const decodedConfirmed = decodeURIComponent(confirmed.affiliateFallbackUrl!.split("url=")[1]);
-  assert.equal(decodedConfirmed, "https://www.edmunds.com/used-certified-pre-owned-hyundai-kona/", "CPO must override the close-tier trim URL, not just the loose one");
-
-  // targeted-fallback (loose case) -- same dedicated CPO page.
-  const targeted = resolveLinks(cpoListing as any, {
-    vinFound: false,
-    edmundsFound: true,
-    edmundsUrl: "https://www.edmunds.com/2026-hyundai-kona-sel-sport/",
-    fallbackUsed: true,
-  });
-  const decodedTargeted = decodeURIComponent(targeted.affiliateFallbackUrl!.split("url=")[1]);
-  assert.equal(decodedTargeted, "https://www.edmunds.com/used-certified-pre-owned-hyundai-kona/");
-
-  // Non-CPO listing (cpo undefined/false) must NOT be affected by this change at all.
-  const nonCpoListing = {
+  // Non-CPO listing must NOT be affected by this at all.
+  const nonCpo = {
     vin: "3CZRZ2H52TM772942",
     vehicle: { make: "Honda", model: "HR-V", year: 2026, trim: "Sport" },
     retailListing: { used: true, dealer: "Example Honda" },
   };
-  const nonCpo = resolveLinks(nonCpoListing as any, {
-    vinFound: false,
-    edmundsFound: true,
-    edmundsUrl: "https://edmunds.com/2026-honda-hr-v-sport",
-    fallbackUsed: true,
-  });
-  const decodedNonCpo = decodeURIComponent(nonCpo.affiliateFallbackUrl!.split("url=")[1]);
-  assert.ok(!decodedNonCpo.includes("certified-pre-owned"), "non-CPO listings must keep the existing plain used-{make}-{model} fallback, unaffected by this change");
+  const plain = resolveLinks(nonCpo as any);
+  const decodedPlain = decodeURIComponent(plain.affiliateFallbackUrl!.split("url=")[1]);
+  assert.ok(!decodedPlain.includes("certified-pre-owned"), "non-CPO listings must keep the existing plain used-{make}-{model}-{trim} fallback, unaffected");
 });
 
-test("D2o. resolveLinks() affiliateFallbackUrl (View similar) widens when Check avail is not confirmed-exact -- must not offer a near-duplicate of an already-unconfirmed Check avail link", async () => {
+test("D2l. resolveLinks() all final links remain CJ-wrapped across every branch (Used/New/Carvana/CPO/unavailable-bare)", async () => {
   const { resolveLinks } = await import("../lib/link-resolution");
 
-  const l = {
-    vin: "1FTEW2KP9TKE60602",
-    vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" },
-    retailListing: { used: true, dealer: "Example Ford" },
-  };
-
-  // confirmed-exact -> View similar stays trim-specific (a "close" match is fine, since Check avail already nailed this exact vehicle)
-  const confirmed = resolveLinks(l as any, { vinFound: true, edmundsFound: true, edmundsUrl: "https://www.edmunds.com/ford/f-150/2026/vin/1FTEW2KP9TKE60602/featured-listing/", fallbackUsed: false });
-  assert.equal(confirmed.checkAvailSource, "confirmed-exact");
-  assert.ok(confirmed.affiliateFallbackUrl!.includes("lariat"), "confirmed-exact: View similar should stay trim-specific ('close')");
-
-  // targeted-fallback -> Check avail is itself only a close match, so View similar must widen (drop trim/year), not mirror it
-  const targeted = resolveLinks(l as any, { vinFound: false, edmundsFound: true, edmundsUrl: "https://www.edmunds.com/ford/f-150/2026/vin/DIFFERENT/featured-listing/", fallbackUsed: true });
-  assert.equal(targeted.checkAvailSource, "targeted-fallback");
-  assert.ok(!targeted.affiliateFallbackUrl!.includes("lariat"), "targeted-fallback: View similar must widen -- must not repeat the trim");
-  const decodedTargeted = decodeURIComponent(targeted.affiliateFallbackUrl!.split("url=")[1]);
-  assert.ok(decodedTargeted.includes("used-ford-f-150"), "should fall to the bare make/model tier");
-
-  // unconfirmed -> Check avail is also not confirmed here, so View similar should widen the same way
-  const unconfirmed = resolveLinks(l as any);
-  assert.equal(unconfirmed.checkAvailSource, "unconfirmed");
-  assert.ok(!unconfirmed.affiliateFallbackUrl!.includes("lariat"), "unconfirmed: View similar must widen too, not just the targeted-fallback case");
-});
-
-test("D2l. resolveLinks() all final links remain CJ-wrapped across every host-search outcome, including affiliateFallbackUrl", async () => {
-  const { resolveLinks } = await import("../lib/link-resolution");
-
-  const baseListing = {
-    vin: "1FTEW2KP9TKE60602",
-    vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" },
-    retailListing: { used: true, dealer: "Example Ford", city: "Dallas", state: "TX" },
-  };
-
-  const scenarios: Array<{ vinFound: boolean; edmundsFound: boolean; edmundsUrl: string | null; fallbackUsed: boolean } | undefined> = [
-    { vinFound: true, edmundsFound: true, edmundsUrl: "https://www.edmunds.com/ford/f-150/2026/vin/1FTEW2KP9TKE60602/featured-listing/", fallbackUsed: false },
-    { vinFound: false, edmundsFound: true, edmundsUrl: "https://www.edmunds.com/ford/f-150/2026/vin/DIFFERENTVIN12345/featured-listing/", fallbackUsed: true },
-    { vinFound: false, edmundsFound: false, edmundsUrl: null, fallbackUsed: false },
-    undefined,
+  const scenarios = [
+    { vin: "1FTEW2KP9TKE60602", vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" }, retailListing: { used: true, dealer: "Example Ford" } },
+    { vin: "1FTEW2KP9TKE60602", vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" }, retailListing: { used: false, dealer: "Example Ford" } },
+    { vin: "1FTEW2KPXTKE60933", vehicle: { make: "Honda", model: "CR-V", year: 2026, trim: "EX" }, retailListing: { used: true, dealer: "Carvana" } },
+    { vin: "KM8HFCAB1TU453247", vehicle: { make: "Hyundai", model: "Kona", year: 2026, trim: "SEL Sport" }, retailListing: { used: true, cpo: true, dealer: "Example Hyundai" } },
   ];
 
   for (const s of scenarios) {
-    const links = resolveLinks(baseListing as any, s);
+    const links = resolveLinks(s as any);
     if (links.affiliateUrl) {
       assert.ok(links.affiliateUrl.startsWith(CJ_PREFIX), `affiliateUrl must be CJ-wrapped for scenario ${JSON.stringify(s)}`);
-      assert.ok(!links.affiliateUrl.includes("google.com") && !links.affiliateUrl.includes("serper"), "must never expose a raw Google/Serper URL");
+      assert.ok(!links.affiliateUrl.includes("google.com"), "must never expose a raw Google URL");
     }
     if (links.affiliateFallbackUrl) {
-      assert.ok(links.affiliateFallbackUrl.startsWith(CJ_PREFIX), "affiliateFallbackUrl must always be CJ-wrapped regardless of host-search outcome");
+      assert.ok(links.affiliateFallbackUrl.startsWith(CJ_PREFIX), "affiliateFallbackUrl must always be CJ-wrapped");
     }
   }
 });
@@ -792,26 +663,24 @@ test("D7a. FindMatchingVehicleOutputSchema requires meta.resultsShown as a numbe
 test("D7b. every meta object literal in route.ts sets resultsShown from the same array as its results field, never a different variable", () => {
   const routeSource = stripComments(fs.readFileSync("app/[transport]/route.ts", "utf8"));
 
-  // Five response-construction sites as of SYS-20260903-012 (merging V1's
-  // count-display fix onto V2): the original four (2 VIN-error paths, 1
-  // VIN-success path, 1 normal-search path) plus resolve_vehicle_availability
-  // (SYS-20260903-006/-012), a legitimate new fifth site introduced by V2's
-  // mandatory two-call flow, which didn't exist when this fix was written.
-  // This count must stay in lockstep with any future response-construction
-  // site added to route.ts.
+  // Four response-construction sites as of SYS-20260904-002 (retiring the
+  // mandatory two-call flow and its resolve_vehicle_availability tool,
+  // which had briefly been a legitimate fifth site under SYS-20260903-012):
+  // 2 VIN-error paths, 1 VIN-success path, 1 normal-search path. This count
+  // must stay in lockstep with any future response-construction site added
+  // to route.ts.
   const resultsShownMatches = routeSource.match(/resultsShown:\s*[^,]+,/g) ?? [];
-  assert.equal(resultsShownMatches.length, 5, `expected exactly 5 resultsShown assignments, found ${resultsShownMatches.length} — every meta object must set it`);
+  assert.equal(resultsShownMatches.length, 4, `expected exactly 4 resultsShown assignments, found ${resultsShownMatches.length} — every meta object must set it`);
 
   // The two empty-result error paths must use the literal 0, not a variable
   // that could silently drift from the actual (empty) results array.
   const zeroAssignments = routeSource.match(/resultsShown:\s*0,/g) ?? [];
   assert.equal(zeroAssignments.length, 2, "both VIN-error paths (invalid format, not found) must set resultsShown: 0 to match their empty results: [] arrays");
 
-  // The VIN-success, normal-search, and resolve_vehicle_availability paths
-  // must derive resultsShown from a `.length` expression (ground truth),
-  // never a hardcoded/copied number.
+  // The VIN-success and normal-search paths must derive resultsShown from
+  // a `.length` expression (ground truth), never a hardcoded/copied number.
   const lengthDerivedAssignments = routeSource.match(/resultsShown:\s*\w+(\.\w+)*\.length,/g) ?? [];
-  assert.equal(lengthDerivedAssignments.length, 3, "VIN-success, normal-search, and resolve_vehicle_availability paths must derive resultsShown via .length, not a separate hardcoded number");
+  assert.equal(lengthDerivedAssignments.length, 2, "VIN-success and normal-search paths must derive resultsShown via .length, not a separate hardcoded number");
 });
 
 // ============================================================================
