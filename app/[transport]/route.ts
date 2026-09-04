@@ -14,7 +14,7 @@ import { verifyAgainstConstraints } from "@/lib/post-verify";
 import { parseIntent } from "@/lib/intent-parser";
 import { applyDiversity } from "@/lib/diversity";
 import { crossCheckVin, type VerificationResult } from "@/lib/vin-cross-check";
-import { classifyRiskTier, riskTierRank, type RiskTier } from "@/lib/risk-tier";
+import { classifyRiskTier, explainRiskTier, riskTierRank, type RiskTier } from "@/lib/risk-tier";
 import { buildBuyerCheck, type BuyerCheck } from "@/lib/buyer-check";
 import { applyConfigurationVarietyPass } from "@/lib/configuration-variety";
 import { withFindMatchingVehicleErrorBoundary } from "@/lib/tool-error-boundary";
@@ -630,7 +630,19 @@ async function buildResultCard(
 ) {
   const verification = crossCheckVin(listing); // now local/synchronous — no API call
   const { matchScore, matchScoreLabel, breakdown } = computeMatchScore(listing, intent, verification);
-  const links = resolveLinks(listing);
+
+  // Trim fill from NHTSA (SYS-20260904-004): only when Auto.dev's own
+  // trim is missing AND NHTSA decoded at least one candidate. Simple rule
+  // by design — take the first candidate even when NHTSA is ambiguous
+  // (picking one is trivially simple; requiring an unambiguous single
+  // answer here, unlike the trim-conflict badge below, was judged not
+  // worth the added complexity for what's just a URL-construction input).
+  // Never overrides a trim Auto.dev already supplied.
+  const effectiveListing: AutoDevListing =
+    !listing.vehicle?.trim && nhtsa?.trimOptions?.length
+      ? { ...listing, vehicle: { ...listing.vehicle, trim: nhtsa.trimOptions[0] } }
+      : listing;
+  const links = resolveLinks(effectiveListing);
 
   // Suppress entirely if no usable outbound link — a result with zero
   // actionable CTAs isn't useful regardless of Match Score (SYS-20260812-023/024).
@@ -675,6 +687,15 @@ async function buildResultCard(
     history: historySummary,
     condition: { cpoEvidenceState: cpoSummary.state },
   });
+  // (SYS-20260904-004) Companion reasons, same evidence, so a host AI
+  // asked "why is this flagged?" has a ready structured answer instead of
+  // reverse-engineering it from other card fields. Always empty for
+  // "positive"/"unknown" — see explainRiskTier()'s own doc.
+  const riskReasons = explainRiskTier({
+    verification,
+    history: historySummary,
+    condition: { cpoEvidenceState: cpoSummary.state },
+  });
 
   // Photos must never block the search-results critical path (real evidence:
   // 868ms median Photos latency, SYS-20260812-014/021). Leave the gallery
@@ -688,6 +709,28 @@ async function buildResultCard(
   if (nhtsa?.makeConflict) badges.push("nhtsa-make-conflict");
   if (nhtsa?.modelConflict) badges.push("nhtsa-model-conflict");
   if (nhtsa?.cylindersConflict) badges.push("nhtsa-cylinders-conflict");
+  // Trim conflict (SYS-20260904-004): a DATA-QUALITY signal (does the
+  // listing's claimed trim match what the VIN itself decodes to?), not a
+  // purchase-risk one — deliberately a badge, never fed into
+  // classifyRiskTier() below, same boundary lib/risk-tier.ts's module doc
+  // already establishes for make/model/cylinder conflicts (the real
+  // production bug that boundary exists to prevent: a brand-new,
+  // perfectly fine F-150 Raptor once got wrongly flagged amber purely
+  // from a data mismatch). Only fires when Auto.dev actually claims a
+  // trim (nothing to conflict with otherwise -- that's the missing-trim
+  // fill case above, a different thing) AND NHTSA decoded at least one
+  // candidate. Checks membership against ALL candidates, however many
+  // there are -- if NHTSA says "EX, X-Line" and Auto.dev says "X-Line",
+  // that's a valid answer, not a conflict; only flags when the claimed
+  // trim matches NONE of them.
+  const claimedTrim = listing.vehicle?.trim;
+  if (
+    claimedTrim &&
+    nhtsa?.trimOptions?.length &&
+    !nhtsa.trimOptions.some((t) => t.trim().toLowerCase() === String(claimedTrim).trim().toLowerCase())
+  ) {
+    badges.push("nhtsa-trim-conflict");
+  }
   if (nhtsa && nhtsaIndicatesElectrified(nhtsa) && normalizedFuel === "gasoline") badges.push("nhtsa-electrification-confirmed");
   if (intent.semantic.goals.length > 0) badges.push("inferred-match");
   if (historySummary.state === "known_issues") badges.push("history-issues-reported");
@@ -709,7 +752,7 @@ async function buildResultCard(
     // cardHtml() in lib/results-card.ts) — "positive"/"unknown" are
     // carried here for lower_risk ranking's internal use and completeness
     // of the structured data, never surfaced as a card badge either way.
-    risk: { tier: riskTier },
+    risk: { tier: riskTier, reasons: riskReasons },
     identity: {
       vin: listing.vin,
       year: v?.year ?? null,
