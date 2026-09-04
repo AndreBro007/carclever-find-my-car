@@ -205,6 +205,11 @@ const BuyerCheckSchema = z.object({
 // every card, ordinary search results included.
 const RiskSchema = z.object({
   tier: z.enum(["positive", "unknown", "amber", "red"]),
+  // (SYS-20260904-004) Companion to tier — the actual reason(s) behind an
+  // "amber"/"red" classification, from lib/risk-tier.ts's explainRiskTier(),
+  // so a host AI asked "why is this flagged?" has a ready structured
+  // answer. Always an empty array for "positive"/"unknown".
+  reasons: z.array(z.string()),
 });
 
 const ResultSchema = z.object({
