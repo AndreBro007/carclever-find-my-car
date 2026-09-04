@@ -194,7 +194,7 @@ async function schemaTest() {
   const { FindMatchingVehicleOutputSchema } = await import("@/lib/find-matching-vehicle-output");
   const minimalResult = {
     canonicalVehicleId: "1HGCV1F34NA000001",
-    risk: { tier: "amber" },
+    risk: { tier: "amber", reasons: ["A reported accident or history issue is on file for this vehicle."] },
     identity: { vin: "1HGCV1F34NA000001", year: 2024, make: "Honda", model: "CR-V", trim: "EX", series: null, squishVin: null, bodyStyleConfig: null },
     condition: { inventoryType: "used" as const, used: true, cpo: false, cpoEvidenceState: "reported_not_cpo" as const },
     powertrain: { type: "Gasoline", engine: null, drivetrain: "AWD", transmission: null },
