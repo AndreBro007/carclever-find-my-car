@@ -276,7 +276,7 @@ async function cardRiskBadgeTests() {
       media: { cardImageUrl: null },
       detail: { carfaxUrl: null, exteriorColor: "Blue", fuelTypeDisplay: "Gasoline" },
       ranking: { matchScore: 90 },
-      links: { affiliateUrl: `https://www.edmunds.com/vin/${vin}/`, affiliateFallbackUrl: null, dealerListingUrl: null, isCarvana: false, linkStatus: "edmunds-only", checkAvailSource: "unconfirmed" as const },
+      links: { affiliateUrl: `https://www.edmunds.com/vin/${vin}/`, affiliateFallbackUrl: null, dealerListingUrl: null, isCarvana: false, linkStatus: "edmunds-only", checkAvailSource: "exact" as const },
       badges: ["vin-verified"],
       intentConfirmations: [],
       risk: riskTier ? { tier: riskTier } : undefined,
