@@ -19,7 +19,7 @@ import { buildBuyerCheck, type BuyerCheck } from "@/lib/buyer-check";
 import { applyConfigurationVarietyPass } from "@/lib/configuration-variety";
 import { withFindMatchingVehicleErrorBoundary } from "@/lib/tool-error-boundary";
 import { computeMatchScore } from "@/lib/match-score";
-import { resolveLinks, redactLinksForDataOnlyResponse, type HostSearchResult } from "@/lib/link-resolution";
+import { resolveLinks } from "@/lib/link-resolution";
 import { sanitizeDealerName } from "@/lib/dealer-name";
 import { applyKnownHybridOverride, formatFuelTypeForDisplay } from "@/lib/fuel-type";
 import { decodeNhtsaElectrification, nhtsaIndicatesElectrified, type NhtsaElectrificationResult } from "@/lib/nhtsa-client";
@@ -150,11 +150,17 @@ If a search still returns nothing after automatic widening, a strict user constr
 
 PRESENTING RESULTS
 
-⚠️ This tool is data-only and NEVER renders anything and NEVER returns a real, usable link. \`affiliateUrl\` and \`affiliateFallbackUrl\` on every result are always null here — that is intentional, not a bug or a missing-data case, and it is NOT the same thing as "no link exists for this vehicle." Do not tell the user "no link is available" based on this response. Do not construct, guess, or search for a link yourself to fill the gap.
+Every result already includes a real, usable Edmunds destination — this tool renders and links directly, no follow-up call is needed to get a working link.
 
-MANDATORY NEXT STEP — calling this tool is never a complete turn by itself. Before presenting any of these results to the user in any form (text, a link, a summary, anything), you MUST call \`resolve_vehicle_availability\` with these results' VINs and your own web-search findings for each: search \`site:edmunds.com "<VIN>"\` first; if that finds nothing useful, run exactly one wider fallback search, \`site:edmunds.com "<year> <make> <model> <trim>" "<dealer>" "<city/state>"\`. Never run any other search variant (no stock number, price, mileage, color, or listing-date searches) — only these two, and only the second when the first misses. Only verify the (up to 5) results actually returned here; there is no larger internal pool to check. Also pass this response's true result count as \`totalFoundByFindMatchingVehicle\` even if you're only verifying some of them (e.g. \`meta.resultsShown\` from this response) — this lets the rendered widget correctly say "N of M shown" instead of implying only the verified count ever existed. \`resolve_vehicle_availability\` re-fetches each vehicle fresh, applies your findings, constructs the real CJ-affiliate-wrapped links, and renders the actual result widget — that response, not this one, is what you present to the user. This sequence is mandatory for every call to this tool, not an optional upgrade.
+Two links belong on every result.
 
-For the top result, you may still reference its \`primaryImage\` if useful context while you prepare the verification call — but the actual presented result comes from \`resolve_vehicle_availability\`, not from embedding anything out of this response directly.
+1. THE LISTING LINK. Include each result's own \`affiliateUrl\` (labeled "Check avail.") by default. Never substitute a dealer's own site, Carfax, Autolist, or any other URL instead of it, even if another link looks cleaner — this includes \`dealerListingUrl\` (including any Carvana link), which is never a user-facing destination under any circumstance, even when \`affiliateUrl\` is null. For a used vehicle this is the exact-VIN Edmunds page (it can occasionally be dead/sold since Edmunds' own inventory sync can lag — if so, Edmunds' own page automatically shows real similar vehicles, and \`affiliateFallbackUrl\` is right there as a second option). For a new or Carvana-sourced vehicle, \`affiliateUrl\` is a close, trim-specific Edmunds destination rather than an exact-VIN attempt — present it exactly the same way, still labeled "Check avail.", never described as less reliable or hedged.
+
+2. THE SIMILAR-VEHICLES LINK. Include \`affiliateFallbackUrl\` (labeled "View similar") alongside the listing link on every result, stated distinctly — e.g. "if that listing's no longer available, see similar options here: [link]" — never folded into the listing link as if the two were the same thing.
+
+If neither \`affiliateUrl\` nor \`affiliateFallbackUrl\` is available for a result (rare — only when make/model themselves are unknown), say so plainly rather than substituting \`dealerListingUrl\`.
+
+For the top result, embed its \`primaryImage\` directly using markdown image syntax so it renders inline — the URL is already present in the result data, no separate tool call needed. Only do this if \`primaryImage\` is present; never substitute a placeholder or generic image.
 
 MAPS
 
@@ -199,38 +205,16 @@ const ResolveDealerUrlOutput = z.object({
   dealerListingUrl: z.string().nullable(),
   isCarvana: z.boolean(),
   linkStatus: z.enum(["both-available", "edmunds-only", "dealer-only", "fallback-only", "none-available"]),
-  // Added 2026-09-03 (SYS-20260903-005) alongside checkAvailSource on
-  // LinkResolution — was previously missing from this schema entirely,
-  // which meant zod's default key-stripping behavior silently dropped it
-  // from structuredContent even after it existed on the TS type. Caught
-  // while wiring up the host-search-driven verification flow.
-  checkAvailSource: z.enum(["confirmed-exact", "targeted-fallback", "unconfirmed", "none"]),
-});
-
-// Per-vehicle input to the batch verification tool below — the minimum the
-// host AI needs to supply per the approved flow: enough vehicle identity to
-// rebuild the exact-VIN and category-fallback URLs, plus its own web-search
-// findings (never more than the two required queries' worth of signal).
-const VehicleAvailabilityCheckInput = z.object({
-  vin: z.string().describe("The vehicle's 17-character VIN."),
-  make: z.string().describe("Vehicle manufacturer, e.g. Toyota."),
-  model: z.string().describe("Vehicle model name, e.g. Camry."),
-  year: z.number().describe("Model year."),
-  trim: z.string().optional().describe("Trim level, if known — used only for the fallback destination and to help the host construct its wider search query."),
-  used: z.boolean().optional().describe("true for a used vehicle, false for new — affects which affiliateFallbackUrl shape is built. Omit if unknown."),
-  vinFound: z
-    .boolean()
-    .describe(
-      'Did the host\'s exact-VIN search (site:edmunds.com "<VIN>") return a usable Edmunds result for this specific vehicle?',
-    ),
-  edmundsFound: z
-    .boolean()
-    .describe("Did EITHER search (the exact-VIN search, or the one wider fallback search) find a usable Edmunds result? False if neither search ran, timed out, or found nothing."),
-  edmundsUrl: z.string().nullable().describe("The Edmunds URL found by whichever search succeeded, if any. Null if edmundsFound is false. Raw URL — this tool wraps it as a CJ affiliate link; never pass or expect a pre-wrapped URL here."),
-  fallbackUsed: z.boolean().describe("true if edmundsUrl came from the wider fallback search rather than the exact-VIN search."),
+  // Updated 2026-09-04 (SYS-20260904-002) to match the new deterministic
+  // checkAvailSource enum on LinkResolution ("exact" | "close" | "none") —
+  // the earlier host-search-driven values ("confirmed-exact" /
+  // "targeted-fallback" / "unconfirmed") no longer apply now that live
+  // search has been retired.
+  checkAvailSource: z.enum(["exact", "close", "none"]),
 });
 
 const SHORTLIST_SIZE = 5;
+
 
 /**
  * Result-count strategy (SYS-20260816-008).
@@ -643,17 +627,10 @@ async function buildResultCard(
   nhtsa?: NhtsaElectrificationResult | null,
   evidenceRequest?: ConstraintEvidenceRequest,
   relaxedFields?: ReadonlySet<string>,
-  // 2026-09-03 (SYS-20260903-006): only ever passed by
-  // resolve_vehicle_availability, after the host has actually run its
-  // verification search — find_matching_vehicle always calls this with
-  // hostSearchResult omitted, then redacts links.affiliateUrl/
-  // affiliateFallbackUrl via redactLinksForDataOnlyResponse() before
-  // returning, since it has no verification evidence of its own.
-  hostSearchResult?: HostSearchResult,
 ) {
   const verification = crossCheckVin(listing); // now local/synchronous — no API call
   const { matchScore, matchScoreLabel, breakdown } = computeMatchScore(listing, intent, verification);
-  const links = resolveLinks(listing, hostSearchResult);
+  const links = resolveLinks(listing);
 
   // Suppress entirely if no usable outbound link — a result with zero
   // actionable CTAs isn't useful regardless of Match Score (SYS-20260812-023/024).
@@ -958,16 +935,23 @@ const handler = createMcpHandler((server) => {
       // Canonical output contract. All live structuredContent construction paths
       // are compile-time validated against this schema via `satisfies`.
       annotations: { title: "Find Matching Vehicle", readOnlyHint: true, openWorldHint: true, destructiveHint: false },
-      // (SYS-20260903-006) Deliberately NO _meta.ui.resourceUri /
-      // "openai/outputTemplate" here anymore — this tool is data-only and
-      // must never trigger the result-card widget. Every affiliateUrl/
-      // affiliateFallbackUrl on this response is redacted to null
-      // (redactLinksForDataOnlyResponse) regardless of what resolveLinks()
-      // actually computed, specifically so an unverified link can never
-      // reach the user even if a host somehow still tried to render
-      // something from this response. The widget-triggering metadata now
-      // lives on resolve_vehicle_availability below, the only tool allowed
-      // to populate real links and mount the widget.
+      // (SYS-20260904-002) Restored — find_matching_vehicle is once again a
+      // single, self-sufficient call that renders directly. The mandatory
+      // two-call host-verification flow (SYS-20260903-006 through -013) was
+      // retired: it worked and was verified live, but cost 85-100 seconds
+      // per search, dominated by live search time with no way to reduce it.
+      // Replaced with a fully deterministic, condition-aware link design
+      // (see lib/link-resolution.ts) approved by both Andre and ChatGPT
+      // after reviewing real (not proxy) hit-rate data. Per SEP-1865: hosts
+      // that don't support MCP Apps ignore this field and the tool behaves
+      // exactly as before (text/structuredContent only). Also set the
+      // ChatGPT-specific compatibility alias per OpenAI's own docs
+      // ("ChatGPT also honors _meta['openai/outputTemplate'] as a
+      // compatibility alias") for extra robustness on that host.
+      _meta: {
+        ui: { resourceUri: RESULTS_CARD_RESOURCE_URI },
+        "openai/outputTemplate": RESULTS_CARD_RESOURCE_URI,
+      },
     },
     async (input) => {
       return withFindMatchingVehicleErrorBoundary(async () => {
@@ -1129,11 +1113,10 @@ const handler = createMcpHandler((server) => {
           // here.
           new Set(),
         );
-        // (SYS-20260903-006) data-only, same policy as the batch path below —
-        // no real link leaves find_matching_vehicle in any of its response
-        // shapes, including this direct-VIN-lookup one.
-        const redactedVinCard = vinCard ? { ...vinCard, links: redactLinksForDataOnlyResponse(vinCard.links) } : null;
-        const vinCards = redactedVinCard ? [redactedVinCard] : [];
+        // (SYS-20260904-002) Data-only redaction removed — restored to
+        // direct rendering with the new deterministic condition-aware
+        // links from resolveLinks().
+        const vinCards = vinCard ? [vinCard] : [];
 
         // VIN Buyer Check (feature/vin-buyer-check, preview MVP): attached
         // ONLY here, on the direct-VIN-lookup result — never on normal
@@ -1141,7 +1124,7 @@ const handler = createMcpHandler((server) => {
         // buildResultCard() already produced for vinCard above; no new
         // Auto.dev call, no new data source.
         const buyerCheck = vinCard ? buildBuyerCheck(vinCard) : null;
-        const vinCardsWithBuyerCheck = redactedVinCard && buyerCheck ? [{ ...redactedVinCard, buyerCheck }] : vinCards;
+        const vinCardsWithBuyerCheck = vinCard && buyerCheck ? [{ ...vinCard, buyerCheck }] : vinCards;
 
         // Other stated hard constraints (price/year/mileage) are checked
         // against THIS vehicle and disclosed — never used to exclude it or
@@ -1182,11 +1165,16 @@ const handler = createMcpHandler((server) => {
                 const priceStr = l.price != null ? `$${l.price.toLocaleString()}` : "price unavailable";
                 const mileageStr = l.mileage != null ? `${l.mileage.toLocaleString()} mi` : "mileage unknown";
                 const dealerStr = l.dealer ? ` — ${l.dealer}${l.city ? `, ${l.city}` : ""}${l.state ? `, ${l.state}` : ""}` : "";
-                // (SYS-20260903-006) data-only — no real/placeholder link
-                // here either. The actual destination only exists after
-                // calling resolve_vehicle_availability with this VIN and
-                // your own web-search findings for it.
-                const primaryLinkStr = "pending verification — see resolve_vehicle_availability";
+                // Never route the user to dealerListingUrl (including
+                // Carvana) — affiliateUrl (exact-VIN for Used, close
+                // trim-specific for New/Carvana) first, then
+                // affiliateFallbackUrl (close for Used, loose for
+                // New/Carvana) labeled as a fallback, never as "this
+                // vehicle". dealerListingUrl stays available internally on
+                // structuredContent only, never surfaced here.
+                const primaryLinkStr = c.links.affiliateUrl
+                  ?? (c.links.affiliateFallbackUrl ? `Similar options on Edmunds: ${c.links.affiliateFallbackUrl}` : null)
+                  ?? "no link available";
                 const violationNote =
                   vinConstraintViolations.length > 0
                     ? `\n   ⚠️ Doesn't fully meet: ${vinConstraintViolations.join(", ")} — this is the exact VIN requested, not a different vehicle.`
@@ -1200,7 +1188,7 @@ const handler = createMcpHandler((server) => {
                       : "") +
                     (buyerCheck.nextSteps.length > 0 ? `\n  Next steps: ${buyerCheck.nextSteps.join(" ")}` : "")
                   : "";
-                return `Found the exact vehicle for VIN ${rawVin}:\n\n${formatVehicleTitle(id)} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${violationNote}\n   Link: ${primaryLinkStr}${buyerCheckText}\n\n⚠️ MANDATORY NEXT STEP: before presenting this to the user, call resolve_vehicle_availability with your own web-search findings for VIN ${rawVin} (site:edmunds.com "${rawVin}" first, one wider fallback search only if that misses) to get the actual, verified/best-available CJ-wrapped link and rendered widget. Do not construct or guess a link yourself from this response.`;
+                return `Found the exact vehicle for VIN ${rawVin}:\n\n${formatVehicleTitle(id)} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${violationNote}\n   Link: ${primaryLinkStr}${buyerCheckText}`;
               })();
 
         return {
@@ -2082,13 +2070,7 @@ const handler = createMcpHandler((server) => {
             buildResultCard(listing, intent, intentInput, nhtsaByVin.get(listing.vin), searchEvidenceRequest, relaxedFields),
           ),
         )
-      )
-        .filter((c): c is NonNullable<typeof c> => c !== null)
-        // (SYS-20260903-006) find_matching_vehicle is data-only — no card
-        // leaving this tool may carry a real, clickable affiliate link.
-        // Only resolve_vehicle_availability (which requires the host's
-        // verification search as input) is allowed to populate these.
-        .map((c) => ({ ...c, links: redactLinksForDataOnlyResponse(c.links) }));
+      ).filter((c): c is NonNullable<typeof c> => c !== null);
 
       // Match Score ordering is only correct for the default best_for_budget
       // axis, where "best overall fit" is genuinely what the user asked for.
@@ -2324,15 +2306,24 @@ const handler = createMcpHandler((server) => {
                   : "price unavailable";
                 const mileageStr = l.mileage != null ? `${l.mileage.toLocaleString()} mi` : "mileage unknown";
                 const dealerStr = l.dealer ? ` — ${l.dealer}${l.city ? `, ${l.city}` : ""}${l.state ? `, ${l.state}` : ""}` : "";
-                // (SYS-20260903-006) find_matching_vehicle no longer carries
-                // a real link at all — c.links.affiliateUrl/
-                // affiliateFallbackUrl are always redacted to null here
-                // (see redactLinksForDataOnlyResponse above). Never fall
-                // back to c.links.dealerListingUrl either, same policy as
-                // always. The actual destination only exists after calling
-                // resolve_vehicle_availability — see that tool's own
-                // summary text for the real per-vehicle link.
-                const linkStr = "pending verification — see resolve_vehicle_availability";
+                // (SYS-20260904-002) affiliateUrl (exact-VIN for Used, close
+                // trim-specific for New/Carvana) is always the primary
+                // user-facing link when present. dealerListingUrl (including
+                // Carvana's own VDP) is NEVER routed to as a user-facing
+                // destination — it stays available internally via
+                // c.links.dealerListingUrl on structuredContent only. When
+                // affiliateUrl is null, affiliateFallbackUrl becomes the
+                // primary destination instead, labeled explicitly as similar
+                // options rather than "this vehicle".
+                const similarOptionsLabel = `similar ${id.year ?? ""} ${id.make ?? ""} ${id.model ?? ""}`.replace(/\s+/g, " ").trim();
+                const fallbackLinkStr = c.links.affiliateFallbackUrl
+                  ? ` · If that Edmunds listing is no longer available, see ${similarOptionsLabel}: ${c.links.affiliateFallbackUrl}`
+                  : "";
+                const linkStr = c.links.affiliateUrl
+                  ? c.links.affiliateUrl + fallbackLinkStr
+                  : c.links.affiliateFallbackUrl
+                  ? `Similar options on Edmunds (${similarOptionsLabel}): ${c.links.affiliateFallbackUrl}`
+                  : "no link available";
                 const historyLine = c.history.state === "known_issues" ? `\n   ⚠️ ${c.history.note}` : "";
                 // Qualifier accounting: only for fields the user actually
                 // asked about (c.intentConfirmations is already scoped to
@@ -2345,8 +2336,7 @@ const handler = createMcpHandler((server) => {
                 const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
                 return `${i + 1}. ${formatVehicleTitle(id)} — VIN ${id.vin} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}\n   Link: ${linkStr}`;
               })
-              .join("\n\n") +
-            `\n\n⚠️ MANDATORY NEXT STEP: none of these results have a real link yet. Before presenting any of this to the user, call resolve_vehicle_availability with your own web-search findings for these ${cards.length} VIN(s) (site:edmunds.com "<VIN>" first, one wider fallback search only if that misses) — that call renders the actual result widget with verified/best-available CJ-wrapped links. Do not construct or guess a link yourself from this response.`;
+              .join("\n\n");
 
       return {
         content: [{ type: "text" as const, text: summary }],
@@ -2418,142 +2408,6 @@ const handler = createMcpHandler((server) => {
     },
   );
 
-  server.registerTool(
-    "resolve_vehicle_availability",
-    {
-      description:
-        'MANDATORY — must always be called immediately after find_matching_vehicle, for every one of its (up to 5) results, before presenting anything to the user. find_matching_vehicle never returns a usable link or renders anything; this tool is the only one that does either. ' +
-        "This tool re-fetches each vehicle fresh by VIN (current live data, not the possibly-stale snapshot from the earlier search), applies your search findings, constructs the actual CJ-affiliate-wrapped Check avail./View similar destinations, and renders the real result widget. " +
-        'Required search sequence per vehicle, using YOUR OWN web-search tool (not a call this server makes): ' +
-        '(1) exact search: site:edmunds.com "<VIN>" — if this returns a usable Edmunds result for that VIN, set vinFound=true, edmundsFound=true, edmundsUrl to that page, fallbackUsed=false. ' +
-        '(2) ONLY if step 1 finds nothing useful, run exactly one fallback search: site:edmunds.com "<year> <make> <model> <trim>" "<dealer>" "<city/state>" — if that finds a usable Edmunds result, set vinFound=false, edmundsFound=true, edmundsUrl to that page, fallbackUsed=true. Among that single search\'s own results, prefer the most specific match available (trim-specific over model-only over dealer/location-only) — do not settle for a broader page (e.g. a dealer\'s general inventory listing) when a more specific one (e.g. that exact trim\'s Edmunds page) already appears in the same result set. This is about which result you pick from the one search, not an invitation to run additional searches. ' +
-        "If neither search finds anything useful, or a search fails/times out, set vinFound=false, edmundsFound=false, edmundsUrl=null — this tool fails open to a safe best-effort default, it never drops the Check avail. button. " +
-        "Never run any other search (no stock number, price, mileage, color, or listing-date queries) — those are explicitly out of scope for this flow. " +
-        "Works identically for new and used vehicles; do not branch your search behavior on condition. " +
-        "Only verify vehicles actually returned by find_matching_vehicle — never a larger internal candidate pool the user was never shown. " +
-        "Pass totalFoundByFindMatchingVehicle as the exact count find_matching_vehicle reported finding (its results array length, before you narrowed to the ones you're verifying here) — this lets the rendered widget correctly say e.g. \"5 of 8 shown\" instead of implying only 5 ever existed. Omit only if you truly don't have that number. " +
-        'The rendered widget from this response already shows every result correctly — after this call, don\'t restate photo/price/mileage/match-score/links in text; a brief intro sentence is enough. On hosts without widget rendering, relay this response\'s links in text instead. Never construct, guess, or display a raw Google, Edmunds, dealer, or search-provider URL yourself — always relay the CJ-wrapped URLs this tool returns. ' +
-        'If a vehicle from find_matching_vehicle is no longer found (sold/delisted since that call), it is omitted from results here and noted in meta.dataNotes — never silently substituted with a different vehicle.',
-      inputSchema: {
-        vehicles: z.array(VehicleAvailabilityCheckInput).max(5).describe("Every one of find_matching_vehicle's (up to 5) results, with your web-search findings for each. Do not verify vehicles the user was never shown."),
-        totalFoundByFindMatchingVehicle: z
-          .number()
-          .optional()
-          .describe(
-            "The total number of results find_matching_vehicle reported finding (its results array length), before narrowing to the vehicles array above. Enables an accurate 'N of M shown' count on the rendered widget. If omitted, the widget can only report the count of what's verified here, which may understate how many results actually existed.",
-          ),
-      },
-      outputSchema: FindMatchingVehicleOutputSchema,
-      annotations: { title: "Resolve Vehicle Availability (host-search-driven, renders widget)", readOnlyHint: true, openWorldHint: true, destructiveHint: false },
-      // (SYS-20260903-006) This is now the ONLY tool that triggers the
-      // result-card widget — moved here from find_matching_vehicle, which
-      // is data-only and must never render. See that tool's registration
-      // comment for the full reasoning.
-      _meta: {
-        ui: { resourceUri: RESULTS_CARD_RESOURCE_URI },
-        "openai/outputTemplate": RESULTS_CARD_RESOURCE_URI,
-      },
-    },
-    async ({ vehicles, totalFoundByFindMatchingVehicle }) => {
-      const refetched = await Promise.all(
-        vehicles.map(async (v) => {
-          const listing = await getListingByVin(v.vin);
-          return { input: v, listing };
-        }),
-      );
-
-      const unavailable = refetched.filter((r) => r.listing === null).map((r) => r.input.vin);
-
-      const cards = (
-        await Promise.all(
-          refetched
-            .filter((r): r is { input: (typeof vehicles)[number]; listing: AutoDevListing } => r.listing !== null)
-            .map(async ({ input: v, listing }) => {
-              // Minimal, deliberately empty-by-default intent — this call
-              // re-verifies/re-renders specific already-selected vehicles,
-              // it does not re-run the original constrained search, so
-              // there is no original search criteria to reconstruct here.
-              // Mirrors the same minimal-intent pattern the existing
-              // direct-VIN-lookup path already uses (see vinIntentInput
-              // above) rather than inventing a new one.
-              const intent = parseIntent({ make: v.make, model: v.model });
-              const intentInput: CardIntentInput = { used: v.used };
-              const hostSearchResult: HostSearchResult = {
-                vinFound: v.vinFound,
-                edmundsFound: v.edmundsFound,
-                edmundsUrl: v.edmundsUrl,
-                fallbackUsed: v.fallbackUsed,
-              };
-              return buildResultCard(listing, intent, intentInput, undefined, undefined, undefined, hostSearchResult);
-            }),
-        )
-      ).filter((c): c is NonNullable<typeof c> => c !== null);
-
-      const dataNotes: string[] =
-        unavailable.length > 0
-          ? [
-              `${unavailable.length} vehicle${unavailable.length === 1 ? "" : "s"} from the earlier search ${unavailable.length === 1 ? "is" : "are"} no longer found in current inventory (VIN${unavailable.length === 1 ? "" : "s"}: ${unavailable.join(", ")}) — sold or delisted since find_matching_vehicle ran. Not substituted with a different vehicle.`,
-            ]
-          : [];
-
-      const totalLabel =
-        totalFoundByFindMatchingVehicle != null && totalFoundByFindMatchingVehicle !== cards.length
-          ? `${cards.length} of ${totalFoundByFindMatchingVehicle} found`
-          : `${cards.length} vehicle${cards.length === 1 ? "" : "s"}`;
-
-      const summary =
-        cards.length === 0
-          ? "None of the requested vehicles could be re-verified — all were no longer found in current inventory." + (dataNotes.length > 0 ? " " + dataNotes.join(" ") : "")
-          : `Verified ${totalLabel}:\n\n` +
-            cards
-              .map((c, i) => {
-                const id = c.identity;
-                const l = c.listing;
-                const priceStr = l.price != null ? `$${l.price.toLocaleString()}` : "price unavailable";
-                const mileageStr = l.mileage != null ? `${l.mileage.toLocaleString()} mi` : "mileage unknown";
-                const primaryLinkStr = c.links.affiliateUrl ?? c.links.affiliateFallbackUrl ?? "no link available";
-                const confidenceNote =
-                  c.links.checkAvailSource === "confirmed-exact"
-                    ? " (confirmed on Edmunds)"
-                    : c.links.checkAvailSource === "targeted-fallback"
-                    ? " (close match, not this exact VIN)"
-                    : "";
-                return `${i + 1}. ${formatVehicleTitle(id)} — ${priceStr}, ${mileageStr}\n   Check avail.: ${primaryLinkStr}${confidenceNote}${c.links.affiliateFallbackUrl && c.links.affiliateUrl ? `\n   View similar: ${c.links.affiliateFallbackUrl}` : ""}`;
-              })
-              .join("\n\n") +
-            (dataNotes.length > 0 ? "\n\n" + dataNotes.join(" ") : "");
-
-      return {
-        content: [{ type: "text" as const, text: summary }],
-        structuredContent: {
-          meta: {
-            totalCandidatesConsidered: vehicles.length,
-            // (SYS-20260903-013, Andre live-test finding) totalMatches must
-            // reflect find_matching_vehicle's true original count, not just
-            // how many the host chose to verify here -- otherwise the
-            // "N of M shown" count-accuracy guarantee from SYS-20260903-012
-            // (V1's merged fix) silently breaks across the two-call split:
-            // resolve_vehicle_availability would report "5 found, 5 shown"
-            // even when find_matching_vehicle actually found 8. Falls back
-            // to cards.length (old behavior) only when the host doesn't
-            // supply the real total.
-            totalMatches: totalFoundByFindMatchingVehicle ?? cards.length,
-            resultsShown: cards.length,
-            corpusSizeApprox: getCorpusCountForDescription(),
-            relaxations: [],
-            dataNotes,
-            scopeNote: "vin_lookup",
-            serviceError: null,
-            interpretationNotes: [
-              "Each result was re-fetched fresh by VIN and its Check avail. link reflects the search findings supplied with this call.",
-            ],
-            qualifierAccounting: [],
-          },
-          results: cards,
-        } satisfies FindMatchingVehicleOutput,
-      };
-    },
-  );
 }, {
   // Purely diagnostic, invisible to end users: automatically identifies
   // exactly which commit is actually running, checkable only via a raw
