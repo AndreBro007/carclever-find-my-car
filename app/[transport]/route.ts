@@ -152,7 +152,7 @@ PRESENTING RESULTS
 
 ⚠️ This tool is data-only and NEVER renders anything and NEVER returns a real, usable link. \`affiliateUrl\` and \`affiliateFallbackUrl\` on every result are always null here — that is intentional, not a bug or a missing-data case, and it is NOT the same thing as "no link exists for this vehicle." Do not tell the user "no link is available" based on this response. Do not construct, guess, or search for a link yourself to fill the gap.
 
-MANDATORY NEXT STEP — calling this tool is never a complete turn by itself. Before presenting any of these results to the user in any form (text, a link, a summary, anything), you MUST call \`resolve_vehicle_availability\` with these results' VINs and your own web-search findings for each: search \`site:edmunds.com "<VIN>"\` first; if that finds nothing useful, run exactly one wider fallback search, \`site:edmunds.com "<year> <make> <model> <trim>" "<dealer>" "<city/state>"\`. Never run any other search variant (no stock number, price, mileage, color, or listing-date searches) — only these two, and only the second when the first misses. Only verify the (up to 5) results actually returned here; there is no larger internal pool to check. \`resolve_vehicle_availability\` re-fetches each vehicle fresh, applies your findings, constructs the real CJ-affiliate-wrapped links, and renders the actual result widget — that response, not this one, is what you present to the user. This sequence is mandatory for every call to this tool, not an optional upgrade.
+MANDATORY NEXT STEP — calling this tool is never a complete turn by itself. Before presenting any of these results to the user in any form (text, a link, a summary, anything), you MUST call \`resolve_vehicle_availability\` with these results' VINs and your own web-search findings for each: search \`site:edmunds.com "<VIN>"\` first; if that finds nothing useful, run exactly one wider fallback search, \`site:edmunds.com "<year> <make> <model> <trim>" "<dealer>" "<city/state>"\`. Never run any other search variant (no stock number, price, mileage, color, or listing-date searches) — only these two, and only the second when the first misses. Only verify the (up to 5) results actually returned here; there is no larger internal pool to check. Also pass this response's true result count as \`totalFoundByFindMatchingVehicle\` even if you're only verifying some of them (e.g. \`meta.resultsShown\` from this response) — this lets the rendered widget correctly say "N of M shown" instead of implying only the verified count ever existed. \`resolve_vehicle_availability\` re-fetches each vehicle fresh, applies your findings, constructs the real CJ-affiliate-wrapped links, and renders the actual result widget — that response, not this one, is what you present to the user. This sequence is mandatory for every call to this tool, not an optional upgrade.
 
 For the top result, you may still reference its \`primaryImage\` if useful context while you prepare the verification call — but the actual presented result comes from \`resolve_vehicle_availability\`, not from embedding anything out of this response directly.
 
@@ -2431,10 +2431,17 @@ const handler = createMcpHandler((server) => {
         "Never run any other search (no stock number, price, mileage, color, or listing-date queries) — those are explicitly out of scope for this flow. " +
         "Works identically for new and used vehicles; do not branch your search behavior on condition. " +
         "Only verify vehicles actually returned by find_matching_vehicle — never a larger internal candidate pool the user was never shown. " +
+        "Pass totalFoundByFindMatchingVehicle as the exact count find_matching_vehicle reported finding (its results array length, before you narrowed to the ones you're verifying here) — this lets the rendered widget correctly say e.g. \"5 of 8 shown\" instead of implying only 5 ever existed. Omit only if you truly don't have that number. " +
         'The rendered widget from this response already shows every result correctly — after this call, don\'t restate photo/price/mileage/match-score/links in text; a brief intro sentence is enough. On hosts without widget rendering, relay this response\'s links in text instead. Never construct, guess, or display a raw Google, Edmunds, dealer, or search-provider URL yourself — always relay the CJ-wrapped URLs this tool returns. ' +
         'If a vehicle from find_matching_vehicle is no longer found (sold/delisted since that call), it is omitted from results here and noted in meta.dataNotes — never silently substituted with a different vehicle.',
       inputSchema: {
         vehicles: z.array(VehicleAvailabilityCheckInput).max(5).describe("Every one of find_matching_vehicle's (up to 5) results, with your web-search findings for each. Do not verify vehicles the user was never shown."),
+        totalFoundByFindMatchingVehicle: z
+          .number()
+          .optional()
+          .describe(
+            "The total number of results find_matching_vehicle reported finding (its results array length), before narrowing to the vehicles array above. Enables an accurate 'N of M shown' count on the rendered widget. If omitted, the widget can only report the count of what's verified here, which may understate how many results actually existed.",
+          ),
       },
       outputSchema: FindMatchingVehicleOutputSchema,
       annotations: { title: "Resolve Vehicle Availability (host-search-driven, renders widget)", readOnlyHint: true, openWorldHint: true, destructiveHint: false },
@@ -2447,7 +2454,7 @@ const handler = createMcpHandler((server) => {
         "openai/outputTemplate": RESULTS_CARD_RESOURCE_URI,
       },
     },
-    async ({ vehicles }) => {
+    async ({ vehicles, totalFoundByFindMatchingVehicle }) => {
       const refetched = await Promise.all(
         vehicles.map(async (v) => {
           const listing = await getListingByVin(v.vin);
@@ -2489,10 +2496,15 @@ const handler = createMcpHandler((server) => {
             ]
           : [];
 
+      const totalLabel =
+        totalFoundByFindMatchingVehicle != null && totalFoundByFindMatchingVehicle !== cards.length
+          ? `${cards.length} of ${totalFoundByFindMatchingVehicle} found`
+          : `${cards.length} vehicle${cards.length === 1 ? "" : "s"}`;
+
       const summary =
         cards.length === 0
           ? "None of the requested vehicles could be re-verified — all were no longer found in current inventory." + (dataNotes.length > 0 ? " " + dataNotes.join(" ") : "")
-          : `Verified ${cards.length} vehicle${cards.length === 1 ? "" : "s"}:\n\n` +
+          : `Verified ${totalLabel}:\n\n` +
             cards
               .map((c, i) => {
                 const id = c.identity;
@@ -2516,7 +2528,16 @@ const handler = createMcpHandler((server) => {
         structuredContent: {
           meta: {
             totalCandidatesConsidered: vehicles.length,
-            totalMatches: cards.length,
+            // (SYS-20260903-013, Andre live-test finding) totalMatches must
+            // reflect find_matching_vehicle's true original count, not just
+            // how many the host chose to verify here -- otherwise the
+            // "N of M shown" count-accuracy guarantee from SYS-20260903-012
+            // (V1's merged fix) silently breaks across the two-call split:
+            // resolve_vehicle_availability would report "5 found, 5 shown"
+            // even when find_matching_vehicle actually found 8. Falls back
+            // to cards.length (old behavior) only when the host doesn't
+            // supply the real total.
+            totalMatches: totalFoundByFindMatchingVehicle ?? cards.length,
             resultsShown: cards.length,
             corpusSizeApprox: getCorpusCountForDescription(),
             relaxations: [],
