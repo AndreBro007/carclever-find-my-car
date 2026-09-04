@@ -198,6 +198,64 @@ test("D2p. resolveLinks() unavailable-bare: neither exact-VIN nor category fallb
 });
 
 // ----------------------------------------------------------------------------
+// D2q-s. NHTSA trim decode (SYS-20260904-004) -- piggybacks the already-
+// happening electrification decode call, zero additional network cost.
+// Trim is frequently ambiguous (comma-separated) or absent; these tests
+// lock in that decodeNhtsaElectrification() never collapses that
+// ambiguity into a single confident-looking string.
+// ----------------------------------------------------------------------------
+
+function withMockedNhtsaFetch(responseBody: unknown) {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => ({
+    ok: true,
+    json: async () => responseBody,
+  })) as unknown as typeof fetch;
+  return () => {
+    globalThis.fetch = originalFetch;
+  };
+}
+
+test("D2q. decodeNhtsaElectrification() parses a single unambiguous Trim into a one-element trimOptions array", async () => {
+  const { decodeNhtsaElectrification } = await import("../lib/nhtsa-client");
+  const restore = withMockedNhtsaFetch({
+    Results: [{ ErrorCode: "0", Make: "HONDA", Model: "CR-V", ModelYear: "2026", Trim: "EX-L" }],
+  });
+  try {
+    const result = await decodeNhtsaElectrification("1HGCV1F34NA000001", "Honda", "CR-V", null);
+    assert.deepEqual(result?.trimOptions, ["EX-L"]);
+  } finally {
+    restore();
+  }
+});
+
+test("D2r. decodeNhtsaElectrification() parses an ambiguous comma-separated Trim into a multi-element trimOptions array, never picks one for the caller", async () => {
+  const { decodeNhtsaElectrification } = await import("../lib/nhtsa-client");
+  const restore = withMockedNhtsaFetch({
+    Results: [{ ErrorCode: "0", Make: "KIA", Model: "Sportage Hybrid", ModelYear: "2027", Trim: "EX, X-Line" }],
+  });
+  try {
+    const result = await decodeNhtsaElectrification("KNDPVDDG9V7439369", "Kia", "Sportage Hybrid", null);
+    assert.deepEqual(result?.trimOptions, ["EX", "X-Line"], "must expose both candidates, whitespace-trimmed, never silently pick the first one itself");
+  } finally {
+    restore();
+  }
+});
+
+test("D2s. decodeNhtsaElectrification() returns an empty trimOptions array (never null/undefined) when NHTSA has no Trim data", async () => {
+  const { decodeNhtsaElectrification } = await import("../lib/nhtsa-client");
+  const restore = withMockedNhtsaFetch({
+    Results: [{ ErrorCode: "0", Make: "FORD", Model: "Bronco", ModelYear: "2026", Trim: "" }],
+  });
+  try {
+    const result = await decodeNhtsaElectrification("1FMDE6AH0TLB04898", "Ford", "Bronco", null);
+    assert.deepEqual(result?.trimOptions, [], "empty Trim field must produce an empty array, not null/undefined -- callers check .length, not truthiness of the field itself");
+  } finally {
+    restore();
+  }
+});
+
+// ----------------------------------------------------------------------------
 // D2h-l. Deterministic condition-aware design (SYS-20260904-002) --
 // supersedes the host-AI-driven live-search design (SYS-20260903-005
 // through -013), which worked and was verified live but cost 85-100
