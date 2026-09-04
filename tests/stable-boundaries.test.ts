@@ -597,7 +597,7 @@ test("D6. MCP metadata contract: domain absent, single widgetDomain, prefersBord
 
   // Confirm the constant itself resolves to the expected URI (results-card.ts)
   const resultsCardSource = fs.readFileSync("lib/results-card.ts", "utf8");
-  assert.ok(resultsCardSource.includes('"ui://carclever-find-my-car/results-card-v2"'), "RESULTS_CARD_RESOURCE_URI must resolve to ui://carclever-find-my-car/results-card-v2");
+  assert.ok(resultsCardSource.includes('"ui://carclever-find-my-car/results-card-v3"'), "RESULTS_CARD_RESOURCE_URI must resolve to ui://carclever-find-my-car/results-card-v3");
 });
 
 // ============================================================================
