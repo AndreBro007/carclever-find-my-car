@@ -21,8 +21,24 @@
 // Text/structuredContent fallback for hosts that don't render this resource
 // is completely untouched (see route.ts) — this widget is additive, never a
 // replacement for the existing tool response.
+//
+// 2026-09-04 (SYS-20260904-003): bumped v2 -> v3. The v2 bump (Aug 31,
+// V1/fix/total-matches-count-bug, SYS-20260831-005-adjacent) was a
+// live-tested fix for client/connector-side widget caching keyed by this
+// exact URI string -- confirmed server-side caching and per-chat iframe
+// persistence were both ruled out at the time; bumping the URI was the
+// only thing that made a widget content change actually show up. This
+// branch has since made a second, substantial round of widget-affecting
+// changes (SYS-20260903-006 through SYS-20260904-002: the mandatory
+// two-call flow, then retiring it and going back to single-call
+// rendering) without ever bumping this URI itself -- inherited "v2" was
+// for a different, earlier round of changes on a different branch. Andre
+// reported the widget still not rendering/updating after a full
+// delete-recreate-and-close connector cache clear and a brand-new chat,
+// matching the exact symptom the v2 fix was originally built for. Same
+// fix, same reasoning, applied again for this branch's own changes.
 
-export const RESULTS_CARD_RESOURCE_URI = "ui://carclever-find-my-car/results-card-v2";
+export const RESULTS_CARD_RESOURCE_URI = "ui://carclever-find-my-car/results-card-v3";
 
 // Set to the real deployed origin. Used both for the CSP resourceDomains
 // declaration and for building proxied photo URLs client-side.
