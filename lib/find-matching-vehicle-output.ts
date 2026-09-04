@@ -148,13 +148,14 @@ const LinksSchema = z.object({
   dealerListingUrl: z.string().nullable(),
   isCarvana: z.boolean(),
   linkStatus: z.enum(["both-available", "edmunds-only", "dealer-only", "fallback-only", "none-available"]),
-  // Added 2026-09-03 (SYS-20260903-006) alongside the same field on
-  // ResolveDealerUrlOutput (SYS-20260903-005) — was missing here too,
-  // same latent zod-key-stripping gap. On find_matching_vehicle's output
-  // this is always "unconfirmed" or "none" (affiliateUrl/affiliateFallbackUrl
-  // are redacted to null on that tool regardless); on
-  // resolve_vehicle_availability's output it reflects the real outcome.
-  checkAvailSource: z.enum(["confirmed-exact", "targeted-fallback", "unconfirmed", "none"]),
+  // Updated 2026-09-04 (SYS-20260904-002): matches the new deterministic
+  // checkAvailSource values on LinkResolution -- "exact" (Used, may 404),
+  // "close" (New/Carvana, trim-specific category URL, no exact-VIN attempt
+  // made), "none" (no destination could be built). The earlier host-search
+  // values ("confirmed-exact" / "targeted-fallback" / "unconfirmed") no
+  // longer apply now that live search has been retired in favor of a fully
+  // deterministic design.
+  checkAvailSource: z.enum(["exact", "close", "none"]),
 });
 
 const DetailSchema = z.object({
