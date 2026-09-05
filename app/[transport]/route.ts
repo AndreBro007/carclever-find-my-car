@@ -14,7 +14,7 @@ import { verifyAgainstConstraints } from "@/lib/post-verify";
 import { parseIntent } from "@/lib/intent-parser";
 import { applyDiversity } from "@/lib/diversity";
 import { crossCheckVin, type VerificationResult } from "@/lib/vin-cross-check";
-import { classifyRiskTier, riskTierRank, type RiskTier } from "@/lib/risk-tier";
+import { classifyRiskTier, explainRiskTier, riskTierRank, type RiskTier } from "@/lib/risk-tier";
 import { buildBuyerCheck, type BuyerCheck } from "@/lib/buyer-check";
 import { applyConfigurationVarietyPass } from "@/lib/configuration-variety";
 import { withFindMatchingVehicleErrorBoundary } from "@/lib/tool-error-boundary";
@@ -23,10 +23,11 @@ import { resolveLinks } from "@/lib/link-resolution";
 import { sanitizeDealerName } from "@/lib/dealer-name";
 import { applyKnownHybridOverride, formatFuelTypeForDisplay } from "@/lib/fuel-type";
 import { decodeNhtsaElectrification, nhtsaIndicatesElectrified, type NhtsaElectrificationResult } from "@/lib/nhtsa-client";
+import { fetchRecallStatus, type RecallInfo } from "@/lib/nhtsa-recalls-client";
 import { getCorpusCountForDescription, initCorpusCount } from "@/lib/corpus-count";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting, type CardIntentInput } from "@/lib/qualifier-accounting";
-import { RESULTS_CARD_RESOURCE_URI, buildResultsCardHtml } from "@/lib/results-card";
+import { RESULTS_CARD_RESOURCE_URI, buildResultsCardHtml, getAppOrigin } from "@/lib/results-card";
 import { signImageUrl } from "@/lib/image-proxy-sign";
 import { trimMatches } from "@/lib/trim-match";
 import { formatVehicleTitle } from "@/lib/vehicle-title";
@@ -116,7 +117,7 @@ RESULT TRUST
 
 Every result's text states plainly which criteria it met, and separately flags any genuine data conflict (e.g. a cylinder count disagreeing with its own series description). If a price, mileage, or other value is flagged as an implausible data error, never present it as the genuine cheapest, newest, or best match in your own summary — it stays visible for transparency but is excluded from that judgment.
 
-Open with real scale: \`corpusSizeApprox\` searched, narrowed to \`totalMatches\` matching this request — e.g. "3,581,127 searched → 406 matched, here are the strongest options:". Never claim an exact count for the results actually shown, since that depends on how the response gets formatted — keep that part qualitative ("strongest options," "best matches"). If \`totalMatches\` is null, the exact count wasn't available for this search — don't say "0 matched" or invent a number; just open with \`corpusSizeApprox\` searched and go straight into the results.
+Open with real scale: \`corpusSizeApprox\` searched, narrowed to \`totalMatches\` matching this request — e.g. "3,581,127 searched → 406 matched." Treat that scale statement and the results that follow as two SEPARATE facts, never one continuous count: \`totalMatches\`/\`totalCandidatesConsidered\` describe the size of the broader match pool and can be — and often are — a different number than what's actually shown below, since verification and filtering steps you don't see can still drop candidates after that pool size is computed. If \`totalMatches\` is null, the exact pool size wasn't available for this search — don't say "0 matched" or invent a number; just open with \`corpusSizeApprox\` searched and go straight into the results. When you need to say how many results are below (e.g. "here are the N strongest options"), use \`resultsShown\` — the exact, guaranteed-accurate count of items in \`results\` — and never substitute \`totalMatches\` or \`totalCandidatesConsidered\` for that number, even when they happen to look close.
 
 PRIORITY AXIS
 
@@ -150,13 +151,15 @@ If a search still returns nothing after automatic widening, a strict user constr
 
 PRESENTING RESULTS
 
-If a visual result card was already rendered above this response (MCP Apps-capable hosts only), it already shows each result's photo, price, mileage, match score, and its own click-through link — don't restate those details in text. On hosts without a rendered card, or in addition to it, still follow everything below in full; the two links and count text remain required since not every host renders the card.
+Every result already includes a real, usable Edmunds destination — this tool renders and links directly, no follow-up call is needed to get a working link.
 
 Two links belong on every result.
 
-1. THE LISTING LINK. Include each result's own link by default. For virtually every result that is the Edmunds link (\`affiliateUrl\`). Never substitute a dealer's own site, Carfax, Autolist, or any other URL instead of it, even if another link looks cleaner or more direct — this includes Carvana-sourced results: \`dealerListingUrl\` (including a Carvana link) is never the user-facing destination, even when \`affiliateUrl\` is null. When \`affiliateUrl\` is null, use \`affiliateFallbackUrl\` instead and label it clearly as a fallback — e.g. "Similar options on Edmunds" — never "Check availability," since it isn't this specific vehicle. If neither \`affiliateUrl\` nor \`affiliateFallbackUrl\` is available, say so plainly rather than substituting \`dealerListingUrl\`.
+1. THE LISTING LINK. Include each result's own \`affiliateUrl\` (labeled "Check avail.") by default. Never substitute a dealer's own site, Carfax, Autolist, or any other URL instead of it, even if another link looks cleaner — this includes \`dealerListingUrl\` (including any Carvana link), which is never a user-facing destination under any circumstance, even when \`affiliateUrl\` is null. For a used vehicle this is the exact-VIN Edmunds page (it can occasionally be dead/sold since Edmunds' own inventory sync can lag — if so, Edmunds' own page automatically shows real similar vehicles, and \`affiliateFallbackUrl\` is right there as a second option). For a new or Carvana-sourced vehicle, \`affiliateUrl\` is a close, trim-specific Edmunds destination rather than an exact-VIN attempt — present it exactly the same way, still labeled "Check avail.", never described as less reliable or hedged.
 
-2. THE FALLBACK LINK. Include \`affiliateFallbackUrl\` alongside the listing link on every result. State it distinctly, e.g. "if that Edmunds listing is no longer available, see similar options here: [link]" — don't fold it into the listing link as if the two were the same thing.
+2. THE SIMILAR-VEHICLES LINK. Include \`affiliateFallbackUrl\` (labeled "View similar") alongside the listing link on every result, stated distinctly — e.g. "if that listing's no longer available, see similar options here: [link]" — never folded into the listing link as if the two were the same thing.
+
+If neither \`affiliateUrl\` nor \`affiliateFallbackUrl\` is available for a result (rare — only when make/model themselves are unknown), say so plainly rather than substituting \`dealerListingUrl\`.
 
 For the top result, embed its \`primaryImage\` directly using markdown image syntax so it renders inline — the URL is already present in the result data, no separate tool call needed. Only do this if \`primaryImage\` is present; never substitute a placeholder or generic image.
 
@@ -203,9 +206,16 @@ const ResolveDealerUrlOutput = z.object({
   dealerListingUrl: z.string().nullable(),
   isCarvana: z.boolean(),
   linkStatus: z.enum(["both-available", "edmunds-only", "dealer-only", "fallback-only", "none-available"]),
+  // Updated 2026-09-04 (SYS-20260904-002) to match the new deterministic
+  // checkAvailSource enum on LinkResolution ("exact" | "close" | "none") —
+  // the earlier host-search-driven values ("confirmed-exact" /
+  // "targeted-fallback" / "unconfirmed") no longer apply now that live
+  // search has been retired.
+  checkAvailSource: z.enum(["exact", "close", "none"]),
 });
 
 const SHORTLIST_SIZE = 5;
+
 
 /**
  * Result-count strategy (SYS-20260816-008).
@@ -590,10 +600,11 @@ function applyLocalLowerRiskOrdering(candidates: AutoDevListing[]): AutoDevListi
 }
 
 
-// Same deployed origin the widget declares in its CSP resourceDomains
-// (lib/results-card.ts APP_ORIGIN) — kept in sync manually since the two
-// files are independent per the MCP Apps static-resource split.
-const IMG_PROXY_ORIGIN = "https://carclever-find-my-car.vercel.app";
+// Same deployed origin the widget declares in its CSP resourceDomains —
+// imported directly from lib/results-card.ts's getAppOrigin() rather than a
+// second hardcoded copy, so the two can never drift out of sync again
+// (this constant used to be a manually-duplicated literal; that's exactly
+// the class of bug fixed in SYS-20260831-002 — one dynamic source now).
 
 function signedImageProxyUrl(rawImageUrl: string | null): string | null {
   if (!rawImageUrl) return null;
@@ -604,7 +615,7 @@ function signedImageProxyUrl(rawImageUrl: string | null): string | null {
   // route itself still fails closed (403) for any unsigned/invalid request.
   try {
     const sig = signImageUrl(rawImageUrl);
-    return IMG_PROXY_ORIGIN + "/api/img-proxy?u=" + encodeURIComponent(rawImageUrl) + "&sig=" + sig;
+    return getAppOrigin() + "/api/img-proxy?u=" + encodeURIComponent(rawImageUrl) + "&sig=" + sig;
   } catch {
     return null;
   }
@@ -620,7 +631,19 @@ async function buildResultCard(
 ) {
   const verification = crossCheckVin(listing); // now local/synchronous — no API call
   const { matchScore, matchScoreLabel, breakdown } = computeMatchScore(listing, intent, verification);
-  const links = resolveLinks(listing);
+
+  // Trim fill from NHTSA (SYS-20260904-004): only when Auto.dev's own
+  // trim is missing AND NHTSA decoded at least one candidate. Simple rule
+  // by design — take the first candidate even when NHTSA is ambiguous
+  // (picking one is trivially simple; requiring an unambiguous single
+  // answer here, unlike the trim-conflict badge below, was judged not
+  // worth the added complexity for what's just a URL-construction input).
+  // Never overrides a trim Auto.dev already supplied.
+  const effectiveListing: AutoDevListing =
+    !listing.vehicle?.trim && nhtsa?.trimOptions?.length
+      ? { ...listing, vehicle: { ...listing.vehicle, trim: nhtsa.trimOptions[0] } }
+      : listing;
+  const links = resolveLinks(effectiveListing);
 
   // Suppress entirely if no usable outbound link — a result with zero
   // actionable CTAs isn't useful regardless of Match Score (SYS-20260812-023/024).
@@ -665,6 +688,15 @@ async function buildResultCard(
     history: historySummary,
     condition: { cpoEvidenceState: cpoSummary.state },
   });
+  // (SYS-20260904-004) Companion reasons, same evidence, so a host AI
+  // asked "why is this flagged?" has a ready structured answer instead of
+  // reverse-engineering it from other card fields. Always empty for
+  // "positive"/"unknown" — see explainRiskTier()'s own doc.
+  const riskReasons = explainRiskTier({
+    verification,
+    history: historySummary,
+    condition: { cpoEvidenceState: cpoSummary.state },
+  });
 
   // Photos must never block the search-results critical path (real evidence:
   // 868ms median Photos latency, SYS-20260812-014/021). Leave the gallery
@@ -678,6 +710,28 @@ async function buildResultCard(
   if (nhtsa?.makeConflict) badges.push("nhtsa-make-conflict");
   if (nhtsa?.modelConflict) badges.push("nhtsa-model-conflict");
   if (nhtsa?.cylindersConflict) badges.push("nhtsa-cylinders-conflict");
+  // Trim conflict (SYS-20260904-004): a DATA-QUALITY signal (does the
+  // listing's claimed trim match what the VIN itself decodes to?), not a
+  // purchase-risk one — deliberately a badge, never fed into
+  // classifyRiskTier() below, same boundary lib/risk-tier.ts's module doc
+  // already establishes for make/model/cylinder conflicts (the real
+  // production bug that boundary exists to prevent: a brand-new,
+  // perfectly fine F-150 Raptor once got wrongly flagged amber purely
+  // from a data mismatch). Only fires when Auto.dev actually claims a
+  // trim (nothing to conflict with otherwise -- that's the missing-trim
+  // fill case above, a different thing) AND NHTSA decoded at least one
+  // candidate. Checks membership against ALL candidates, however many
+  // there are -- if NHTSA says "EX, X-Line" and Auto.dev says "X-Line",
+  // that's a valid answer, not a conflict; only flags when the claimed
+  // trim matches NONE of them.
+  const claimedTrim = listing.vehicle?.trim;
+  if (
+    claimedTrim &&
+    nhtsa?.trimOptions?.length &&
+    !nhtsa.trimOptions.some((t) => t.trim().toLowerCase() === String(claimedTrim).trim().toLowerCase())
+  ) {
+    badges.push("nhtsa-trim-conflict");
+  }
   if (nhtsa && nhtsaIndicatesElectrified(nhtsa) && normalizedFuel === "gasoline") badges.push("nhtsa-electrification-confirmed");
   if (intent.semantic.goals.length > 0) badges.push("inferred-match");
   if (historySummary.state === "known_issues") badges.push("history-issues-reported");
@@ -699,7 +753,7 @@ async function buildResultCard(
     // cardHtml() in lib/results-card.ts) — "positive"/"unknown" are
     // carried here for lower_risk ranking's internal use and completeness
     // of the structured data, never surfaced as a card badge either way.
-    risk: { tier: riskTier },
+    risk: { tier: riskTier, reasons: riskReasons },
     identity: {
       vin: listing.vin,
       year: v?.year ?? null,
@@ -773,6 +827,13 @@ async function buildResultCard(
       dealerListingUrl: links.dealerListingUrl,
       isCarvana: links.isCarvana,
       linkStatus: links.linkStatus,
+      // Added 2026-09-03 (SYS-20260903-006) — was missing here the same way
+      // it was briefly missing from ResolveDealerUrlOutput (SYS-20260903-005);
+      // this is the OTHER place LinkResolution gets narrowed to a card-local
+      // shape. Kept even though find_matching_vehicle always redacts the
+      // URLs themselves — "none/unconfirmed" is still useful diagnostic
+      // signal distinct from "URL redacted pending verification".
+      checkAvailSource: links.checkAvailSource,
     },
     detail: {
       carfaxUrl: CAPABILITIES.carfaxPassthrough ? rl?.carfaxUrl ?? null : null,
@@ -869,7 +930,7 @@ const handler = createMcpHandler((server) => {
           // once the field was removed, ChatGPT unaffected either way.
           // Do NOT restore a plain Vercel-origin value without
           // re-validating against a live Claude test first.
-          csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
+          csp: { resourceDomains: [getAppOrigin()] },
           prefersBorder: false,
         },
       },
@@ -899,10 +960,10 @@ const handler = createMcpHandler((server) => {
           // _meta is intentionally NOT touched in this experiment.
           _meta: {
             ui: {
-              csp: { resourceDomains: ["https://carclever-find-my-car.vercel.app"] },
+              csp: { resourceDomains: [getAppOrigin()] },
               prefersBorder: false,
             },
-            "openai/widgetDomain": "https://carclever-find-my-car.vercel.app",
+            "openai/widgetDomain": getAppOrigin(),
           },
         },
       ],
@@ -918,9 +979,16 @@ const handler = createMcpHandler((server) => {
       // Canonical output contract. All live structuredContent construction paths
       // are compile-time validated against this schema via `satisfies`.
       annotations: { title: "Find Matching Vehicle", readOnlyHint: true, openWorldHint: true, destructiveHint: false },
-      // Per SEP-1865: hosts that don't support MCP Apps ignore this field
-      // and the tool behaves exactly as before (text/structuredContent
-      // only) — this is additive, not a replacement path. Also set the
+      // (SYS-20260904-002) Restored — find_matching_vehicle is once again a
+      // single, self-sufficient call that renders directly. The mandatory
+      // two-call host-verification flow (SYS-20260903-006 through -013) was
+      // retired: it worked and was verified live, but cost 85-100 seconds
+      // per search, dominated by live search time with no way to reduce it.
+      // Replaced with a fully deterministic, condition-aware link design
+      // (see lib/link-resolution.ts) approved by both Andre and ChatGPT
+      // after reviewing real (not proxy) hit-rate data. Per SEP-1865: hosts
+      // that don't support MCP Apps ignore this field and the tool behaves
+      // exactly as before (text/structuredContent only). Also set the
       // ChatGPT-specific compatibility alias per OpenAI's own docs
       // ("ChatGPT also honors _meta['openai/outputTemplate'] as a
       // compatibility alias") for extra robustness on that host.
@@ -965,6 +1033,7 @@ const handler = createMcpHandler((server) => {
               meta: {
                 totalCandidatesConsidered: 0,
                 totalMatches: 0,
+                resultsShown: 0,
                 corpusSizeApprox: getCorpusCountForDescription(),
                 relaxations: [],
                 dataNotes: [],
@@ -995,6 +1064,7 @@ const handler = createMcpHandler((server) => {
               meta: {
                 totalCandidatesConsidered: 0,
                 totalMatches: 0,
+                resultsShown: 0,
                 corpusSizeApprox: getCorpusCountForDescription(),
                 relaxations: [],
                 dataNotes: [],
@@ -1087,6 +1157,9 @@ const handler = createMcpHandler((server) => {
           // here.
           new Set(),
         );
+        // (SYS-20260904-002) Data-only redaction removed — restored to
+        // direct rendering with the new deterministic condition-aware
+        // links from resolveLinks().
         const vinCards = vinCard ? [vinCard] : [];
 
         // VIN Buyer Check (feature/vin-buyer-check, preview MVP): attached
@@ -1137,11 +1210,12 @@ const handler = createMcpHandler((server) => {
                 const mileageStr = l.mileage != null ? `${l.mileage.toLocaleString()} mi` : "mileage unknown";
                 const dealerStr = l.dealer ? ` — ${l.dealer}${l.city ? `, ${l.city}` : ""}${l.state ? `, ${l.state}` : ""}` : "";
                 // Never route the user to dealerListingUrl (including
-                // Carvana) — affiliateUrl (VIN-specific Edmunds) first, then
-                // affiliateFallbackUrl (Edmunds category search) labeled as
-                // a fallback, never as "this vehicle". dealerListingUrl
-                // stays available internally on structuredContent (see
-                // links.dealerListingUrl below), never surfaced here.
+                // Carvana) — affiliateUrl (exact-VIN for Used, close
+                // trim-specific for New/Carvana) first, then
+                // affiliateFallbackUrl (close for Used, loose for
+                // New/Carvana) labeled as a fallback, never as "this
+                // vehicle". dealerListingUrl stays available internally on
+                // structuredContent only, never surfaced here.
                 const primaryLinkStr = c.links.affiliateUrl
                   ?? (c.links.affiliateFallbackUrl ? `Similar options on Edmunds: ${c.links.affiliateFallbackUrl}` : null)
                   ?? "no link available";
@@ -1167,6 +1241,7 @@ const handler = createMcpHandler((server) => {
             meta: {
               totalCandidatesConsidered: 1,
               totalMatches: vinCards.length,
+              resultsShown: vinCardsWithBuyerCheck.length,
               corpusSizeApprox: getCorpusCountForDescription(),
               relaxations: [],
               dataNotes: vinDataNotes,
@@ -2131,6 +2206,7 @@ const handler = createMcpHandler((server) => {
         meta: {
           totalCandidatesConsidered: candidates.length,
           totalMatches: typeof total === "number" ? total : null,
+          resultsShown: cards.length,
           corpusSizeApprox: getCorpusCountForDescription(),
           relaxations,
           dataNotes,
@@ -2265,8 +2341,7 @@ const handler = createMcpHandler((server) => {
           ? disclosurePrefix + noResultsMessage
           : disclosurePrefix + partialWideningNote + `Found ${cards.length} closely matching vehicle${cards.length === 1 ? "" : "s"}${totalPhrase}:\n\n` +
             cards
-              .map((c, i) => {
-                const id = c.identity;
+              .map((c, i) => {                const id = c.identity;
                 const l = c.listing;
                 const r = c.ranking;
                 const priceAnomalous = c.badges.includes("price-likely-inaccurate");
@@ -2275,23 +2350,21 @@ const handler = createMcpHandler((server) => {
                   : "price unavailable";
                 const mileageStr = l.mileage != null ? `${l.mileage.toLocaleString()} mi` : "mileage unknown";
                 const dealerStr = l.dealer ? ` — ${l.dealer}${l.city ? `, ${l.city}` : ""}${l.state ? `, ${l.state}` : ""}` : "";
-                // affiliateUrl (VIN-specific Edmunds) is always the primary
+                // (SYS-20260904-002) affiliateUrl (exact-VIN for Used, close
+                // trim-specific for New/Carvana) is always the primary
                 // user-facing link when present. dealerListingUrl (including
                 // Carvana's own VDP) is NEVER routed to as a user-facing
                 // destination — it stays available internally via
                 // c.links.dealerListingUrl on structuredContent only. When
-                // affiliateUrl is null, affiliateFallbackUrl (Edmunds
-                // category search, same make/model) becomes the primary
-                // destination instead, labeled explicitly as similar options
-                // rather than "this vehicle" — it never dead-ends, but it
-                // isn't the specific vehicle either.
-                const primaryLinkStr = c.links.affiliateUrl ?? null;
+                // affiliateUrl is null, affiliateFallbackUrl becomes the
+                // primary destination instead, labeled explicitly as similar
+                // options rather than "this vehicle".
                 const similarOptionsLabel = `similar ${id.year ?? ""} ${id.make ?? ""} ${id.model ?? ""}`.replace(/\s+/g, " ").trim();
                 const fallbackLinkStr = c.links.affiliateFallbackUrl
                   ? ` · If that Edmunds listing is no longer available, see ${similarOptionsLabel}: ${c.links.affiliateFallbackUrl}`
                   : "";
-                const linkStr = primaryLinkStr
-                  ? primaryLinkStr + fallbackLinkStr
+                const linkStr = c.links.affiliateUrl
+                  ? c.links.affiliateUrl + fallbackLinkStr
                   : c.links.affiliateFallbackUrl
                   ? `Similar options on Edmunds (${similarOptionsLabel}): ${c.links.affiliateFallbackUrl}`
                   : "no link available";
@@ -2305,7 +2378,7 @@ const handler = createMcpHandler((server) => {
                 );
                 const confirmedLine = confirmedItems.length > 0 ? `\n   Confirmed: ${confirmedItems.join(", ")}` : "";
                 const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
-                return `${i + 1}. ${formatVehicleTitle(id)} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}\n   Link: ${linkStr}`;
+                return `${i + 1}. ${formatVehicleTitle(id)} — VIN ${id.vin} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}\n   Link: ${linkStr}`;
               })
               .join("\n\n");
 
@@ -2314,6 +2387,172 @@ const handler = createMcpHandler((server) => {
         structuredContent: response,
       };
       });
+    },
+  );
+
+
+  server.registerTool(
+    "check_vehicle",
+    {
+      description:
+        "Answers 'is this a safe buy,' 'any red flags,' or 'what recalls does it have' for ONE specific, already-identified vehicle — a known VIN, or a complete make+model+year when no VIN is available. This is the preferred tool for known-vehicle risk/recall questions, including follow-ups after a find_matching_vehicle search (e.g. 'check option A', 'any recalls on the second one', 'is this Camry safe to buy'). Self-contained: requires either vin, or all three of make/model/year — never relies on a prior search's session state, so pass the actual VIN or make/model/year the user is referring to, not a reference like 'the second result'. Returns a Buyer Check (identity verification, accident/CPO history, next steps) when a VIN is supplied, plus recall status from NHTSA (make/model/year-level — not a VIN-specific remedy check, so 'status needs verification' is a normal, honest result, not an error). A recall lookup failure never blocks the rest of the response — Buyer Check and any other available information is still returned, with recall status reported as unavailable. Do NOT use this for a broad search ('find me a...', 'show me...') — use find_matching_vehicle for that; this tool is for one already-identified vehicle only.",
+      inputSchema: {
+        vin: z.string().optional().describe("The vehicle's exact 17-character VIN. Preferred when available — enables the full Buyer Check (VIN identity verification, accident/CPO history) alongside recall status. If omitted, make, model, AND year must all be supplied instead."),
+        make: z.string().optional().describe("Vehicle manufacturer, e.g. Toyota. Required together with model and year when vin is not supplied."),
+        model: z.string().optional().describe("Vehicle model name, e.g. Camry — never include the manufacturer name here. Required together with make and year when vin is not supplied."),
+        year: z.number().optional().describe("Model year. Required together with make and model when vin is not supplied."),
+      },
+      annotations: { title: "Check Vehicle", readOnlyHint: true, openWorldHint: true, destructiveHint: false },
+    },
+    async ({ vin, make, model, year }) => {
+      try {
+        const rawVin = vin?.trim().toUpperCase();
+        if (rawVin) {
+          const vinFormatValid = /^[A-HJ-NPR-Z0-9]{17}$/.test(rawVin);
+          if (!vinFormatValid) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `"${vin}" doesn't look like a valid 17-character VIN (VINs never contain the letters I, O, or Q) — double-check it and try again.`,
+                },
+              ],
+            };
+          }
+
+          const listing = await getListingByVin(rawVin);
+          if (!listing) {
+            return {
+              content: [
+                { type: "text" as const, text: `No listing found for VIN ${rawVin}. Recall status can still be checked if you can supply the make, model, and year instead.` },
+              ],
+            };
+          }
+
+          const nhtsaResult = await decodeNhtsaElectrification(
+            listing.vin,
+            listing.vehicle?.make,
+            listing.vehicle?.model,
+            listing.vehicle?.cylinders,
+          );
+          const verification = crossCheckVin(listing);
+          const historySummary = buildHistorySummary(listing);
+          const cpoSummary = buildCpoSummary(listing);
+          const dataConflicts = detectDataConflicts(listing);
+
+          // Recall lookup (V2.3): make/model/year from the listing itself,
+          // falling back to NHTSA's own decoded make/model/year when the
+          // listing is missing one (rare, but the vPIC decode above is a
+          // second, independent source for exactly this). Fails open
+          // internally (fetchRecallStatus never throws) — a lookup failure
+          // still returns a non-null RecallInfo with state "unavailable",
+          // per DECISION-20260902-008's "honest partial Buyer Check"
+          // requirement, so it's never the reason this whole tool call fails.
+          const recallMake = listing.vehicle?.make ?? nhtsaResult?.make ?? null;
+          const recallModel = listing.vehicle?.model ?? nhtsaResult?.model ?? null;
+          const recallYear = listing.vehicle?.year ?? (nhtsaResult?.modelYear ? Number(nhtsaResult.modelYear) : null);
+          const recall: RecallInfo | null =
+            recallMake && recallModel && recallYear
+              ? await fetchRecallStatus(recallMake, recallModel, recallYear)
+              : null;
+
+          const buyerCheck = buildBuyerCheck(
+            {
+              verification,
+              history: historySummary,
+              condition: { cpoEvidenceState: cpoSummary.state },
+              detail: { carfaxUrl: CAPABILITIES.carfaxPassthrough ? listing.retailListing?.carfaxUrl ?? null : null },
+              dataConflicts,
+            },
+            recall,
+          );
+
+          const outcomeLabel: Record<BuyerCheck["outcome"], string> = {
+            promising: "Promising",
+            verify_before_proceeding: "Verify before proceeding",
+            caution: "Caution",
+            significant_concern: "Significant concern",
+          };
+
+          const lines: string[] = [];
+          lines.push(`${formatVehicleTitle({ year: listing.vehicle?.year ?? null, make: listing.vehicle?.make ?? null, model: listing.vehicle?.model ?? null, trim: listing.vehicle?.trim ?? null })} — VIN ${listing.vin}`);
+          lines.push(`Buyer Check: ${outcomeLabel[buyerCheck.outcome]}`);
+          lines.push(`Recalls: ${recall ? recall.label : "Recalls: Data unavailable"}`);
+          if (buyerCheck.goodSigns.length) lines.push(`Good signs: ${buyerCheck.goodSigns.join(" ")}`);
+          if (buyerCheck.concerns.length) lines.push(`Concerns: ${buyerCheck.concerns.join(" ")}`);
+          if (buyerCheck.needsVerification.length) lines.push(`Needs verification: ${buyerCheck.needsVerification.join(" ")}`);
+          if (recall && recall.campaigns.length > 0) {
+            lines.push(
+              `Recall details (NHTSA, ${recall.count} total${recall.severeCount ? `, ${recall.severeCount} severity-flagged` : ""}): ` +
+                recall.campaigns
+                  .slice(0, 3)
+                  .map((c) => `${c.campaignNumber ?? "unknown campaign"} — ${c.component ?? "component unspecified"}: ${c.summary ?? "no summary available"}${c.remedy ? ` Remedy: ${c.remedy}` : ""}`)
+                  .join(" | "),
+            );
+            lines.push(`NHTSA source: ${recall.nhtsaSourceUrl}`);
+          }
+          lines.push(`Next steps: ${buyerCheck.nextSteps.join(" ")}`);
+
+          return {
+            content: [{ type: "text" as const, text: lines.join("\n") }],
+            structuredContent: {
+              vin: listing.vin,
+              buyerCheck,
+              recall,
+            },
+          };
+        }
+
+        // No VIN — self-contained make/model/year path. No specific
+        // listing to run identity/history/CPO checks against, so no
+        // Buyer Check is produced here (that requires an actual VIN to
+        // decode against) — this path answers the recall half only,
+        // honestly scoped rather than fabricating vehicle-condition
+        // evidence that doesn't exist for an unspecified unit.
+        if (!make || !model || !year) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: "check_vehicle needs either a VIN, or all three of make, model, and year — please supply one or the other.",
+              },
+            ],
+          };
+        }
+
+        const recall = await fetchRecallStatus(make, model, year);
+        const lines = [
+          `${year} ${make} ${model} — no specific VIN was given, so this covers recall status only (not a full Buyer Check, which needs a VIN to verify vehicle identity and history).`,
+          `Recalls: ${recall.label}`,
+        ];
+        if (recall.campaigns.length > 0) {
+          lines.push(
+            `Recall details (NHTSA, ${recall.count} total${recall.severeCount ? `, ${recall.severeCount} severity-flagged` : ""}): ` +
+              recall.campaigns
+                .slice(0, 3)
+                .map((c) => `${c.campaignNumber ?? "unknown campaign"} — ${c.component ?? "component unspecified"}: ${c.summary ?? "no summary available"}${c.remedy ? ` Remedy: ${c.remedy}` : ""}`)
+                .join(" | "),
+          );
+          lines.push(`NHTSA source: ${recall.nhtsaSourceUrl}`);
+        }
+
+        return {
+          content: [{ type: "text" as const, text: lines.join("\n") }],
+          structuredContent: { vin: null, buyerCheck: null, recall },
+        };
+      } catch (err) {
+        // Fail-open at the whole-tool level too (not just the recall
+        // lookup) — an unexpected error here should never look like a
+        // crash to the calling host; report plainly and stop.
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Something went wrong checking this vehicle — please try again.",
+            },
+          ],
+        };
+      }
     },
   );
 
@@ -2378,6 +2617,34 @@ const handler = createMcpHandler((server) => {
       };
     },
   );
+
+}, {
+  // Purely diagnostic, invisible to end users: automatically identifies
+  // exactly which commit is actually running, checkable only via a raw
+  // MCP `initialize` call (never rendered, never part of any screenshot,
+  // zero relation to anything submitted to Anthropic or OpenAI -- this
+  // is the SAME serverInfo field every MCP server already returns, just
+  // populated with real, always-current build identity instead of a
+  // static placeholder).
+  //
+  // Added Aug 31 2026 specifically to stop chasing symptoms that turn
+  // out to be stale/cached code rather than real bugs -- a recurring
+  // problem this same session (see DECISIONS.md SYS-20260831-001/003/004).
+  //
+  // Ported 2026-09-03 (SYS-20260903-007) from fix/total-matches-count-bug
+  // to this branch (cut from `main`, which never had this fix) -- same
+  // mechanism, same field, ported verbatim rather than reinvented: check
+  // this FIRST, before trusting any other live-test result on this
+  // branch's preview, exactly per the standing practice documented in
+  // DECISIONS.md SYS-20260831-005/SYS-20260901-001.
+  // VERCEL_GIT_COMMIT_SHA is set automatically by Vercel on every
+  // deployment; no manual version-bump step to forget. Falls back to
+  // package.json's version for any environment where it's unset (e.g.
+  // local dev).
+  serverInfo: {
+    name: "carclever-find-my-car",
+    version: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "0.1.0",
+  },
 });
 
 export { handler as GET, handler as POST, handler as DELETE };
