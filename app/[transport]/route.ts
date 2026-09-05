@@ -23,6 +23,7 @@ import { resolveLinks } from "@/lib/link-resolution";
 import { sanitizeDealerName } from "@/lib/dealer-name";
 import { applyKnownHybridOverride, formatFuelTypeForDisplay } from "@/lib/fuel-type";
 import { decodeNhtsaElectrification, nhtsaIndicatesElectrified, type NhtsaElectrificationResult } from "@/lib/nhtsa-client";
+import { fetchRecallStatus, type RecallInfo } from "@/lib/nhtsa-recalls-client";
 import { getCorpusCountForDescription, initCorpusCount } from "@/lib/corpus-count";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting, type CardIntentInput } from "@/lib/qualifier-accounting";
@@ -2386,6 +2387,172 @@ const handler = createMcpHandler((server) => {
         structuredContent: response,
       };
       });
+    },
+  );
+
+
+  server.registerTool(
+    "check_vehicle",
+    {
+      description:
+        "Answers 'is this a safe buy,' 'any red flags,' or 'what recalls does it have' for ONE specific, already-identified vehicle — a known VIN, or a complete make+model+year when no VIN is available. This is the preferred tool for known-vehicle risk/recall questions, including follow-ups after a find_matching_vehicle search (e.g. 'check option A', 'any recalls on the second one', 'is this Camry safe to buy'). Self-contained: requires either vin, or all three of make/model/year — never relies on a prior search's session state, so pass the actual VIN or make/model/year the user is referring to, not a reference like 'the second result'. Returns a Buyer Check (identity verification, accident/CPO history, next steps) when a VIN is supplied, plus recall status from NHTSA (make/model/year-level — not a VIN-specific remedy check, so 'status needs verification' is a normal, honest result, not an error). A recall lookup failure never blocks the rest of the response — Buyer Check and any other available information is still returned, with recall status reported as unavailable. Do NOT use this for a broad search ('find me a...', 'show me...') — use find_matching_vehicle for that; this tool is for one already-identified vehicle only.",
+      inputSchema: {
+        vin: z.string().optional().describe("The vehicle's exact 17-character VIN. Preferred when available — enables the full Buyer Check (VIN identity verification, accident/CPO history) alongside recall status. If omitted, make, model, AND year must all be supplied instead."),
+        make: z.string().optional().describe("Vehicle manufacturer, e.g. Toyota. Required together with model and year when vin is not supplied."),
+        model: z.string().optional().describe("Vehicle model name, e.g. Camry — never include the manufacturer name here. Required together with make and year when vin is not supplied."),
+        year: z.number().optional().describe("Model year. Required together with make and model when vin is not supplied."),
+      },
+      annotations: { title: "Check Vehicle", readOnlyHint: true, openWorldHint: true, destructiveHint: false },
+    },
+    async ({ vin, make, model, year }) => {
+      try {
+        const rawVin = vin?.trim().toUpperCase();
+        if (rawVin) {
+          const vinFormatValid = /^[A-HJ-NPR-Z0-9]{17}$/.test(rawVin);
+          if (!vinFormatValid) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `"${vin}" doesn't look like a valid 17-character VIN (VINs never contain the letters I, O, or Q) — double-check it and try again.`,
+                },
+              ],
+            };
+          }
+
+          const listing = await getListingByVin(rawVin);
+          if (!listing) {
+            return {
+              content: [
+                { type: "text" as const, text: `No listing found for VIN ${rawVin}. Recall status can still be checked if you can supply the make, model, and year instead.` },
+              ],
+            };
+          }
+
+          const nhtsaResult = await decodeNhtsaElectrification(
+            listing.vin,
+            listing.vehicle?.make,
+            listing.vehicle?.model,
+            listing.vehicle?.cylinders,
+          );
+          const verification = crossCheckVin(listing);
+          const historySummary = buildHistorySummary(listing);
+          const cpoSummary = buildCpoSummary(listing);
+          const dataConflicts = detectDataConflicts(listing);
+
+          // Recall lookup (V2.3): make/model/year from the listing itself,
+          // falling back to NHTSA's own decoded make/model/year when the
+          // listing is missing one (rare, but the vPIC decode above is a
+          // second, independent source for exactly this). Fails open
+          // internally (fetchRecallStatus never throws) — a lookup failure
+          // still returns a non-null RecallInfo with state "unavailable",
+          // per DECISION-20260902-008's "honest partial Buyer Check"
+          // requirement, so it's never the reason this whole tool call fails.
+          const recallMake = listing.vehicle?.make ?? nhtsaResult?.make ?? null;
+          const recallModel = listing.vehicle?.model ?? nhtsaResult?.model ?? null;
+          const recallYear = listing.vehicle?.year ?? (nhtsaResult?.modelYear ? Number(nhtsaResult.modelYear) : null);
+          const recall: RecallInfo | null =
+            recallMake && recallModel && recallYear
+              ? await fetchRecallStatus(recallMake, recallModel, recallYear)
+              : null;
+
+          const buyerCheck = buildBuyerCheck(
+            {
+              verification,
+              history: historySummary,
+              condition: { cpoEvidenceState: cpoSummary.state },
+              detail: { carfaxUrl: CAPABILITIES.carfaxPassthrough ? listing.retailListing?.carfaxUrl ?? null : null },
+              dataConflicts,
+            },
+            recall,
+          );
+
+          const outcomeLabel: Record<BuyerCheck["outcome"], string> = {
+            promising: "Promising",
+            verify_before_proceeding: "Verify before proceeding",
+            caution: "Caution",
+            significant_concern: "Significant concern",
+          };
+
+          const lines: string[] = [];
+          lines.push(`${formatVehicleTitle({ year: listing.vehicle?.year ?? null, make: listing.vehicle?.make ?? null, model: listing.vehicle?.model ?? null, trim: listing.vehicle?.trim ?? null })} — VIN ${listing.vin}`);
+          lines.push(`Buyer Check: ${outcomeLabel[buyerCheck.outcome]}`);
+          lines.push(`Recalls: ${recall ? recall.label : "Recalls: Data unavailable"}`);
+          if (buyerCheck.goodSigns.length) lines.push(`Good signs: ${buyerCheck.goodSigns.join(" ")}`);
+          if (buyerCheck.concerns.length) lines.push(`Concerns: ${buyerCheck.concerns.join(" ")}`);
+          if (buyerCheck.needsVerification.length) lines.push(`Needs verification: ${buyerCheck.needsVerification.join(" ")}`);
+          if (recall && recall.campaigns.length > 0) {
+            lines.push(
+              `Recall details (NHTSA, ${recall.count} total${recall.severeCount ? `, ${recall.severeCount} severity-flagged` : ""}): ` +
+                recall.campaigns
+                  .slice(0, 3)
+                  .map((c) => `${c.campaignNumber ?? "unknown campaign"} — ${c.component ?? "component unspecified"}: ${c.summary ?? "no summary available"}${c.remedy ? ` Remedy: ${c.remedy}` : ""}`)
+                  .join(" | "),
+            );
+            lines.push(`NHTSA source: ${recall.nhtsaSourceUrl}`);
+          }
+          lines.push(`Next steps: ${buyerCheck.nextSteps.join(" ")}`);
+
+          return {
+            content: [{ type: "text" as const, text: lines.join("\n") }],
+            structuredContent: {
+              vin: listing.vin,
+              buyerCheck,
+              recall,
+            },
+          };
+        }
+
+        // No VIN — self-contained make/model/year path. No specific
+        // listing to run identity/history/CPO checks against, so no
+        // Buyer Check is produced here (that requires an actual VIN to
+        // decode against) — this path answers the recall half only,
+        // honestly scoped rather than fabricating vehicle-condition
+        // evidence that doesn't exist for an unspecified unit.
+        if (!make || !model || !year) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: "check_vehicle needs either a VIN, or all three of make, model, and year — please supply one or the other.",
+              },
+            ],
+          };
+        }
+
+        const recall = await fetchRecallStatus(make, model, year);
+        const lines = [
+          `${year} ${make} ${model} — no specific VIN was given, so this covers recall status only (not a full Buyer Check, which needs a VIN to verify vehicle identity and history).`,
+          `Recalls: ${recall.label}`,
+        ];
+        if (recall.campaigns.length > 0) {
+          lines.push(
+            `Recall details (NHTSA, ${recall.count} total${recall.severeCount ? `, ${recall.severeCount} severity-flagged` : ""}): ` +
+              recall.campaigns
+                .slice(0, 3)
+                .map((c) => `${c.campaignNumber ?? "unknown campaign"} — ${c.component ?? "component unspecified"}: ${c.summary ?? "no summary available"}${c.remedy ? ` Remedy: ${c.remedy}` : ""}`)
+                .join(" | "),
+          );
+          lines.push(`NHTSA source: ${recall.nhtsaSourceUrl}`);
+        }
+
+        return {
+          content: [{ type: "text" as const, text: lines.join("\n") }],
+          structuredContent: { vin: null, buyerCheck: null, recall },
+        };
+      } catch (err) {
+        // Fail-open at the whole-tool level too (not just the recall
+        // lookup) — an unexpected error here should never look like a
+        // crash to the calling host; report plainly and stop.
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Something went wrong checking this vehicle — please try again.",
+            },
+          ],
+        };
+      }
     },
   );
 
