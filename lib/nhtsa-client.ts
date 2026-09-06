@@ -23,8 +23,25 @@
  * (the actual ask) plus Make/Model/ModelYear (a second, stronger identity
  * cross-check than vin-anatomy.ts's WMI-only local check, free since the
  * call is already being made). Deliberately NOT pulling BodyClass/
- * DriveType/PlantCountry/etc — no current use for them, same
+ * PlantCountry/etc — no current use for them, same
  * don't-collect-fields-without-a-use discipline as baseInvoice/baseMsrp.
+ *
+ * Trim (2026-09-04, SYS-20260904-004): also pulled from this same
+ * already-happening response — genuinely free, same reasoning as above.
+ * NHTSA's Trim field is frequently ambiguous (a comma-separated list —
+ * live-confirmed on a real VIN returning "EX, X-Line" for a Kia Sportage
+ * Hybrid, where "X-Line" is an appearance package layered on the EX trim
+ * rather than a separately-VIN-encoded model) or simply absent for many
+ * manufacturers. Exposed as `trimOptions: string[]` (parsed, trimmed,
+ * empty array when NHTSA has nothing) rather than a single string,
+ * specifically so callers can't accidentally treat an ambiguous decode as
+ * a confident single answer — see lib/link-resolution.ts (fills a missing
+ * Auto.dev trim, takes the first candidate when ambiguous — picking one
+ * is simple, low-risk) and app/[transport]/route.ts's trim-conflict badge
+ * (flags only when the claimed trim matches NONE of the candidates,
+ * however many there are — checking array membership is simple regardless
+ * of candidate count, so no "only if exactly one" restriction is needed
+ * here, unlike the URL-fill case's simpler "just take the first" rule).
  *
  * NHTSA also exposes separate recalls and safety-ratings APIs
  * (api.nhtsa.gov/recalls, api.nhtsa.gov/SafetyRatings) — confirmed NOT
@@ -58,6 +75,15 @@ export interface NhtsaElectrificationResult {
   engineCylinders: string | null;
   driveType: string | null;
   cylindersConflict: boolean;
+  /** Parsed from NHTSA's Trim field (2026-09-04, SYS-20260904-004) —
+   * always an array, never a bare string, because the field is frequently
+   * ambiguous (comma-separated multiple candidates) or absent entirely.
+   * Empty array means NHTSA had nothing usable; one entry means an
+   * unambiguous decode; multiple entries means NHTSA itself couldn't
+   * narrow it down further (e.g. a trim-package name layered on a base
+   * trim that shares the same VIN pattern). Never treat this as a single
+   * confident answer without checking its length first. */
+  trimOptions: string[];
 }
 
 /**
@@ -124,6 +150,15 @@ export async function decodeNhtsaElectrification(
       engineCylinders != null &&
       Number(engineCylinders) !== claimedCylinders;
 
+    // Trim (SYS-20260904-004): split NHTSA's Trim field on commas, trim
+    // whitespace, drop empty segments. Never assume the first segment is
+    // "the" answer here — that decision belongs to each caller, which may
+    // have different tolerance for ambiguity (see module doc above).
+    const trimOptions: string[] = (r.Trim ?? "")
+      .split(",")
+      .map((t: string) => t.trim())
+      .filter((t: string) => t.length > 0);
+
     return {
       electrificationLevel: r.ElectrificationLevel || null,
       fuelTypePrimary: r.FuelTypePrimary || null,
@@ -136,6 +171,7 @@ export async function decodeNhtsaElectrification(
       engineCylinders,
       driveType: r.DriveType || null,
       cylindersConflict,
+      trimOptions,
     };
   } catch {
     // Timeout, network error, or malformed JSON — never let this block or

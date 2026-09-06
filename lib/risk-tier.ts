@@ -117,6 +117,27 @@ export function classifyRiskTier(evidence: RiskEvidence): RiskTier {
   return "amber";
 }
 
+/**
+ * (SYS-20260904-004) Companion to classifyRiskTier() — returns the actual
+ * reason(s) behind an "amber"/"red" tier, in the same order of precedence
+ * classifyRiskTier() itself uses, so a host AI asked "why is this
+ * flagged?" has a ready structured answer instead of having to
+ * reverse-engineer it from scattered card fields. Built from the exact
+ * same evidence already computed for the tier itself -- no new data
+ * collection. Always returns an empty array for "positive"/"unknown" --
+ * there is nothing to explain about the absence of a concern.
+ */
+export function explainRiskTier(evidence: RiskEvidence): string[] {
+  const reasons: string[] = [];
+  if (evidence.verification.identityVerificationStatus === "failed") {
+    reasons.push("VIN identity check failed — one or more listed attributes (make/year) conflict with what the VIN itself decodes to.");
+  }
+  if (evidence.history.state === "known_issues") {
+    reasons.push("A reported accident or history issue is on file for this vehicle.");
+  }
+  return reasons;
+}
+
 const RISK_TIER_RANK: Record<RiskTier, number> = { positive: 0, unknown: 1, amber: 2, red: 3 };
 
 /** Lower rank = ranked first for lower_risk. Exported so ranking and any

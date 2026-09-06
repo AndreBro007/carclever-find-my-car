@@ -21,12 +21,69 @@
 // Text/structuredContent fallback for hosts that don't render this resource
 // is completely untouched (see route.ts) — this widget is additive, never a
 // replacement for the existing tool response.
+//
+// 2026-09-04 (SYS-20260904-003): bumped v2 -> v3. The v2 bump (Aug 31,
+// V1/fix/total-matches-count-bug, SYS-20260831-005-adjacent) was a
+// live-tested fix for client/connector-side widget caching keyed by this
+// exact URI string -- confirmed server-side caching and per-chat iframe
+// persistence were both ruled out at the time; bumping the URI was the
+// only thing that made a widget content change actually show up. This
+// branch has since made a second, substantial round of widget-affecting
+// changes (SYS-20260903-006 through SYS-20260904-002: the mandatory
+// two-call flow, then retiring it and going back to single-call
+// rendering) without ever bumping this URI itself -- inherited "v2" was
+// for a different, earlier round of changes on a different branch. Andre
+// reported the widget still not rendering/updating after a full
+// delete-recreate-and-close connector cache clear and a brand-new chat,
+// matching the exact symptom the v2 fix was originally built for. Same
+// fix, same reasoning, applied again for this branch's own changes.
 
-export const RESULTS_CARD_RESOURCE_URI = "ui://carclever-find-my-car/results-card";
+export const RESULTS_CARD_RESOURCE_URI = "ui://carclever-find-my-car/results-card-v3";
 
 // Set to the real deployed origin. Used both for the CSP resourceDomains
 // declaration and for building proxied photo URLs client-side.
-const APP_ORIGIN = "https://carclever-find-my-car.vercel.app";
+// Widget-serving origin, declared to hosts via CSP resourceDomains and
+// openai/widgetDomain (route.ts) so it must always match wherever this
+// code is *actually* running, not just production.
+//
+// Derived from Vercel's own system env vars (verified against Vercel's
+// docs, Aug 31 2026) rather than hardcoded, to fix a real live failure:
+// this value was hardcoded to production everywhere, so any preview
+// deployment declared a domain it wasn't actually being served from —
+// matching the exact "fetch it, then fail to mount/render it" failure
+// class already documented below as SYS-20260825, just never revisited
+// for a *preview* domain since that scenario didn't exist in August.
+//
+// REAL BUG CAUGHT LIVE, same day (SYS-20260831-004): the first version of
+// this fix used VERCEL_URL for non-production, which is the deployment's
+// own unique per-deployment hash URL (e.g. carclever-find-my-76cqhr7vq-...),
+// NOT the stable git-branch alias URL (e.g. carclever-find-my-car-git-
+// fix-total-matches-count-bug-...) that a connector is actually configured
+// against and that the browser is actually connected through. Confirmed
+// via a raw resources/read call showing the widget declaring a domain
+// that didn't match window.location.origin on the live page -- the exact
+// SYS-20260825 mismatch, just reintroduced by this fix instead of fixed
+// by it. VERCEL_BRANCH_URL is the correct field for this (confirmed
+// against Vercel's own docs): the stable branch alias, not the
+// per-deployment hash.
+//
+// SAFETY, load-bearing: for VERCEL_ENV === "production" this resolves to
+// the exact same literal string that was hardcoded before, with that same
+// string kept as the fallback — so production's declared domain is
+// byte-identical whether or not this branch is ever merged. See the
+// dedicated tests in tests/stable-boundaries.test.ts (D9a-d, D10) that
+// assert this invariant directly against this function, not just by
+// inspection.
+export function getAppOrigin(): string {
+  if (process.env.VERCEL_ENV === "production") {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL ?? "carclever-find-my-car.vercel.app"}`;
+  }
+  // Preview (or any other non-production env): prefer the stable branch
+  // alias -- the domain any connector/browser actually reaches this
+  // deployment through -- and only fall back to the per-deployment hash
+  // URL (VERCEL_URL) if the branch alias somehow isn't set.
+  return `https://${process.env.VERCEL_BRANCH_URL ?? process.env.VERCEL_URL ?? "carclever-find-my-car.vercel.app"}`;
+}
 
 export function buildResultsCardHtml(): string {
   return `<!DOCTYPE html>
@@ -197,7 +254,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     var stageEl = document.getElementById("cc-stage");
     if (stageEl) stageEl.textContent = "script error: " + (e && e.message);
   });
-  var APP_ORIGIN = ${JSON.stringify(APP_ORIGIN)};
+  var APP_ORIGIN = ${JSON.stringify(getAppOrigin())};
   var nextId = 1;
   var pending = {};
 
@@ -363,6 +420,21 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     // (that label implies this specific vehicle). If neither exists, no CTA
     // button is rendered at all — dealerListingUrl stays available on the
     // underlying data, just never surfaced as the clickable destination.
+    // Label update (2026-09-03, per getcarwise-docs
+    // HANDOFF_EDMUNDS_VIN_SEARCH_EXPERIMENT_20260903.md "Final design
+    // decision"): the split two-button case (affiliateUrl AND
+    // affiliateFallbackUrl both present) now uses "Check avail." / "View
+    // similar" instead of "View listing" / "View similar" — same URLs, same
+    // routing, label only. Deliberately scoped to the split case only. The
+    // fallback-only single-button case below keeps "Similar options on
+    // Edmunds" rather than "Check avail." — relabeling it would claim an
+    // availability check against a specific vehicle when affiliateFallbackUrl
+    // is a make/model category page, not a VIN-specific destination. The
+    // approved design's "Check avail." fallback tier is a targeted,
+    // Google-search-derived Edmunds destination (design doc §"Internal
+    // destination logic" steps 3/6) which does not exist in this codebase
+    // yet — that is separate, unbuilt work, not a relabel. Do not point
+    // "Check avail." at affiliateFallbackUrl to paper over that gap.
     var usingFallbackLink = !links.affiliateUrl && !!links.affiliateFallbackUrl;
     var primaryUrl = links.affiliateUrl || links.affiliateFallbackUrl || null;
     var providerLabel = "Edmunds \\u2197";
@@ -436,7 +508,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 
     var ctaBlock = (links.affiliateUrl && links.affiliateFallbackUrl)
       ? '<div class="cc-cta"><div class="cc-cta-row">' +
-          '<button type="button" class="cc-cta-btn cc-cta-left" data-url="' + esc(links.affiliateUrl) + '">View listing \\u2197</button>' +
+          '<button type="button" class="cc-cta-btn cc-cta-left" data-url="' + esc(links.affiliateUrl) + '">Check avail. \\u2197</button>' +
           '<button type="button" class="cc-cta-btn cc-cta-right" data-url="' + esc(links.affiliateFallbackUrl) + '">View similar \\u2197</button>' +
         "</div></div>"
       : primaryUrl
@@ -512,7 +584,11 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     var html = '<section class="cc-shell">' +
       '<header class="cc-header">' +
         '<div class="cc-header-left"><div class="cc-scale">' + esc(scaleHeaderText(meta)) + "</div></div>" +
-        '<div class="cc-header-center">Top ' + visible.length + " shown</div>" +
+        '<div class="cc-header-center">' + esc(
+          results.length > visible.length
+            ? "Top " + visible.length + " of " + results.length + " shown"
+            : visible.length + (visible.length === 1 ? " match shown" : " shown")
+        ) + "</div>" +
         '<div class="cc-header-right"><img class="cc-header-logo" src="' + APP_ORIGIN + '/cc-logo-round.png" alt="CarClever" width="22" height="22"/><span class="cc-brand">CarClever</span></div>' +
       "</header>" +
       '<div class="cc-carousel-wrap">' +
