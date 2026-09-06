@@ -210,6 +210,30 @@ A tool call succeeding at the server/data level (confirmed via raw MCP call or v
 
 ---
 
+## 11. Real-User Test Surfaces — What Each One Actually Tests
+
+**Not all "testing" catches the same class of bug.** This session found two real issues (Claude's tool-list cache, ChatGPT's widget-rendering DNS collapse) that only showed up on the actual host UI, never in a direct/API-level check. Be precise about which surface a given test actually exercised.
+
+### Surface A: Claude, direct connector call (Claude Engineering-lane session)
+When Claude (in a session like this one) has the connector's tools already loaded and calls them directly (e.g. `CarClever Test:find_matching_vehicle(...)`), that's a real, live call to the real server — confirms server logic and data correctness. **It does NOT confirm what a real user actually sees**: it bypasses tool-list discovery/caching, and doesn't render the actual widget in a browser. Useful for fast, thorough logic verification (this is how the 8-scenario V2.3 regression pass was run) — not a substitute for a real host test.
+
+### Surface B: Claude, real user session (web or Chrome extension)
+The actual experience: a human types a prompt naturally, Claude decides which tool to call, the widget renders in the real UI. Real prompt convention:
+> "Use connector CarClever Test and find me a large SUV under 40k in 90210"
+
+This is the ONLY surface that caught the tool-list caching issue (new tools like `check_vehicle` not showing up even after a fresh deploy) and the ONLY surface that confirms actual widget rendering. **Required after any change that adds/renames a tool, or touches the widget.**
+
+### Surface C: ChatGPT (always a real user session — no API-equivalent shortcut exists)
+Real prompt convention:
+> Type `@CarClever Test`, select it from the dropdown, then send the actual prompt (e.g. "large suv under 40k in 90210") as a separate/combined message.
+
+Every ChatGPT test is inherently Surface-B-equivalent (real UI, real rendering) since there's no way to call ChatGPT's connector tools directly outside the actual chat interface. This is the surface that caught the DNS-sandbox-collapse widget-rendering bug — something Surface A (or any raw MCP call) could never have caught, since the bug is specifically in ChatGPT's own client-side rendering step, not the server.
+
+### Known recurring issues to watch for on each surface
+- **Claude tool-list caching:** a disconnect/reconnect does not reliably clear a stale tool list; sometimes only clears after a longer gap (hours) or a full app/browser restart. If a newly-added tool doesn't appear, this is the first thing to suspect — verify server-side correctness independently via a raw `tools/list` call (see `DECISIONS.md` `SYS-20260905-001`) before assuming a code problem.
+- **ChatGPT widget rendering on preview/branch deployments:** confirmed root cause is a DNS label-length collapse specific to preview URLs (see `DECISIONS.md` `SYS-20260905-001`/`SYS-20260906-002`) — use the `ccfmc-dev` + short-branch method (section 10 above) for any ChatGPT-side preview testing, never the long-URL branch alias directly.
+- **New Vercel projects' Deployment Protection:** "Vercel Authentication" is ON by default and silently blocks external hosts from creating a connector at all — confirm this is OFF before connecting anything new.
+
 ## Not Included Here
 
 This document covers the core deterministic and smoke-testing workflow. It does NOT cover:
