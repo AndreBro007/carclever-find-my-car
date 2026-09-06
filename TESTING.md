@@ -1,3 +1,22 @@
+> ## ⚠️ VERSION TERMINOLOGY — canonical, effective Sep 6, 2026 (read before touching any version-labeled content)
+>
+> **V1** — the submitted/production app, `main` branch (`carclever-find-my-car`), pending Anthropic review (confirm status each session, don't assume resolved). Scope: base live-inventory search/comparison, `find_matching_vehicle` as a single self-sufficient all-in-one call including its original VIN Buyer Check path, `resolve_dealer_url`, trim-required hard filtering, model-name auto-correction. Untouched by all V2/V3 work.
+>
+> **V2** — `release/v2` branch, tip commit `e2ffe66`. Combined scope of what session notes before Sep 6 called "V2.1" + "V2.2" separately — now shipped as one release:
+> - total-matches count-display bug fix
+> - full deterministic Edmunds link redesign: split "Check avail." / "View similar" CTAs, zero live search anywhere, NHTSA trim decode, `lower_risk`/`lowest_mileage` priority axes
+> No new tools. Test env: Vercel `ccfmc-dev-v2`, connectors `CarClever V2 Test` (both ChatGPT and Claude).
+>
+> **V3** — `feature/v3-check-vehicle` branch, tip commit `719fc13` (branched from V2's `e2ffe66`). **This is what session notes before Sep 6 called "V2.3" — that label is retired; read "V2.3" in any older entry below as V3.** Scope: adds the `check_vehicle` tool (NHTSA-only recalls, 4-state: none/severe/routine/unavailable; Buyer Check when a VIN is supplied). Test env: Vercel `ccfmc-dev-v3`, connectors `CarClever V3 Test` (both ChatGPT and Claude). Note: `feature/edmunds-two-button-cta` (the old pre-split combined branch) is confirmed to be the exact same commit as this branch — Claude's pre-existing `CarClever Test` connector (long-URL, auto-updating) is therefore already V3-equivalent.
+>
+> **Do not confuse this V3 with "OpenAI_V3.0.0_Submission..."** referenced elsewhere in these files (e.g. PLAYBOOK.md's "V3 readiness checklist," REFERENCE.md's submission-manifest notes) — that is the version number of a *past OpenAI app-submission manifest*, a completely separate numbering scheme.
+>
+> `ccfmc-dev` / ChatGPT's `CarClever Test (legacy ccfmc-dev, pre-split branch)` connector = pre-split legacy dev environment, kept idle for reference only, not part of the current V1/V2/V3 test matrix.
+>
+> Full setup, decision history, and live test results: `CARCLEVER_3_APPS_STRATEGIC_ANALYSIS.md` and `TESTING.md`'s Test Run Log (this repo).
+
+---
+
 # Testing & Release Process
 
 This document describes the testing and release workflow for CarClever Find My Car, a live MCP vehicle-search app. The workflow is designed to prevent regressions while keeping the testing discipline maintainable.
