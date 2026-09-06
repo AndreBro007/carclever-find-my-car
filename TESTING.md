@@ -210,6 +210,29 @@ A tool call succeeding at the server/data level (confirmed via raw MCP call or v
 
 ---
 
+### Sep 6, 2026 — commit `e2ffe66` (`release/v2`, tested via permanent `ccfmc-dev-v2` dev/test Vercel project) — Host: ChatGPT (CarClever V2 Test connector)
+- Tester: Claude (Engineering lane) + André, live in ChatGPT
+- Result: **PASS**
+- Scenarios run: `find_matching_vehicle` — "find a Honda Civic under $25k near 90210" — real results card rendered (CPO/USED badges, RISK tag, real dealers/VINs, split "Check avail./View similar" CTAs), off the stable production domain `ccfmc-dev-v2.vercel.app` (not a branch-alias preview URL).
+- Notes: connector attached via ChatGPT's composer "+" tool picker (typed the app name, selected it as a chip) rather than the documented `@CarClever Test` mention syntax — functionally equivalent, both explicitly attach the app before the message rather than naming it in prose. First-attempt naming-in-prose is NOT reliable (see next entry) — always explicitly attach.
+
+### Sep 6, 2026 — commit `719fc13` (`feature/v3-check-vehicle`, tested via permanent `ccfmc-dev-v3` dev/test Vercel project) — Host: ChatGPT (CarClever V3 Test connector)
+- Tester: Claude (Engineering lane) + André, live in ChatGPT
+- Result: **FAIL then PASS on retry (real, recorded gotcha, not a data/logic issue)**
+- Scenarios run:
+  1. First attempt — prompt phrased "Using the CarClever V3 Test app, check VIN ... any recalls or red flags?" (app named in prose only, not explicitly attached). ChatGPT's "Work" mode did NOT invoke the connector at all — instead browsed the web/repo, eventually stating "The CarClever V3 Test app wasn't available in this session." Also used an invalid hand-typed VIN (bad check digit) as a separate, unrelated mistake.
+  2. Retry — same VIN corrected to a real checksum-valid one, connector explicitly attached via the "+" picker (chip shown in composer) instead of named in prose → correct `check_vehicle` call → real NHTSA recall campaign numbers returned (`23V704000`, `24V744000`, `24V859000`), correctly non-severe/no "park it" flag, correctly reported no listing/Buyer Check for an unlisted VIN (this is `SYS-20260906-001`'s known regression reproducing exactly as expected, not a new bug).
+- **New standing rule for ChatGPT testing, add to Surface C convention below: naming a connector in prose (e.g. "Using the CarClever X Test app...") is NOT reliable in ChatGPT's "Work" mode — it can silently skip the connector entirely and go browsing instead.** Always explicitly attach it first (either `@CarClever Test`-style mention-and-select per the existing convention, or the "+" tool picker — both achieve the same explicit attachment), then send the actual question as a separate/combined message. Confirm the composer shows the connector as an attached chip before sending.
+
+### Sep 6, 2026 — commit `e2ffe66` (`release/v2`, tested via `ccfmc-dev-v2`) — Host: Claude (new CarClever V2 Test connector)
+- Tester: Claude (Engineering lane), directed by André
+- Result: **PASS**
+- Scenarios run: `find_matching_vehicle` — "Using CarClever V2 Test, find a Toyota Camry under $25k near 90210" → correctly resolved to the new connector, real tool call (after standard tool-permission approval), results card rendered natively in Claude's UI, real dealers/VINs/Carfax links, correct split CTAs.
+- Notes: this is a newly created connector (Claude previously had no V2-only test path — `CarClever` = V1/production, `CarClever Test` = V3-equivalent, since `feature/edmunds-two-button-cta` and `feature/v3-check-vehicle` are confirmed to be the exact same commit, 0 ahead/behind). Reused the already-verified `ccfmc-dev-v2.vercel.app/mcp` URL rather than an untested production-project preview-branch alias. Tool list briefly showed "no tools available" immediately after connecting — a load delay, resolved on reload, not a real fault.
+
+---
+
+
 ## 11. Real-User Test Surfaces — What Each One Actually Tests
 
 **Not all "testing" catches the same class of bug.** This session found two real issues (Claude's tool-list cache, ChatGPT's widget-rendering DNS collapse) that only showed up on the actual host UI, never in a direct/API-level check. Be precise about which surface a given test actually exercised.
@@ -225,7 +248,7 @@ This is the ONLY surface that caught the tool-list caching issue (new tools like
 
 ### Surface C: ChatGPT (always a real user session — no API-equivalent shortcut exists)
 Real prompt convention:
-> Type `@CarClever Test`, select it from the dropdown, then send the actual prompt (e.g. "large suv under 40k in 90210") as a separate/combined message.
+> Type `@CarClever Test`, select it from the dropdown, then send the actual prompt (e.g. "large suv under 40k in 90210") as a separate/combined message. **Confirmed Sep 6, 2026: naming the connector in prose instead (e.g. "Using the CarClever Test app...") is NOT reliable — ChatGPT's "Work" mode can silently skip the connector entirely and go browsing/searching instead. Always explicitly attach it (via `@`-mention-and-select, or the composer's "+" tool picker) and confirm it shows as an attached chip before sending.**
 
 Every ChatGPT test is inherently Surface-B-equivalent (real UI, real rendering) since there's no way to call ChatGPT's connector tools directly outside the actual chat interface. This is the surface that caught the DNS-sandbox-collapse widget-rendering bug — something Surface A (or any raw MCP call) could never have caught, since the bug is specifically in ChatGPT's own client-side rendering step, not the server.
 
