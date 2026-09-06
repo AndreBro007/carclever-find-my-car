@@ -201,6 +201,15 @@ A tool call succeeding at the server/data level (confirmed via raw MCP call or v
 
 ---
 
+### Sep 6, 2026 — commit `4863368` (`feature/edmunds-two-button-cta`, tested via throwaway branch `t1` on the new `ccfmc-dev` dev/test Vercel project) — Host: ChatGPT (CarClever Test t1 connector)
+- Tester: Claude (Engineering lane) + André, live in ChatGPT
+- Result: **PASS (root cause of prior widget-rendering failure confirmed and worked around)** — root cause was a dual issue: (1) ChatGPT's Apps SDK sandbox-domain construction collapses a valid multi-label Vercel domain into a single DNS label that can exceed 63 characters (confirmed via direct `DNS_PROBE_FINISHED_NXDOMAIN` on the constructed sandbox URL), specific to preview/branch deployments whose team+project+branch name is too long once dots become dashes; (2) a separate, unrelated blocker — the new dev project's "Vercel Authentication" (Require Log In) Deployment Protection setting was ON by default, blocking OpenAI's server-side connector-creation request entirely (fixed by turning it off).
+- Scenario run: `find_matching_vehicle` VIN path — "Find VIN 1FMDE6BH4TLA65389 and tell me if it's a good buy — any red flags?" — full Buyer Check + real NHTSA recall data rendered correctly as text (no widget expected/needed for this path since it went through `check_vehicle`, see finding below).
+- **Real finding, not a pass/fail on rendering itself:** this exact prompt routed to `check_vehicle` (correctly, per its own tool description) rather than `find_matching_vehicle`'s VIN path — meaning the listing card/photo/link that used to come back automatically for this kind of question is now missing. Confirmed as the same regression already logged in `SYS-20260906-001` (found on Claude), now reproduced on ChatGPT too — a cross-platform consequence of the four-tool split, not a host-specific quirk. **Open product decision, not yet made — see DECISIONS.md `SYS-20260906-002`.**
+- Notes: standing test environment (`ccfmc-dev` project + short throwaway branch, e.g. `t1`) established this session specifically to make ChatGPT-side testing repeatable going forward without the DNS-length problem recurring. See DECISIONS.md `SYS-20260906-002` for the full setup process and gotchas (env var handling, Deployment Protection, branch-name length budget).
+
+---
+
 ## Not Included Here
 
 This document covers the core deterministic and smoke-testing workflow. It does NOT cover:
