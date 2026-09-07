@@ -629,7 +629,7 @@ async function buildResultCard(
   relaxedFields?: ReadonlySet<string>,
 ) {
   const verification = crossCheckVin(listing); // now local/synchronous — no API call
-  const { matchScore, matchScoreLabel, breakdown } = computeMatchScore(listing, intent, verification);
+  const { matchScore, matchScoreLabel, breakdown } = computeMatchScore(listing, intent, verification, intentInput);
 
   // Trim fill from NHTSA (SYS-20260904-004): only when Auto.dev's own
   // trim is missing AND NHTSA decoded at least one candidate. Simple rule
