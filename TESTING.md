@@ -270,6 +270,13 @@ A tool call succeeding at the server/data level (confirmed via raw MCP call or v
 - Fix (`SYS-20260907-002`): added a `conditionStr` (New/Used/Certified Pre-Owned (Used)) directly into the existing per-listing text line. Rerun of the exact same query type via a new temporary connector pointed at this branch's own Preview (`ccfmc-dev-v2-git-v25-condition-b53986-...vercel.app`) confirmed fixed: 5/5 results correctly labeled, including the CPO nuance, matching card badges exactly, VIN-verified on all 5.
 - Independent of and unrelated to V2.4 — branched separately off `release/v2`.
 
+### Sep 8, 2026 — commit `ab2c9ed` (V3.3, standalone identity card) — Host: Claude, Haiku 4.5 then Sonnet 5 (`TEMP V3.3 Test`)
+- Tester: Claude (Engineering lane), directed by André
+- Result: **FAIL on Haiku 4.5 (same host-side failure class as V3.2), PASS on Sonnet 5**
+- Haiku 4.5: "check VIN ... for recalls" produced a fabricated fake "artifact" UI simulation ("Checking VIN database") instead of a real tool call — never actually invoked `check_vehicle`. Same conclusion as the V3.2 finding: Haiku 4.5 is unreliable at invoking this connector's tools; not a code defect.
+- Sonnet 5, same prompt: correctly called `check_vehicle`, VIN-not-found path. Card rendered correctly — UNKNOWN badge, "Price unavailable", VIN suffix shown, honest "Photo unavailable" fallback, no fabricated identity (NHTSA decode genuinely failed on this fabricated test VIN, reported honestly in the AI text).
+- **Not tested this pass, due to session budget:** the make/model/year-only (no VIN) path. Temp connector removed after use.
+
 ### Sep 8, 2026 — commits `b1d5bc2`/`1f4c1a1` (branch `v3.1-3.3/card-first-check-vehicle`, tested via a temporary branch-preview connector) — Host: Claude, Sonnet 5 (`TEMP V3.2 Branch Test` then `TEMP V3 Combined Test`)
 - Tester: Claude (Engineering lane), directed by André
 - Result: **PASS** on Sonnet 5; **initial FAIL on Haiku 4.5 traced to the host model, not the code** (see below)
