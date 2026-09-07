@@ -39,6 +39,9 @@ function intent(overrides: Partial<ParsedIntent["hardConstraints"]> = {}): Parse
       ...overrides,
     },
     semantic: { goals: [] },
+    verificationRequired: [],
+    interpretationNotes: [],
+    modelPrefixesStripped: [],
   } as ParsedIntent;
 }
 
