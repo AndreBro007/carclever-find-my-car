@@ -2411,6 +2411,23 @@ const handler = createMcpHandler((server) => {
         year: z.number().optional().describe("Model year. Required together with make and model when vin is not supplied."),
       },
       annotations: { title: "Check Vehicle", readOnlyHint: true, openWorldHint: true, destructiveHint: false },
+      // V3.2 (card-first check_vehicle): reuses the exact same static
+      // result-card resource find_matching_vehicle already registers.
+      // When this tool has a real listing to show (the VIN+listing-found
+      // path below), it returns a structuredContent.results[] shaped
+      // exactly like find_matching_vehicle's, so the host renders the
+      // same listing card the user already saw — now carrying Buyer
+      // Check/recall state — instead of a text-only response. Hosts that
+      // don't support MCP Apps ignore this and fall back to the text
+      // content below, unchanged. No-listing paths (VIN not found,
+      // make/model/year-only) remain text/structuredContent-only for now
+      // — the minimal standalone identity/verification card (V3.3) is
+      // intentionally NOT built in this pass; flagged separately rather
+      // than shipped half-tested.
+      _meta: {
+        ui: { resourceUri: RESULTS_CARD_RESOURCE_URI },
+        "openai/outputTemplate": RESULTS_CARD_RESOURCE_URI,
+      },
     },
     async ({ vin, make, model, year }) => {
       try {
@@ -2443,10 +2460,41 @@ const handler = createMcpHandler((server) => {
             listing.vehicle?.model,
             listing.vehicle?.cylinders,
           );
-          const verification = crossCheckVin(listing);
-          const historySummary = buildHistorySummary(listing);
-          const cpoSummary = buildCpoSummary(listing);
-          const dataConflicts = detectDataConflicts(listing);
+
+          // Card-first (V3.2): build the SAME result-card shape
+          // find_matching_vehicle uses for a direct-VIN lookup, so the
+          // widget renders this vehicle's existing listing card — not a
+          // new/different card type. check_vehicle has no search query of
+          // its own, so intent/intentInput are the neutral/empty case
+          // (no constraints to confirm or check against); this only
+          // affects match-score cosmetics, never eligibility, since
+          // check_vehicle already identifies one exact vehicle.
+          const checkVehicleIntent = parseIntent({});
+          const checkVehicleIntentInput: CardIntentInput = { droppedBodyStyleFilter: null };
+          const card = await buildResultCard(
+            listing,
+            checkVehicleIntent,
+            checkVehicleIntentInput,
+            nhtsaResult,
+            undefined,
+            new Set(),
+          );
+
+          if (!card) {
+            // No usable outbound link for this listing (same suppression
+            // rule buildResultCard applies everywhere else) — fall back to
+            // the identity-only text path rather than rendering a card
+            // with no CTA.
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Found VIN ${listing.vin}, but no usable listing link is available for it — recall/Buyer Check evidence below is still accurate, verification steps just can't route through a link for this specific listing.`,
+                },
+              ],
+              structuredContent: { vin: listing.vin, buyerCheck: null, recall: null },
+            };
+          }
 
           // Recall lookup (V2.3): make/model/year from the listing itself,
           // falling back to NHTSA's own decoded make/model/year when the
@@ -2464,16 +2512,13 @@ const handler = createMcpHandler((server) => {
               ? await fetchRecallStatus(recallMake, recallModel, recallYear)
               : null;
 
-          const buyerCheck = buildBuyerCheck(
-            {
-              verification,
-              history: historySummary,
-              condition: { cpoEvidenceState: cpoSummary.state },
-              detail: { carfaxUrl: CAPABILITIES.carfaxPassthrough ? listing.retailListing?.carfaxUrl ?? null : null },
-              dataConflicts,
-            },
-            recall,
-          );
+          // buildBuyerCheck reads verification/history/condition/detail/
+          // dataConflicts straight off the card buildResultCard() already
+          // produced — same evidence, no second computation, matching the
+          // existing find_matching_vehicle direct-VIN pattern exactly.
+          const buyerCheck = buildBuyerCheck(card, recall);
+          const cardWithBuyerCheck = { ...card, buyerCheck };
+          const checkVehicleResults = [cardWithBuyerCheck];
 
           const outcomeLabel: Record<BuyerCheck["outcome"], string> = {
             promising: "Promising",
@@ -2504,10 +2549,20 @@ const handler = createMcpHandler((server) => {
           return {
             content: [{ type: "text" as const, text: lines.join("\n") }],
             structuredContent: {
-              vin: listing.vin,
-              buyerCheck,
-              recall,
-            },
+              meta: {
+                totalCandidatesConsidered: 1,
+                totalMatches: checkVehicleResults.length,
+                resultsShown: checkVehicleResults.length,
+                corpusSizeApprox: getCorpusCountForDescription(),
+                relaxations: [],
+                dataNotes: [],
+                scopeNote: "vin_lookup",
+                serviceError: null,
+                interpretationNotes: [`check_vehicle lookup for VIN ${listing.vin} — identifies exactly one vehicle, same listing this VIN already resolves to elsewhere; no broader search was run.`],
+                qualifierAccounting: buildQualifierAccounting(checkVehicleIntentInput),
+              },
+              results: checkVehicleResults,
+            } satisfies FindMatchingVehicleOutput,
           };
         }
 
