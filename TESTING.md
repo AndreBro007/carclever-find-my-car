@@ -1,4 +1,4 @@
-> ## ⚠️ VERSION TERMINOLOGY — canonical, effective Sep 6, 2026 (read before touching any version-labeled content)
+> ## ⚠️ VERSION TERMINOLOGY — canonical, effective Sep 6, 2026, updated Sep 7, 2026 (read before touching any version-labeled content)
 >
 > **V1** — the submitted/production app.
 > - GitHub: `carclever-find-my-car` repo, `main` branch.
@@ -7,15 +7,15 @@
 > - Status: pending Anthropic review (confirm each session, don't assume resolved).
 > - Scope: base live-inventory search/comparison, `find_matching_vehicle` as a single self-sufficient all-in-one call including its original VIN Buyer Check path, `resolve_dealer_url`, trim-required hard filtering, model-name auto-correction. Untouched by all V2/V3 work.
 >
-> **V2** — combined scope of what session notes before Sep 6 called "V2.1" + "V2.2" separately, now shipped as one release: total-matches count-display bug fix, plus the full deterministic Edmunds link redesign (split "Check avail." / "View similar" CTAs, zero live search anywhere, NHTSA trim decode, `lower_risk`/`lowest_mileage` priority axes). No new tools.
-> - GitHub: `carclever-find-my-car` repo, `release/v2` branch, tip commit `e2ffe66`.
-> - Vercel: dev/test project `ccfmc-dev-v2` (`ccfmc-dev-v2.vercel.app`).
+> **V2** — combined scope of what session notes before Sep 6 called "V2.1" + "V2.2" separately, now shipped as one release: total-matches count-display bug fix, plus the full deterministic Edmunds link redesign (split "Check avail." / "View similar" CTAs, zero live search anywhere, NHTSA trim decode, `lower_risk`/`lowest_mileage` priority axes). **As of Sep 7, 2026 also includes V2.4 (continuous price-proximity scoring + modest Used-value tie-break in `matchScore`) and V2.5 (New/Used/CPO condition label surfaced in the per-listing text summary) — both merged, live in production, confirmed on both Claude and ChatGPT.** Still no new tools.
+> - GitHub: `carclever-find-my-car` repo, `release/v2` branch, tip commit `ab617d2` (was `e2ffe66` before the Sep 7 V2.4/V2.5 merge).
+> - Vercel: dev/test project `ccfmc-dev-v2` (`ccfmc-dev-v2.vercel.app`), Production auto-redeploys on every push.
 > - Connectors: ChatGPT `CarClever V2 Test`, Claude `CarClever V2 Test`.
 >
 > **V3** — adds the `check_vehicle` tool (NHTSA-only recalls, 4-state: none/severe/routine/unavailable; Buyer Check when a VIN is supplied). **This is what session notes before Sep 6 called "V2.3" — that label is retired; read "V2.3" in any older entry below as V3.**
-> - GitHub: `carclever-find-my-car` repo, `feature/v3-check-vehicle` branch, tip commit `719fc13` (branched from V2's `e2ffe66`). Note: `feature/edmunds-two-button-cta` (the old pre-split combined branch) is confirmed to be the exact same commit as this branch.
+> - GitHub: `carclever-find-my-car` repo, `feature/v3-check-vehicle` branch, tip commit `719fc13` (branched from V2's pre-merge tip `e2ffe66`). Note: `feature/edmunds-two-button-cta` (the old pre-split combined branch) is confirmed to be the exact same commit as this branch.
 > - Vercel: dev/test project `ccfmc-dev-v3` (`ccfmc-dev-v3.vercel.app`).
-> - Connectors: ChatGPT `CarClever V3 Test`, Claude `CarClever V3 Test` (new) and Claude's pre-existing `CarClever Test` (long-URL, auto-updating — already V3-equivalent, since its tracked branch is the same commit as this one).
+> - Connectors: ChatGPT `CarClever V3 Test`, Claude `CarClever V3 Test` (renamed Sep 7 from `CarClever Test` for naming consistency with `CarClever V2 Test` — same long-URL, same underlying branch, name only; Claude's connector UI has no rename option, so this required remove-then-recreate).
 >
 > **Legacy/retired:** GitHub branch `feature/edmunds-two-button-cta` (pre-split combined branch, same commit as V3 above) / Vercel project `ccfmc-dev` / ChatGPT connector `CarClever Test (legacy ccfmc-dev, pre-split branch)` — kept idle for historical reference only, not part of the current V1/V2/V3 test matrix.
 >
