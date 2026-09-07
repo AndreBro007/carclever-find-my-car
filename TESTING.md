@@ -257,6 +257,28 @@ A tool call succeeding at the server/data level (confirmed via raw MCP call or v
 - Scenarios run: `find_matching_vehicle` — "Using CarClever V2 Test, find a Toyota Camry under $25k near 90210" → correctly resolved to the new connector, real tool call (after standard tool-permission approval), results card rendered natively in Claude's UI, real dealers/VINs/Carfax links, correct split CTAs.
 - Notes: this is a newly created connector (Claude previously had no V2-only test path — `CarClever` = V1/production, `CarClever Test` = V3-equivalent, since `feature/edmunds-two-button-cta` and `feature/v3-check-vehicle` are confirmed to be the exact same commit, 0 ahead/behind). Reused the already-verified `ccfmc-dev-v2.vercel.app/mcp` URL rather than an untested production-project preview-branch alias. Tool list briefly showed "no tools available" immediately after connecting — a load delay, resolved on reload, not a real fault.
 
+### Sep 7, 2026 — commit `18ae2a2` (`v2.4/match-score-price-proximity`, tested via a temporary branch-preview connector) — Host: Claude
+- Tester: Claude (Engineering lane), directed by André
+- Result: **PASS**
+- Scenarios run: narrow-spread search ("Toyota Camry under $30k") → 5 results within a ~$200 band → all scored 97%, confirmed as correct near-equal-price behavior, not a bug. Wide-spread search ("Toyota Camry under $45000, no New/Used preference") → clean 3-tier differentiation: $4,985-$5,875 (Used, high-mileage) → 100%; $34,593-$34,988 (Used, near-new demo stock) → 98%; $41,984-$42,149 (New) → 96%. Confirms both the price-proximity grading and the modest Used-value tie-break working as designed — New no longer wins purely mechanically at high budget, without being penalized (still "Strong match" at 96%).
+- Setup note: a temporary connector (`TEMP V2.4 Branch Test 2`) was created pointed at this branch's own auto-generated Vercel Preview deployment (`ccfmc-dev-v2-git-v24-match-scor-9ac498-...vercel.app`) — confirms pushing a branch to a project connected to the whole repo auto-triggers its own isolated Preview, separate from Production, no manual action needed. First connector-creation attempt failed with a 404 due to a dropped character in a long hand-typed URL ("broekmans" → "broekmas") — fixed by retyping in smaller chunks and visually zooming in to verify before saving. Removed after merge (superseded by `CarClever V2 Test` once V2.4 landed in `release/v2`).
+
+### Sep 7, 2026 — commit `a2f8ff0` (`v2.5/condition-label-in-summary-text`, tested via a temporary branch-preview connector) — Host: Claude
+- Tester: Claude (Engineering lane), directed by André
+- Result: **FAIL (on the pre-fix branch) then PASS (post-fix, confirming the fix), both real, not a retry-until-it-works loop**
+- Real bug found live while testing V2.4 (not this fix's own branch): a search returned a card with a "USED" badge, but the host model's own text answer said "New" for the same VIN. Root cause confirmed by source read: `condition.inventoryType`/`used`/`cpo` were already present on `structuredContent`, but the per-listing text summary — the part this repo's own code comments already document as "what the host model actually reads and reasons over" (`SYS-20260812-011` #3) — never included condition at all.
+- Fix (`SYS-20260907-002`): added a `conditionStr` (New/Used/Certified Pre-Owned (Used)) directly into the existing per-listing text line. Rerun of the exact same query type via a new temporary connector pointed at this branch's own Preview (`ccfmc-dev-v2-git-v25-condition-b53986-...vercel.app`) confirmed fixed: 5/5 results correctly labeled, including the CPO nuance, matching card badges exactly, VIN-verified on all 5.
+- Independent of and unrelated to V2.4 — branched separately off `release/v2`.
+
+### Sep 7, 2026 — commit `ab617d2` (`release/v2`, merged, Production on `ccfmc-dev-v2`) — Host: Claude and ChatGPT, both via the standing `CarClever V2 Test` connector
+- Tester: Claude (Engineering lane), directed by André; ChatGPT's tools list refreshed by André first
+- Result: **PASS on both platforms, identical result**
+- Both V2.4 and V2.5 merged cleanly into `release/v2` (one unrelated pre-existing type gap in the new match-score test fixture, found by re-running `tsc --noEmit` after merge — `npm test`'s `tsx` runner doesn't typecheck — fixed same session, not a merge conflict). Full combined suite: 66/66 pass. `ccfmc-dev-v2` Production auto-redeployed.
+- Same query ("Toyota Camry under $45000 near 90210, no New/Used preference") run against the **standing production** `CarClever V2 Test` connector (not a temp branch connector) on both Claude and ChatGPT: identical result on both — 5/5 correctly labeled Used/CPO matching card badges, matchScore 98% uniform (tight price cluster in this particular query, consistent with the near-equal-price behavior confirmed above).
+- Confirmed before testing: `RESULTS_CARD_RESOURCE_URI` (`lib/results-card.ts`) unchanged at `results-card-v3` — neither merged branch touched the widget's structure/template, only data values and text, so the documented `SYS-20260904-003` caching bug (stale template on an un-bumped URI) does not apply here. No caching issue observed on either platform.
+- Post-merge cleanup: the two temporary branch-test connectors removed (superseded). Claude's `CarClever Test` (the long-URL V3-equivalent connector) renamed to `CarClever V3 Test` for naming consistency with `CarClever V2 Test` — required remove-then-recreate since Claude's connector UI has no rename option and blocks a duplicate URL while the old entry still exists.
+
+
 ---
 
 
