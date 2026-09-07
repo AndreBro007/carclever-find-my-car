@@ -2367,6 +2367,14 @@ const handler = createMcpHandler((server) => {
                   : c.links.affiliateFallbackUrl
                   ? `Similar options on Edmunds (${similarOptionsLabel}): ${c.links.affiliateFallbackUrl}`
                   : "no link available";
+                const conditionStr =
+                  c.condition.inventoryType === "new"
+                    ? "New"
+                    : c.condition.inventoryType === "used"
+                    ? c.condition.cpo === true
+                      ? "Certified Pre-Owned (Used)"
+                      : "Used"
+                    : null; // "unknown" — omit rather than guess
                 const historyLine = c.history.state === "known_issues" ? `\n   ⚠️ ${c.history.note}` : "";
                 // Qualifier accounting: only for fields the user actually
                 // asked about (c.intentConfirmations is already scoped to
@@ -2377,7 +2385,7 @@ const handler = createMcpHandler((server) => {
                 );
                 const confirmedLine = confirmedItems.length > 0 ? `\n   Confirmed: ${confirmedItems.join(", ")}` : "";
                 const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
-                return `${i + 1}. ${formatVehicleTitle(id)} — VIN ${id.vin} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}\n   Link: ${linkStr}`;
+                return `${i + 1}. ${formatVehicleTitle(id)} — VIN ${id.vin} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}\n   Link: ${linkStr}`;
               })
               .join("\n\n");
 
