@@ -721,25 +721,27 @@ test("D7a. FindMatchingVehicleOutputSchema requires meta.resultsShown as a numbe
 test("D7b. every meta object literal in route.ts sets resultsShown from the same array as its results field, never a different variable", () => {
   const routeSource = stripComments(fs.readFileSync("app/[transport]/route.ts", "utf8"));
 
-  // Five response-construction sites as of V3.2 (card-first check_vehicle,
-  // adding one legitimate new site): find_matching_vehicle's 2 VIN-error
-  // paths, 1 VIN-success path, 1 normal-search path, plus check_vehicle's
-  // own VIN-success (card-first) path. This count must stay in lockstep
-  // with any future response-construction site added to route.ts.
+  // Seven response-construction sites as of V3.3 (standalone identity/
+  // action card for check_vehicle's VIN-not-found and no-VIN paths, two
+  // new legitimate sites): find_matching_vehicle's 2 VIN-error paths, 1
+  // VIN-success path, 1 normal-search path, plus check_vehicle's own
+  // VIN-success (V3.2), VIN-not-found (V3.3), and no-VIN (V3.3) paths.
+  // This count must stay in lockstep with any future response-
+  // construction site added to route.ts.
   const resultsShownMatches = routeSource.match(/resultsShown:\s*[^,]+,/g) ?? [];
-  assert.equal(resultsShownMatches.length, 5, `expected exactly 5 resultsShown assignments, found ${resultsShownMatches.length} — every meta object must set it`);
+  assert.equal(resultsShownMatches.length, 7, `expected exactly 7 resultsShown assignments, found ${resultsShownMatches.length} — every meta object must set it`);
 
   // The two empty-result error paths must use the literal 0, not a variable
   // that could silently drift from the actual (empty) results array.
   const zeroAssignments = routeSource.match(/resultsShown:\s*0,/g) ?? [];
   assert.equal(zeroAssignments.length, 2, "both find_matching_vehicle VIN-error paths (invalid format, not found) must set resultsShown: 0 to match their empty results: [] arrays");
 
-  // The three success paths (find_matching_vehicle VIN-success and
-  // normal-search, plus check_vehicle's VIN-success) must derive
-  // resultsShown from a `.length` expression (ground truth), never a
-  // hardcoded/copied number.
+  // The five success paths (find_matching_vehicle VIN-success and normal-
+  // search, plus check_vehicle's VIN-success, VIN-not-found, and no-VIN
+  // paths) must derive resultsShown from a `.length` expression (ground
+  // truth), never a hardcoded/copied number.
   const lengthDerivedAssignments = routeSource.match(/resultsShown:\s*\w+(\.\w+)*\.length,/g) ?? [];
-  assert.equal(lengthDerivedAssignments.length, 3, "all three success paths must derive resultsShown via .length, not a separate hardcoded number");
+  assert.equal(lengthDerivedAssignments.length, 5, "all five success paths must derive resultsShown via .length, not a separate hardcoded number");
 });
 
 // ============================================================================

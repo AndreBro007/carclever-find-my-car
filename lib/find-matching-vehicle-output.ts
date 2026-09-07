@@ -137,8 +137,16 @@ const MatchScoreBreakdownSchema = z.object({
 });
 
 const RankingSchema = z.object({
-  matchScore: z.number(),
-  matchScoreLabel: z.enum(["Strong match", "Good match", "Partial match"]),
+  // Nullable (V3.3): a standalone identity/verification card (no search
+  // query, nothing to score against) has no match to report. Every
+  // existing find_matching_vehicle/check_vehicle-with-listing result
+  // still always supplies a real number/label — this only widens the
+  // type to allow the new identity-only card to be honest about having
+  // no match signal, rather than fabricating one. The client already
+  // treats `ranking.matchScore == null` as "suppress the match badge"
+  // (lib/results-card.ts), so no client change was needed.
+  matchScore: z.number().nullable(),
+  matchScoreLabel: z.enum(["Strong match", "Good match", "Partial match"]).nullable(),
   breakdown: MatchScoreBreakdownSchema,
 });
 

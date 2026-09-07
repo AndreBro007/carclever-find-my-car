@@ -900,6 +900,114 @@ async function buildResultCard(
 }
 
 
+/**
+ * V3.3 — minimal identity/verification card for check_vehicle's standalone
+ * paths (VIN with no listing found; make/model/year only, no VIN). Reuses
+ * the exact same ResultSchema shape and card widget as every other result
+ * — no new card type — with every listing/media field honestly null and
+ * ranking.matchScore/matchScoreLabel null (there is no search query here
+ * to score against; see the RankingSchema comment in
+ * lib/find-matching-vehicle-output.ts for why that's allowed).
+ *
+ * Links are resolved with retailListing.used forced to false, which routes
+ * resolveLinks() down its New-vehicle branch regardless of this vehicle's
+ * actual condition (genuinely unknown here) — per DECISION-20260907's
+ * explicit direction: "Close/narrow 'Check avail.' action, using the same
+ * condition-aware close destination pattern used for New vehicles" plus a
+ * "loose 'View similar'" — i.e. no exact-VIN attempt (we have no listing
+ * to attempt one against), just the deterministic close/loose category
+ * pair. This never invents a listing and never requires a live Edmunds
+ * search — resolveLinks() is fully synchronous, zero network calls.
+ *
+ * Deliberately does NOT populate buyerCheck — that requires real listing
+ * evidence (accident/CPO history) this path doesn't have. Recall status
+ * stays in the AI text below the card, exactly as it already did before
+ * this card existed; only the identity/action layer is new here.
+ */
+function buildStandaloneIdentityCard(params: {
+  vin: string | null;
+  make: string | null;
+  model: string | null;
+  year: number | null;
+  trim: string | null;
+  identityVerified: boolean;
+}): FindMatchingVehicleOutput["results"][number] {
+  const { vin, make, model, year, trim, identityVerified } = params;
+
+  const linkListing = {
+    vin: vin ?? "",
+    vehicle: { make: make ?? undefined, model: model ?? undefined, year: year ?? undefined, trim: trim ?? undefined },
+    retailListing: { used: false as const }, // forces the New-vehicle close/loose link tier — see doc comment above
+  } as AutoDevListing;
+  const links = resolveLinks(linkListing);
+
+  const idSlug = vin || [year, make, model].filter(Boolean).join("-") || "unknown";
+
+  return {
+    canonicalVehicleId: `check_vehicle-standalone:${idSlug}`,
+    risk: { tier: "unknown", reasons: [] },
+    identity: {
+      vin: vin ?? "",
+      year,
+      make,
+      model,
+      trim,
+      series: null,
+      squishVin: null,
+      bodyStyleConfig: null,
+    },
+    condition: { inventoryType: "unknown", used: null, cpo: null, cpoEvidenceState: "unknown" },
+    powertrain: { type: "unknown", engine: null, drivetrain: null, transmission: null },
+    body: { bodyStyle: null, vehicleType: null, doors: null },
+    listing: {
+      price: null,
+      mileage: null,
+      dealer: null,
+      dealerId: null,
+      city: null,
+      state: null,
+      zip: null,
+      rawVdp: null,
+      resolvedDestination: null,
+      destinationClass: null,
+    },
+    history: { state: "unreported", note: "No listing available — accident/ownership history cannot be checked without one.", ownerNote: null },
+    media: { primaryImage: null, cardImageUrl: null, photoUrls: [] },
+    verification: {
+      identityVerificationStatus: identityVerified ? "verified_match" : "potential_match",
+      verifiedAttributes: identityVerified ? ["vin"] : [],
+      unknownAttributes: identityVerified ? [] : ["vin"],
+      conflictingAttributes: [],
+    },
+    ranking: {
+      matchScore: null,
+      matchScoreLabel: null,
+      breakdown: { statedCriteriaFit: 0, resolvedCriteriaFit: 0, identityConfidence: 0, penalizedByRelaxation: [] },
+    },
+    links,
+    detail: {
+      carfaxUrl: null,
+      cpoNote: "Unknown — no listing available.",
+      ownerHistoryNote: null,
+      interiorColor: null,
+      exteriorColor: null,
+      cylinders: null,
+      seats: null,
+      seatsNote: "Unknown — no listing available.",
+      dataConfidence: null,
+      historyUsageType: null,
+      historyPersonalUse: null,
+      titleStatus: null,
+      fuelTypeDisplay: undefined,
+    },
+    badges: [],
+    intentConfirmations: [],
+    dataConflicts: [],
+    constraintChecks: [],
+    searchConstraintStatus: "not_applicable",
+  };
+}
+
 const handler = createMcpHandler((server) => {
   // MCP Apps (SEP-1865) result-card widget — a STATIC resource, registered
   // once. Real per-search data is delivered to it client-side via
@@ -2447,10 +2555,66 @@ const handler = createMcpHandler((server) => {
 
           const listing = await getListingByVin(rawVin);
           if (!listing) {
+            // V3.3 standalone VIN, no listing found: still decode the VIN
+            // itself (NHTSA vPIC, zero cost either way — same free call
+            // used elsewhere) so the card can show real identity fields
+            // and honest Check avail./View similar actions, without
+            // inventing a listing or requiring live Edmunds search.
+            const standaloneNhtsa = await decodeNhtsaElectrification(rawVin);
+            const recallMake = standaloneNhtsa?.make ?? null;
+            const recallModel = standaloneNhtsa?.model ?? null;
+            const recallYear = standaloneNhtsa?.modelYear ? Number(standaloneNhtsa.modelYear) : null;
+            const standaloneRecall: RecallInfo | null =
+              recallMake && recallModel && recallYear ? await fetchRecallStatus(recallMake, recallModel, recallYear) : null;
+
+            const identityCard = buildStandaloneIdentityCard({
+              vin: rawVin,
+              make: recallMake,
+              model: recallModel,
+              year: recallYear,
+              trim: standaloneNhtsa?.trimOptions?.[0] ?? null,
+              identityVerified: standaloneNhtsa != null,
+            });
+
+            const lines: string[] = [];
+            lines.push(
+              standaloneNhtsa
+                ? `${formatVehicleTitle({ year: recallYear, make: recallMake, model: recallModel, trim: identityCard.identity.trim })} — VIN ${rawVin}`
+                : `VIN ${rawVin} — decode unavailable, identity below is unconfirmed.`,
+            );
+            lines.push("No listing found for this VIN in current inventory — this is an honest \"not currently listed here\" result, not a claim the vehicle doesn't exist.");
+            lines.push(`Recalls: ${standaloneRecall ? standaloneRecall.label : "Data unavailable"}`);
+            if (standaloneRecall && standaloneRecall.campaigns.length > 0) {
+              lines.push(
+                `Recall details (NHTSA, ${standaloneRecall.count} total${standaloneRecall.severeCount ? `, ${standaloneRecall.severeCount} severity-flagged` : ""}): ` +
+                  standaloneRecall.campaigns
+                    .slice(0, 3)
+                    .map((c) => `${c.campaignNumber ?? "unknown campaign"} — ${c.component ?? "component unspecified"}: ${c.summary ?? "no summary available"}${c.remedy ? ` Remedy: ${c.remedy}` : ""}`)
+                    .join(" | "),
+              );
+              lines.push(`NHTSA source: ${standaloneRecall.nhtsaSourceUrl}`);
+            }
+            lines.push("No Buyer Check available — that requires a real listing (accident/ownership history) to verify against, which doesn't exist for this VIN here.");
+            lines.push("Use \"Check avail.\" to look for this exact trim, or \"View similar\" for the broader make/model.");
+
+            const standaloneVinResults = [identityCard];
             return {
-              content: [
-                { type: "text" as const, text: `No listing found for VIN ${rawVin}. Recall status can still be checked if you can supply the make, model, and year instead.` },
-              ],
+              content: [{ type: "text" as const, text: lines.join("\n") }],
+              structuredContent: {
+                meta: {
+                  totalCandidatesConsidered: 0,
+                  totalMatches: standaloneVinResults.length,
+                  resultsShown: standaloneVinResults.length,
+                  corpusSizeApprox: getCorpusCountForDescription(),
+                  relaxations: [],
+                  dataNotes: ["No listing found for this VIN — identity/action card only, no listing data available."],
+                  scopeNote: "vin_lookup",
+                  serviceError: null,
+                  interpretationNotes: [`check_vehicle standalone lookup for VIN ${rawVin} — no listing found; identity from NHTSA decode only.`],
+                  qualifierAccounting: [],
+                },
+                results: standaloneVinResults,
+              } satisfies FindMatchingVehicleOutput,
             };
           }
 
@@ -2584,6 +2748,20 @@ const handler = createMcpHandler((server) => {
         }
 
         const recall = await fetchRecallStatus(make, model, year);
+
+        // V3.3: same minimal identity/verification card as the VIN-not-
+        // found path, no VIN this time (identity.vin stays "" — the card
+        // renderer already handles a non-17-char VIN by simply omitting
+        // the VIN line, no crash, no invented value).
+        const noVinCard = buildStandaloneIdentityCard({
+          vin: null,
+          make,
+          model,
+          year,
+          trim: null,
+          identityVerified: false, // no VIN to verify against — identity here is exactly what the user typed, unconfirmed
+        });
+
         const lines = [
           `${year} ${make} ${model} — no specific VIN was given, so this covers recall status only (not a full Buyer Check, which needs a VIN to verify vehicle identity and history).`,
           `Recalls: ${recall.label}`,
@@ -2598,10 +2776,26 @@ const handler = createMcpHandler((server) => {
           );
           lines.push(`NHTSA source: ${recall.nhtsaSourceUrl}`);
         }
+        lines.push("Use \"Check avail.\" to look for this exact trim, or \"View similar\" for the broader make/model.");
 
+        const noVinResults = [noVinCard];
         return {
           content: [{ type: "text" as const, text: lines.join("\n") }],
-          structuredContent: { vin: null, buyerCheck: null, recall },
+          structuredContent: {
+            meta: {
+              totalCandidatesConsidered: 0,
+              totalMatches: noVinResults.length,
+              resultsShown: noVinResults.length,
+              corpusSizeApprox: getCorpusCountForDescription(),
+              relaxations: [],
+              dataNotes: ["No VIN supplied — identity/action card only, unconfirmed against any specific listing."],
+              scopeNote: "vin_lookup",
+              serviceError: null,
+              interpretationNotes: [`check_vehicle standalone lookup for ${year} ${make} ${model} — no VIN, no listing; recall status only.`],
+              qualifierAccounting: [],
+            },
+            results: noVinResults,
+          } satisfies FindMatchingVehicleOutput,
         };
       } catch (err) {
         // Fail-open at the whole-tool level too (not just the recall
