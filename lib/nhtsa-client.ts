@@ -53,7 +53,77 @@
 const NHTSA_BASE_URL = "https://vpic.nhtsa.dot.gov/api/vehicles/decodevinvalues";
 const NHTSA_TIMEOUT_MS = 3_000;
 
+/**
+ * Canonical electrification classification (SYS-20260909-003), replacing
+ * the boolean-only nhtsaIndicatesElectrified() helper. Fixture-backed
+ * against 39 real VIN decodes for `hybrid`/`plug_in_hybrid`/
+ * `not_electrified` — see DECISIONS.md SYS-20260909-003 for the exact
+ * corpus. `mild_hybrid`, `electric`, and `ambiguous` are implemented from
+ * NHTSA's documented ElectrificationLevel vocabulary but were NOT
+ * exercised by that corpus (zero real examples of any of the three
+ * turned up); do not treat those three branches as fixture-verified
+ * until the still-outstanding regression fixtures land.
+ *
+ * `unknown` (decode failed/timed out) and `ambiguous` (decode succeeded
+ * but the evidence doesn't cleanly resolve) are DELIBERATELY distinct
+ * states for debugging/evidence purposes, but are treated identically
+ * by any `required`-electrification caller: neither is ever reclassified
+ * as gasoline, per the project's "unknown != false" standing principle
+ * and Section C of INDEPENDENT_V2_ELECTRIFICATION_FEASIBILITY_AUDIT_20260908.md.
+ */
+export type ElectrificationState =
+  | "hybrid"
+  | "plug_in_hybrid"
+  | "electric"
+  | "mild_hybrid"
+  | "not_electrified"
+  | "unknown"
+  | "ambiguous";
+
+/**
+ * Classify raw NHTSA ElectrificationLevel/FuelTypeSecondary evidence into
+ * a canonical state. Never infers from Auto.dev's primary-fuel label —
+ * NHTSA fields only, per the audit's explicit requirement.
+ */
+function classifyElectrification(
+  electrificationLevel: string | null,
+  fuelTypeSecondary: string | null,
+): ElectrificationState {
+  const level = (electrificationLevel ?? "").toLowerCase().trim();
+  const secondary = (fuelTypeSecondary ?? "").toLowerCase().trim();
+  const secondaryIsElectric = secondary.includes("electric");
+
+  if (level === "") {
+    // No electrification level reported. If the secondary fuel field
+    // nonetheless claims "Electric," that's a contradiction between two
+    // NHTSA fields on the same record — don't silently pick a winner,
+    // surface it as ambiguous instead (same "surface conflicts, never
+    // silently resolve them" pattern as makeConflict/modelConflict below).
+    return secondaryIsElectric ? "ambiguous" : "not_electrified";
+  }
+
+  if (level.includes("phev") || level.includes("plug-in") || level.includes("plug in")) {
+    return "plug_in_hybrid";
+  }
+  if (level.includes("mild hybrid") || level.includes("mhev")) {
+    return "mild_hybrid";
+  }
+  if (level.includes("bev") || (level.includes("electric") && !level.includes("hybrid"))) {
+    return "electric";
+  }
+  if (level.includes("hev") || level.includes("hybrid")) {
+    return "hybrid";
+  }
+  // Level present but didn't match any known NHTSA vocabulary pattern —
+  // genuinely ambiguous, not a bug in the classifier's pattern list.
+  return "ambiguous";
+}
+
 export interface NhtsaElectrificationResult {
+  /** Canonical classification (SYS-20260909-003) derived from the raw
+   * fields below. Prefer this over hand-rolling ElectrificationLevel
+   * string matching at call sites — see classifyElectrification(). */
+  electrificationState: ElectrificationState;
   electrificationLevel: string | null;
   fuelTypePrimary: string | null;
   fuelTypeSecondary: string | null;
@@ -159,10 +229,14 @@ export async function decodeNhtsaElectrification(
       .map((t: string) => t.trim())
       .filter((t: string) => t.length > 0);
 
+    const electrificationLevel: string | null = r.ElectrificationLevel || null;
+    const fuelTypeSecondary: string | null = r.FuelTypeSecondary || null;
+
     return {
-      electrificationLevel: r.ElectrificationLevel || null,
+      electrificationState: classifyElectrification(electrificationLevel, fuelTypeSecondary),
+      electrificationLevel,
       fuelTypePrimary: r.FuelTypePrimary || null,
-      fuelTypeSecondary: r.FuelTypeSecondary || null,
+      fuelTypeSecondary,
       make,
       model,
       modelYear: r.ModelYear || null,
@@ -181,11 +255,24 @@ export async function decodeNhtsaElectrification(
 }
 
 /**
- * True when NHTSA's electrification data indicates a genuine hybrid or
- * plug-in hybrid, regardless of what Auto.dev's own fuel field says.
+ * True when NHTSA's electrification data indicates a genuine hybrid,
+ * mild hybrid, plug-in hybrid, or battery electric vehicle, regardless of
+ * what Auto.dev's own fuel field says.
+ *
+ * Kept as a thin wrapper over `electrificationState` (SYS-20260909-003)
+ * rather than removed, so any existing call site relying on the old
+ * boolean keeps working unchanged. New code should prefer reading
+ * `electrificationState` directly — this collapses `mild_hybrid` into
+ * "true" the same way the old string-matching version did, which loses
+ * the required-vs-preferred distinction the audit calls for (Section D:
+ * mild_hybrid satisfies public `hybrid`, never `plug_in_hybrid`).
  */
 export function nhtsaIndicatesElectrified(result: NhtsaElectrificationResult | null | undefined): boolean {
   if (!result) return false;
-  const level = (result.electrificationLevel ?? "").toLowerCase();
-  return level.includes("hev") || level.includes("phev") || level.includes("hybrid") || level.includes("electric");
+  return (
+    result.electrificationState === "hybrid" ||
+    result.electrificationState === "mild_hybrid" ||
+    result.electrificationState === "plug_in_hybrid" ||
+    result.electrificationState === "electric"
+  );
 }
