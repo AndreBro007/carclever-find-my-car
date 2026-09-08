@@ -50,6 +50,20 @@ const PROBE_TEXT_MAX = 200;
 // No cross-field .refine() at this level; those checks run explicitly in
 // the handler below so this shape stays a simple, introspectable object,
 // matching how the production schema is structured today.
+// Declared explicitly because MCP client behavior for `structuredContent`
+// diverges without it: some clients only surface/parse structuredContent
+// when the tool declares a matching outputSchema, others pass it through
+// regardless. Declaring this is the documented fix for that interop gap
+// (see modelcontextprotocol/typescript-sdk#911 and similar reports) and is
+// required for this probe's actual purpose — the structuredContent IS the
+// evidence being collected, so it must reliably reach every host tested.
+const probeOutputShape = {
+  probe: z.boolean(),
+  receivedInput: z.record(z.string(), z.unknown()),
+  fieldStats: z.record(z.string(), z.unknown()),
+  crossFieldNotes: z.array(z.string()),
+};
+
 const probeShape = {
   vin: z.string().optional(),
   priceMax: z.number().optional(),
@@ -164,6 +178,7 @@ const handler = createMcpHandler(
       {
         description: PROBE_DESCRIPTION,
         inputSchema: probeShape,
+        outputSchema: probeOutputShape,
         annotations: {
           title: "Find Matching Vehicle (schema probe)",
           readOnlyHint: true,
