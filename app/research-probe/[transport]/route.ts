@@ -222,3 +222,5 @@ const handler = createMcpHandler(
 );
 
 export { handler as GET, handler as POST, handler as DELETE };
+
+// Trigger commit: fires the Vercel Git webhook now that Production branch tracking is set to this branch (2026-09-08).
