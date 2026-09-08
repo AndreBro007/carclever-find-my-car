@@ -99,3 +99,33 @@ Everything else in the file is unchanged from v7.
 ### To revert to v7 fully:
 Same as above — v8 only touches these three description strings, nothing
 else changed (no schema shape changes, no new fields, no removed fields).
+
+## v8 — Anthropic historic-feedback compliance check (added after implementation)
+
+Checked against CLAUDE_CURRENT_V1_ANTHROPIC_FEEDBACK_AUDIT_20260908.md before
+locking this wording as a real candidate for the shared submission.
+
+**The actual documented rule** (not "no imperatives" — narrower than that):
+Anthropic's historic feedback concern was descriptions that forced tool
+invocation, overrode the agent's own judgment/refusal boundary, or compelled
+a specific second tool call. V1's field-level "resolve / map / put / pass"
+language was explicitly assessed in that audit as NOT forced invocation —
+it was categorized as "model procedure" (a different, lesser category) and
+logged only as a "potential presentation risk," not a confirmed defect.
+
+**v8 assessment:** the imperative phrasing added here ("resolve it into real
+matching model names yourself... before calling this tool") does not force
+tool invocation, does not override any refusal, and does not compel a second
+tool call. It falls in the same benign field-routing category the audit
+already found acceptable for V1. It does still carry the same *minor,
+non-blocking* style-risk the audit flagged generally for any assistant-
+directed imperative, however mild — not risk-free, but not the thing
+Anthropic actually rejected against.
+
+**Sequencing note for the record:** examples-only phrasing (v6) was tried
+FIRST, per the audit's own suggested remedy ("use valid examples where they
+demonstrate a difficult call better than an imperative"). It worked
+partially (model list populated) but introduced the manufacturer-name bug
+and was inconsistent across runs. Imperative voice (v8) was adopted only
+after examples-alone were tested and found insufficient — not chosen as a
+first resort.
