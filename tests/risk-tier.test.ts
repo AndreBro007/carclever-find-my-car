@@ -456,32 +456,20 @@ function buyerCheckTests() {
 // ===========================================================================
 // REQUIRED TEST 19: lower_risk description no longer claims data conflicts
 // are purchase-risk ranking evidence.
-// REQUIRED TEST 20 (SUPERSEDED, see below): exact natural phrase "low risk"
-// support previously asserted a set of trigger phrases the description
-// taught for lower_risk.
+// REQUIRED TEST 20: exact natural phrase trigger list is taught for
+// lower_risk, without exposing internal scoring mechanics or restoring the
+// old long-form LOWER RISK RANKING description section.
 //
-// UPDATE (exact-v8-wording field replacement): as explicitly instructed,
-// all 31 input field descriptions -- including priorityAxis -- were
-// replaced with the verbatim wording from FINAL_DESCRIPTION_20260908.md,
-// not the previously-accumulated operational prose. v8's priorityAxis
-// entry is deliberately terse: "Ranking objective: best_for_budget,
-// cheapest, lowest_mileage, newest, or lower_risk. ... Lower risk ranks
-// available purchase-risk evidence and is not a guarantee." It does NOT
-// teach any of the natural-language trigger phrases ("lower-risk",
-// "low risk", "safer-looking", "cleanest-looking history", "lower-risk
-// buys") that the old field description used to spell out, and it does
-// NOT restate the "data conflicts are verification notes, not
-// purchase-risk evidence" clarification either.
-//
-// This is a REAL, FLAGGED content loss, not a relocation -- unlike the
-// earlier main-description trim (where this same content survived in
-// the field-level description), this phrase-teaching guidance has NO
-// surviving location anywhere in the contract after the exact-v8
-// replacement. It is being reported as such rather than silently
-// re-added, since the explicit instruction was exact v8 wording only.
-// The two tests that asserted this content (old "20"/"20b") are removed
-// here rather than left failing or faked; see DECISIONS.md for the
-// full flag raised to André/ChatGPT.
+// HISTORY: the exact-v8-wording field replacement (see prior comment
+// revision, still visible in git history) temporarily dropped this
+// trigger-phrase list and the data-conflicts-are-verification-notes
+// clarification entirely -- flagged as a real, non-relocated content loss
+// at the time. Following review, a narrowly-scoped addition was approved
+// and appended to priorityAxis's own field description (NOT the main
+// description, and NOT the old long-form section): the routing phrases
+// plus a one-line data-conflict/evidence-boundary clarification. This
+// restores the routing guidance without restoring the old verbose
+// operational prose or exposing ranking-algorithm internals.
 // ===========================================================================
 {
   const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
@@ -503,6 +491,22 @@ function buyerCheckTests() {
     "19d. priorityAxis field still includes the base 'lower_risk' enum value and a purchase-risk-evidence, not-a-guarantee description (exact v8 wording)",
     /ranks available purchase-risk evidence and is not a guarantee/.test(combinedSource) &&
       /"lower_risk"/.test(schemaSource),
+  );
+  check(
+    "19e. Data conflicts are once again explained as separate verification notes, not purchase-risk evidence (narrowly-scoped restoration, not the old long-form section)",
+    /Data conflicts remain separate verification notes, not purchase-risk evidence/.test(schemaSource),
+  );
+  check(
+    "19f. The old long-form LOWER RISK RANKING description section was NOT restored -- this phrase list lives only in priorityAxis's own field description, not in the main tool description",
+    !/LOWER RISK RANKING\n\nlower_risk is ranking guidance/.test(routeSource),
+  );
+  const requiredPhrases = ["lower-risk", "low risk", "safer-looking", "cleanest-looking history", "lower-risk buys"];
+  for (const phrase of requiredPhrases) {
+    check(`20. priorityAxis field description teaches the phrase "${phrase}" -> lower_risk`, schemaSource.includes(phrase));
+  }
+  check(
+    "20b. The restored phrase list lives in the field-level schema only, not the main tool description",
+    schemaSource.includes("safer-looking") && !routeSource.includes("safer-looking"),
   );
   check(
     "20c. priorityAxis Zod enum still includes lower_risk (now in lib/find-matching-vehicle-input.ts)",
