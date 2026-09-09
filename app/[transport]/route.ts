@@ -22,7 +22,9 @@ import { computeMatchScore } from "@/lib/match-score";
 import { resolveLinks } from "@/lib/link-resolution";
 import { sanitizeDealerName } from "@/lib/dealer-name";
 import { applyKnownHybridOverride, formatFuelTypeForDisplay } from "@/lib/fuel-type";
-import { decodeNhtsaElectrification, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, type ElectrificationState } from "@/lib/nhtsa-client";
+import { decodeNhtsaElectrification, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, type ElectrificationState, ELECTRIFICATION_POOL_SIZE, electrificationStateSatisfies } from "@/lib/nhtsa-client";
+import { isAnomalousPrice, buildCpoSummary, buildHistorySummary, applyLocalBestForBudgetOrdering, applyLocalLowerRiskOrdering } from "@/lib/local-ranking";
+import { FindMatchingVehicleInput } from "@/lib/find-matching-vehicle-input"; // SYS-20260909-010
 import { getCorpusCountForDescription, initCorpusCount } from "@/lib/corpus-count";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting, type CardIntentInput } from "@/lib/qualifier-accounting";
@@ -166,72 +168,7 @@ MAPS
 
 For local vehicle searches, when results include 3+ dealer locations, present the recommended results on an interactive map using any available map visualization tool — this applies whenever geographic/dealer location data is returned, using the dealer/location data already returned by the tool.`;
 
-const FindMatchingVehicleInput = z.object({
-  vin: z.string().optional().describe("An exact 17-character VIN, when the user supplies one directly (e.g. 'Find VIN W1N4N5BB1TJ864755', 'is this VIN still available', 'check this VIN before I buy it', 'any red flags on this VIN?'). When set, this looks up that ONE specific vehicle directly — it does NOT run a broad search, and no other field is used to search for a different vehicle. Do not infer make/model/price filters instead of passing the VIN; pass the VIN as-is here. Any other stated criteria (price, trim, etc.) are checked against this specific vehicle and disclosed honestly, never used to substitute a different one. If the vehicle isn't found, that's reported plainly — never silently substituted with something similar. This path also returns a Buyer Check (good signs, concerns, what needs independent verification, next steps) built from evidence already on the result — appropriate whenever the user is asking about buying/verifying that specific VIN, not just its availability."),
-  priceMax: z.number().optional().describe("Maximum price in USD. A hard ceiling — never send a value higher than what the user actually stated."),
-  priceMin: z.number().optional().describe("Minimum price in USD."),
-  priceFlexibility: z.enum(["strict", "flexible"]).optional().describe("Whether the price ceiling can flex. Set to 'flexible' only if the user signals approximation ('around', 'roughly', 'about') — otherwise omit; the ceiling stays strict by default."),
-  priorityAxis: z.enum(["best_for_budget", "cheapest", "lowest_mileage", "newest", "lower_risk"]).optional().describe("What the user is actually optimizing for, not merely which words appear in the request. 'best_for_budget' (default) for 'best for budget', 'best in my budget', 'best value within my budget', 'best I can get', 'nicest in my budget', or a price ceiling with no other stated optimization. 'cheapest' ONLY for explicit lowest-price intent: 'cheapest', 'lowest price', 'spend as little as possible' — the word 'budget' by itself is NOT a signal for cheapest; 'best for budget' means best_for_budget, never cheapest. 'lowest_mileage' for fewest miles (this defaults the search to used vehicles only — new/demo cars are excluded automatically, disclosed to the user). 'newest' for latest model year. 'lower_risk' for 'lower-risk', 'low risk', 'safer-looking', 'cleanest-looking history', or 'which cars look like the lower-risk buys' — ranking only, based on genuine purchase-risk evidence (VIN identity verification failure, reported accident/history evidence, confirmed CPO or clean reported history); NEVER a guarantee a vehicle is safe, clean, or problem-free, and never excludes a vehicle for having unreported/unknown history. Listing/spec data conflicts (e.g. a cylinder-count disagreement) are verification notes, not purchase-risk evidence, and do not affect lower_risk ranking — but still worth mentioning when relevant, e.g. for a towing request where configuration matters. See LOWER RISK RANKING below. Also protects that same dimension if the search needs automatic widening — see AUTOMATIC WIDENING."),
-  yearMin: z.number().optional().describe("Minimum model year."),
-  yearMax: z.number().optional().describe("Maximum model year."),
-  make: z.string().optional().describe("Vehicle manufacturer, e.g. Toyota, Honda, Ford."),
-  model: z.string().optional().describe("Real vehicle model name(s) ONLY — never include the manufacturer name here, even if make is also set or omitted. Correct: 'ES' not 'Lexus ES'; 'E-Class' not 'Mercedes-Benz E-Class'; '530i' not 'BMW 530i'. Auto.dev's model field never contains the make, so a combined string silently returns zero results, not an error. Comma-separate multiple models, e.g. 'RAV4,RAV4 Hybrid' or 'Suburban,Tahoe,Yukon' for a resolved size/style qualifier — this works fine across different manufacturers in one list too (e.g. '530i,E-Class,A6' for a cross-brand luxury sedan search), since model names are typically unique without needing the make attached. Any size, style, or use-case description the user gives ('large SUV', 'good for towing', 'sporty') has no dedicated field — resolve it into real model names here, using your own knowledge, before calling this tool."),
-  bodyType: z.string().optional().describe("Broad body style only, e.g. SUV, Sedan, Truck, Minivan. Use vehicleType instead for a finer distinction like Crossover vs SUV or hatchback vs coupe."),
-  mileageMax: z.number().optional().describe("Maximum odometer mileage."),
-  zip: z.string().optional().describe("5-digit US ZIP code to search near. Required for a local search radius — a search without one covers the user's stated state (if given) or the whole country, and is disclosed as such."),
-  radiusMiles: z.number().optional().describe("Search radius in miles from the ZIP. Defaults to 50 if omitted."),
-  trimPreference: z.string().optional().describe("Preferred trim level, e.g. 'Limited' or 'Sport'. Use ONLY when the user signals it's a soft preference ('prefer', 'ideally', 'if possible'). Ranking input only — never excludes a result with a different or unknown trim. If the user simply names a specific trim/variant as what they want, use trimRequired instead."),
-  trimRequired: z.string().optional().describe("A specific trim/variant the user explicitly asked for, e.g. 'AMG GLA 35', 'Raptor', 'Type R', 'Limited'. A HARD eligibility requirement — a result with a confirmed different trim is excluded, not just ranked lower. Use this whenever a trim/variant name is part of the request, even folded into what looks like a model name (e.g. 'Mercedes AMG GLA 35' -> model: 'GLA', trimRequired: 'AMG GLA 35'). Never sent to Auto.dev as a query filter; matched locally against each result's own reported trim."),
-  seatsMinPreference: z.number().optional().describe("Minimum seating capacity needed, e.g. 7 for a family needing three rows. Never excludes a result — seat count is disclosed per result (meets, falls short, or unreported), not hard-filtered, since seating capacity is not a real Auto.dev filter."),
-  vehicleNeeds: z.array(z.string()).optional().describe("Freeform buyer needs like 'family', 'reliability', 'commuting'. Ranking/context input only, not a hard filter — this tool has no reliability or ownership-cost data to verify these claims against. Replaces the retired `goals` field (SYS-20260909-004/005) — no dual-accept."),
-  electrificationTypes: z.array(z.enum(["hybrid", "plug_in_hybrid", "electric"])).optional().describe("Which electrified powertrain type(s) satisfy the request. 'hybrid' implicitly includes mild hybrids at match time — mild_hybrid is an internal NHTSA classification only and is never a selectable value here. 'plug_in_hybrid' is distinct and never implied by 'hybrid'. Combine with electrificationRequirement to say whether this is a hard requirement or a ranking preference."),
-  electrificationRequirement: z.enum(["required", "preferred"]).optional().describe("'required' excludes any vehicle NHTSA cannot confirm as one of electrificationTypes (unconfirmed/ambiguous vehicles are dropped, never assumed to satisfy the request). 'preferred' only affects ranking — no vehicle is excluded for unconfirmed electrification."),
-  // Widened per design doc §2 — all live-verified filterable.
-  drivetrain: z.string().optional().describe("AWD, 4WD, FWD, or RWD. Comma-separate multiple values if the user is open to more than one."),
-  transmission: z.enum(["Automatic", "Manual"]).optional().describe("Automatic or Manual. A real, verified hard filter — always use this field when the user names a transmission type."),
-  exteriorColor: z.string().optional().describe("Named exterior color, e.g. Blue, Red, Black, Silver. A real, verified hard filter on the actual data — always use this field when the user names an exterior color, never skip it or leave it unfiltered."),
-  interiorColor: z.string().optional().describe("Named interior color, e.g. Black, Tan, Gray. A real, verified hard filter on the actual data, exactly like exteriorColor — always use this field when the user names an interior color. Do not skip it, and do not substitute checking each result's interior color manually after an unfiltered search — that produces an incomplete result set."),
-  vehicleType: z.string().optional().describe("Finer body classification than bodyType, e.g. Crossover, SUV, Sedan, Wagon, Minivan, Performance/Sports, Hybrid, Hatchback, Coupe, Luxury, Electric. This field's tagging can be genuinely inconsistent per model in the underlying data (e.g. a Volvo V90 wagon is tagged Crossover, not Wagon). Combined with a specific model, the tool automatically retries without this filter if it returns zero, and only excludes a genuine mismatch when real alternatives still remain — it never hides an entire correct result set over a data-tagging quirk. For a plain body-style request with no specific model, bodyType is the more reliable choice."),
-  doors: z.number().optional().describe("Exact door count, e.g. 2 or 4."),
-  cylinders: z.number().optional().describe("Engine cylinder COUNT — a discrete number, distinct from engine displacement in liters (e.g. '2.5L', '3.5L'), which is NOT filterable. 'V8' means 8. 'V6' means 6. 'four-cylinder' or 'I4' means 4. This is a real, verified hard filter on the actual data — always use this field for a stated cylinder configuration. Do not treat it as unfilterable, and do not substitute checking each result's engine text manually after an unfiltered search — that produces an incomplete result set."),
-  used: z.boolean().optional().describe("true for used vehicles only, false for new vehicles only. Omit to search both. Automatically set to true when priorityAxis is 'lowest_mileage' unless the user explicitly asked for new."),
-  cpo: z.boolean().optional().describe("true if the user specifically wants certified pre-owned. Never excludes non-CPO results — CPO status is disclosed per result (confirmed, reported not CPO, or unreported), not hard-filtered, since the data can confirm CPO status but never disprove it."),
-  state: z.string().optional().describe("Two-letter US state code, e.g. CA, TX, NY. Use for a state-wide search when the user names a state but gives no city or ZIP — the search is disclosed as covering the whole state rather than a specific area."),
-  noAccidents: z.boolean().optional().describe("true if the user specifically wants no reported accidents. Never excludes results — accident history is disclosed per result (reported clean, reported issues, or unreported), not hard-filtered, since roughly half of listings have no history data at all and unknown must never be treated as false."), // maps to history.accidentCount=0
-  oneOwner: z.boolean().optional().describe("true if the user specifically wants a one-owner vehicle. Never excludes results — ownership history is disclosed per result, not hard-filtered, for the same reason as noAccidents."), // maps to history.ownerCount=1
-})
-  // SYS-20260909-005/007: legacy `goals` must be HARD-REJECTED post-cutover,
-  // never silently stripped (André, Sep 9 2026). `.strict()` is required —
-  // plain z.object() silently drops unrecognized keys during ordinary Zod
-  // parsing.
-  //
-  // IMPORTANT, verified against the actual installed @modelcontextprotocol/sdk
-  // source this session: this schema is registered below as `inputSchema`,
-  // and the SDK runs its OWN validation (McpServer.validateToolInput) against
-  // exactly the schema object we hand it, before our handler function ever
-  // sees `input` — our handler receives only the already-parsed/rejected
-  // result. A `.superRefine()`/`.passthrough()` chain was tried first for a
-  // fully custom "unsupported legacy field 'goals'; use 'vehicleNeeds'"
-  // message, but that converts this into a ZodEffects wrapper with no
-  // `.shape` property — the SDK's normalizeObjectSchema() falls back to
-  // EMPTY_OBJECT_JSON_SCHEMA when `.shape` is missing, which would have
-  // silently erased every field description from the tool schema shown to
-  // the host. `.strict()` alone (no further chaining) is the version that
-  // keeps `.shape` intact (confirmed: `typeof schema.shape === "object"`
-  // after `.strict()`), so the SDK both (a) advertises the real schema to
-  // hosts and (b) genuinely rejects `goals` server-side via its own
-  // safeParseAsync call — verified locally: `{goals:[...]}` produces
-  // `{code: "unrecognized_keys", keys: ["goals"], message: 'Unrecognized
-  // key: "goals"'}`, surfaced to the host as an McpError, not silently
-  // dropped. Tradeoff, flagged not hidden: the rejection message is Zod's
-  // own generic "Unrecognized key" text, not the fully custom wording
-  // originally requested — a fully custom per-field message would require
-  // intercepting the raw CallToolRequest upstream of the SDK's own
-  // validateToolInput, which is a different, larger change outside this
-  // route file's scope. The field's own `.describe()` text already tells
-  // any host reading the error+schema together that `vehicleNeeds` is the
-  // correct field.
-  .strict();
+
 
 const ResolveDealerUrlOutput = z.object({
   affiliateUrl: z.string().nullable(),
@@ -267,36 +204,10 @@ const SHORTLIST_SIZE = 5;
  */
 const BROAD_SHORTLIST_SIZE = 8;
 
-/**
- * Bounded pool size for electrificationRequirement: "required" pre-filtering
- * (SYS-20260909-002/005/006). Live-measured (Sep 9 2026, real spike against
- * 39 real VINs, see DECISIONS.md SYS-20260909-002): 39/39 clean decodes with
- * zero throttling at concurrency 12/20/39, ~0.8-1.1s worst-case added wall
- * time at pool=20. André signed off on 20 specifically — do not raise this
- * without a new spike, since it was chosen as a latency/coverage tradeoff,
- * not a hard technical ceiling (NHTSA's own rate limit is undocumented).
- */
-const ELECTRIFICATION_POOL_SIZE = 20;
-
-/**
- * True when a decoded NHTSA electrification state satisfies one of the
- * caller's requested electrificationTypes (SYS-20260909-005/006). Per André
- * (Sep 9 2026): requesting "hybrid" implicitly satisfies a "mild_hybrid"
- * decode — callers never need to list both. "plug_in_hybrid" and "electric"
- * are never implied by anything else and never imply anything else.
- * "unknown"/"ambiguous"/"not_electrified" never satisfy any requested type —
- * this is the enforcement point for the audit's "unknown != false" rule for
- * a required electrification search.
- */
-function electrificationStateSatisfies(
-  state: ElectrificationState | undefined,
-  requestedTypes: ElectrificationState[],
-): boolean {
-  if (!state) return false;
-  if (requestedTypes.includes(state)) return true;
-  if (state === "mild_hybrid" && requestedTypes.includes("hybrid")) return true;
-  return false;
-}
+// ELECTRIFICATION_POOL_SIZE and electrificationStateSatisfies() moved to
+// lib/nhtsa-client.ts (SYS-20260909-010) — imported at the top of this file
+// — so they're unit-testable; Next.js Route Handler files can't export
+// arbitrary names for direct test imports.
 
 /**
  * Absolute wall-clock budget from request start, after which NO new widening
@@ -338,21 +249,9 @@ const RESPONSE_ASSEMBLY_RESERVE_MS = 20_000;
  * cpo=false is explicitly forbidden as definitive proof of non-CPO (CPO-001).
  * Never excludes; always discloses what's actually known.
  */
-function buildCpoSummary(
-  listing: AutoDevListing,
-): { state: "confirmed_cpo" | "reported_not_cpo" | "unknown"; note: string } {
-  const cpo = listing.retailListing?.cpo;
-  if (cpo === true) {
-    return { state: "confirmed_cpo", note: "Reported as Certified Pre-Owned by the dealer." };
-  }
-  if (cpo === false) {
-    return {
-      state: "reported_not_cpo",
-      note: "Not reported as CPO by this listing — this isn't definitive proof it lacks certification, just that it wasn't flagged as one.",
-    };
-  }
-  return { state: "unknown", note: "CPO status not reported for this listing." };
-}
+// buildCpoSummary moved to lib/local-ranking.ts (SYS-20260909-010) —
+// imported at the top of this file, same reasoning as electrificationStateSatisfies above.
+
 
 /**
  * Seats disclosure — same Trust Class C treatment as CPO/history
@@ -404,49 +303,9 @@ function buildSeatsSummary(
  * "user asked for something we can't be fully sure about" - run broadly,
  * never silently narrow the pool, be explicit about what we actually know.
  */
-function buildHistorySummary(
-  listing: AutoDevListing,
-): { state: "known_clean" | "known_issues" | "unreported"; note: string; ownerNote: string | null } {
-  const h = listing.history;
-  const carfaxAvailable = Boolean(listing.retailListing?.carfaxUrl);
-  const carfaxHint = carfaxAvailable
-    ? " The Carfax link on this result is the way to independently confirm."
-    : " No Carfax link was available on this listing to independently confirm.";
+// buildHistorySummary moved to lib/local-ranking.ts (SYS-20260909-010) —
+// imported at the top of this file.
 
-  // Owner count — same disclosure discipline, previously collected as an
-  // input (oneOwner) and never used at all (SYS-20260812-051 audit finding).
-  let ownerNote: string | null = null;
-  if (h?.ownerCount != null) {
-    ownerNote = `Reported ${h.ownerCount} owner${h.ownerCount === 1 ? "" : "s"} in this listing's history.`;
-  } else if (h?.oneOwner === true) {
-    ownerNote = "Reported as a one-owner vehicle.";
-  } else if (h?.oneOwner === false) {
-    ownerNote = "Not reported as one-owner — not definitive proof of multiple owners, just not flagged as one-owner.";
-  }
-
-  if (!h || (h.accidentCount == null && h.accidents == null)) {
-    return {
-      state: "unreported",
-      note: `Accident history was not reported for this listing — this is common (roughly half of listings), not a red flag by itself.${carfaxHint}`,
-      ownerNote,
-    };
-  }
-
-  const accidentCount = h.accidentCount ?? (h.accidents ? 1 : 0);
-  if (accidentCount > 0) {
-    return {
-      state: "known_issues",
-      note: `Reported ${accidentCount} accident${accidentCount === 1 ? "" : "s"} in this listing's history.${carfaxHint}`,
-      ownerNote,
-    };
-  }
-
-  return {
-    state: "known_clean",
-    note: "No accidents reported in this listing's history (single-source; not an independent guarantee).",
-    ownerNote,
-  };
-}
 
 function resolveSort(
   priorityAxis: "best_for_budget" | "cheapest" | "lowest_mileage" | "newest" | "lower_risk" | undefined,
@@ -482,186 +341,20 @@ const CANDIDATE_POOL_SIZE = 100; // Growth plan cap per docs; silently clamps to
 // a listing priced $85 for a 2024 CR-V passed every filter cleanly and got
 // VIN-verified — the price itself is the obviously bad data, not the
 // identity.
-const ANOMALOUS_PRICE_FLOOR = 1000;
-function isAnomalousPrice(price: number | undefined | null): boolean {
-  return price != null && price < ANOMALOUS_PRICE_FLOOR;
-}
+// ANOMALOUS_PRICE_FLOOR/isAnomalousPrice moved to lib/local-ranking.ts
+// (SYS-20260909-010) — imported at the top of this file. Still the single
+// shared definition used by both this file's own price-badge logic (below)
+// and the ordering functions (also now in that lib file).
 
-/**
- * EXPERIMENT (preview only, SYS-20260825 follow-up): local best_for_budget
- * candidate ordering. Provider retrieval/sort is completely untouched
- * (resolveSort() above is unchanged) — this only reorders the already-
- * eligible lean candidates client-side, after trim ordering and before
- * applyDiversity()/shortlist selection, for priorityAxis best_for_budget
- * (or unset, its default). cheapest/lowest_mileage/newest are untouched —
- * this function is never called for those axes.
- *
- * This is an internal ordering heuristic only — it does not compute or
- * expose a new score, and Match Score (lib/match-score.ts) is completely
- * unaffected; the final cards.sort() by matchScore still runs afterward
- * and, since Array.prototype.sort is stable, preserves this candidate
- * order among equal Match Scores.
- *
- * Ranking, per the pool actually passed in:
- * 1. A confirmed trimPreference match (existing trimMatches() directional
- *    matcher) ranks first, if trimPreference was stated.
- * 2. balancedScore = yearRank + mileageRank descending — pool-relative
- *    min-max ranks (best known -> 1, worst known -> 0, missing -> neutral
- *    0.5), combined equally per spec, not raw weighted units.
- * 3. Lower price as a weak tie-breaker only.
- * 4. Original provider order preserved for any remaining tie (stable sort).
- *
- * Deliberately no budget-distance scoring in this first experiment — the
- * pool is already budget-constrained by the existing hard priceMax filter
- * and (in production) already price-desc from the provider; this tests
- * only whether better age/mileage selection from that same pool helps.
- */
-/**
- * EXPERIMENT (preview only, experiment/value-based-best-for-budget):
- * value-based best_for_budget local ordering — extends the original
- * year+mileage-only formula (d5805cc) to also weigh price materially, not
- * just as a final tiebreaker. Motivation: live-tested (fair-pool merge
- * experiment) that even once USED candidates get a genuinely fair chance
- * to enter the pool, the old formula still always favored near-zero-mile
- * current-model-year NEW stock over any USED alternative, however
- * price-competitive — e.g. a 2026 USED X5 at ~$71k/306mi lost every time
- * to a 2026 NEW X5 at ~$101k/1mi, purely because year+mileage never
- * considered the ~$30k price gap at all. This is a genuine "best value to
- * buy" gap, not a bug in the old formula's own narrower goal.
- *
- * balancedScore is now a straight three-way average of yearRank,
- * mileageRank, and priceRank — each independently pool-relative (best
- * known -> 1, worst known -> 0, missing -> neutral 0.5), same rank
- * construction as before, just one more axis with genuinely equal
- * weight (not a coefficient tacked onto the old two-factor score, and
- * not a mere tiebreaker after year+mileage already decided the order).
- * Trim preference precedence (checked first, before balancedScore ever
- * applies) and configuration variety (downstream, unchanged) are both
- * completely unaffected — this only changes how balancedScore itself is
- * computed. No condition (NEW/USED) signal is read anywhere in this
- * function, same as before — still fully condition-blind by construction,
- * so nothing here can force or bias toward either.
- */
-/**
- * EXPERIMENT (preview only, follow-up to 59085ba): anomalous-price
- * exclusion. Cross-model validation surfaced a real failure: prices
- * already recognized as untrustworthy by production's own
- * "price-likely-inaccurate" badge rule (below $1,000 — real evidence,
- * e.g. a $85 2024 CR-V that passed every filter and got VIN-verified,
- * the price alone was the bad data) were still allowed to participate as
- * genuinely cheap in priceRank, so a data-entry error could dominate the
- * top of the shortlist purely by being implausibly cheap (observed live:
- * $595/$948 F-150s beating real $40k value picks).
- *
- * Fix, using the exact same ANOMALOUS_PRICE_FLOOR/isAnomalousPrice()
- * shared with the card badge (never a second, independent $1,000 rule):
- * - priceMin/priceMax normalization is computed from genuine prices only
- *   — an anomalous price can no longer stretch or shrink the pool's price
- *   scale for every other (genuine) candidate.
- * - An anomalous candidate's own priceRank is forced to neutral 0.5 —
- *   never scored as "cheap", but not penalized as "expensive" either,
- *   same treatment as a missing price.
- * - A new anomalyRank tier sits between trim-preference and balancedScore:
- *   genuine-price candidates are preferred over anomalous-price ones
- *   whenever both exist, but nothing is discarded — an anomalous
- *   candidate simply sorts after genuine ones (same "reorder, never
- *   drop" philosophy as applyConfigurationVarietyPass below), so it's
- *   still available for shortlist backfill if genuinely nothing else
- *   qualifies.
- *
- * year+mileage weighting for genuine prices is completely unchanged.
- */
-function applyLocalBestForBudgetOrdering(
-  candidates: AutoDevListing[],
-  trimPreference: string | undefined,
-): AutoDevListing[] {
-  if (candidates.length === 0) return candidates;
+// applyLocalBestForBudgetOrdering() and applyLocalLowerRiskOrdering() moved
+// to lib/local-ranking.ts (SYS-20260909-010), along with buildCpoSummary,
+// buildHistorySummary, isAnomalousPrice/ANOMALOUS_PRICE_FLOOR — imported at
+// the top of this file. Moved specifically so these pure ordering functions
+// are unit-testable: Next.js Route Handler files only permit a fixed set of
+// named exports (GET/POST/etc), confirmed by a real local build failure
+// this session ("X is not a valid Route export field") when a direct
+// export was attempted from this file.
 
-  const years = candidates.map((c) => c.vehicle?.year).filter((y): y is number => y != null);
-  const miles = candidates.map((c) => c.retailListing?.miles).filter((m): m is number => m != null);
-  const genuinePrices = candidates
-    .map((c) => c.retailListing?.price)
-    .filter((p): p is number => p != null && !isAnomalousPrice(p));
-  const yearMin = years.length > 0 ? Math.min(...years) : null;
-  const yearMax = years.length > 0 ? Math.max(...years) : null;
-  const milesMin = miles.length > 0 ? Math.min(...miles) : null;
-  const milesMax = miles.length > 0 ? Math.max(...miles) : null;
-  const priceMin = genuinePrices.length > 0 ? Math.min(...genuinePrices) : null;
-  const priceMax = genuinePrices.length > 0 ? Math.max(...genuinePrices) : null;
-
-  const yearRank = (y: number | undefined): number => {
-    if (y == null || yearMin == null || yearMax == null || yearMax === yearMin) return 0.5;
-    return (y - yearMin) / (yearMax - yearMin); // newer -> higher -> closer to 1
-  };
-  const mileageRank = (m: number | undefined): number => {
-    if (m == null || milesMin == null || milesMax == null || milesMax === milesMin) return 0.5;
-    return (milesMax - m) / (milesMax - milesMin); // lower miles -> higher -> closer to 1
-  };
-  const priceRank = (c: AutoDevListing): number => {
-    const p = c.retailListing?.price;
-    if (isAnomalousPrice(p)) return 0.5; // untrustworthy price — neutral, never "cheap"
-    if (p == null || priceMin == null || priceMax == null || priceMax === priceMin) return 0.5;
-    return (priceMax - p) / (priceMax - priceMin); // cheaper -> higher -> closer to 1
-  };
-  const balancedScore = (c: AutoDevListing): number =>
-    (yearRank(c.vehicle?.year) + mileageRank(c.retailListing?.miles) + priceRank(c)) / 3;
-  const trimMatchRank = (c: AutoDevListing): number =>
-    trimPreference && trimMatches(trimPreference, c.vehicle?.trim) ? 0 : 1; // confirmed match sorts first
-  const anomalyRank = (c: AutoDevListing): number => (isAnomalousPrice(c.retailListing?.price) ? 1 : 0); // genuine price sorts first
-
-  return [...candidates].sort((a, b) => {
-    const trimDiff = trimMatchRank(a) - trimMatchRank(b);
-    if (trimDiff !== 0) return trimDiff;
-
-    const anomalyDiff = anomalyRank(a) - anomalyRank(b);
-    if (anomalyDiff !== 0) return anomalyDiff;
-
-    const scoreDiff = balancedScore(b) - balancedScore(a); // descending
-    if (scoreDiff !== 0) return scoreDiff;
-
-    const priceA = a.retailListing?.price ?? Infinity;
-    const priceB = b.retailListing?.price ?? Infinity;
-    if (priceA !== priceB) return priceA - priceB; // ascending, exact-tie final tiebreaker
-
-    return 0; // preserve original provider order — stable sort
-  });
-}
-
-/**
- * lower_risk local ordering (feature/lower-risk-mvp) — ranking only, same
- * architecture as applyLocalBestForBudgetOrdering() above: provider
- * retrieval/sort is untouched (resolveSort() above), hard eligibility
- * filters (price, make/model, trimRequired, year, mileage, radius,
- * drivetrain, etc.) have already been applied by the time this runs — this
- * only reorders the already-eligible candidates. Never restricts results
- * to positive-evidence-only vehicles; it only changes the order they're
- * presented in.
- *
- * Uses classifyRiskTier() (lib/risk-tier.ts) — purchase-risk evidence
- * only (crossCheckVin/buildHistorySummary/buildCpoSummary), deliberately
- * excluding detectDataConflicts() (SYS-20260827: a data-quality/
- * verification signal, not purchase-risk evidence — see lib/risk-tier.ts's
- * module doc for the full boundary). All three inputs already operate
- * directly on a raw AutoDevListing, so this runs at the lean (pre-stage-2)
- * stage, before diversity/shortlisting, same timing as
- * applyLocalBestForBudgetOrdering(). Simple, deterministic: sort by tier
- * rank only (positive < unknown < amber < red), stable — candidates
- * within the same tier keep their existing relative order (whatever the
- * provider's own price.desc/year.desc default already produced), no
- * secondary scoring formula invented on top.
- */
-function applyLocalLowerRiskOrdering(candidates: AutoDevListing[]): AutoDevListing[] {
-  if (candidates.length === 0) return candidates;
-
-  const tierOf = (c: AutoDevListing): RiskTier =>
-    classifyRiskTier({
-      verification: crossCheckVin(c),
-      history: buildHistorySummary(c),
-      condition: { cpoEvidenceState: buildCpoSummary(c).state },
-    });
-
-  return [...candidates].sort((a, b) => riskTierRank(tierOf(a)) - riskTierRank(tierOf(b)));
-}
 
 
 // Same deployed origin the widget declares in its CSP resourceDomains —
@@ -1823,6 +1516,19 @@ const handler = createMcpHandler((server) => {
         input.electrificationRequirement === "required" &&
         input.electrificationTypes != null &&
         input.electrificationTypes.length > 0;
+      // SYS-20260909-010: "preferred" reuses the exact same bounded top-20
+      // pool/decode mechanism as "required" — never an additional/unbounded
+      // NHTSA call budget, and never both required+preferred at once since
+      // they're mutually exclusive enum values. Unlike "required", nothing
+      // is excluded here: candidates outside the top-20 pool (rank 21+)
+      // simply have no decode data and electrificationMatchOf() returns
+      // false for them — they're neither promoted nor penalized, just not
+      // preferentially reordered, which keeps this genuinely bounded-latency
+      // rather than decoding the whole candidate set.
+      const electrificationPreferred =
+        input.electrificationRequirement === "preferred" &&
+        input.electrificationTypes != null &&
+        input.electrificationTypes.length > 0;
       // SYS-20260909-009: real TypeScript compile failure, reproduced and
       // confirmed locally before this fix — mutating an outer `let` from
       // inside a nested async closure (the previous version of this code)
@@ -1848,14 +1554,44 @@ const handler = createMcpHandler((server) => {
               confirmed.length < targetCount
                 ? { requested: targetCount, confirmed: confirmed.length }
                 : null;
-            return { candidates: confirmed, shortfall };
+            return { candidates: confirmed, shortfall, matchedVins: null as Set<string> | null };
+          })()
+        : electrificationPreferred
+        ? await (async () => {
+            // Ranking-only: no exclusion, no shortfall. Bounded to the same
+            // top-20 pool as "required" (ELECTRIFICATION_POOL_SIZE) — see
+            // comment above.
+            const requestedTypes = input.electrificationTypes!;
+            const pool = trimOrderedCandidates.slice(0, ELECTRIFICATION_POOL_SIZE);
+            const poolNhtsa = await Promise.all(
+              pool.map((c) =>
+                decodeNhtsaElectrification(c.vin, c.vehicle?.make, c.vehicle?.model, c.vehicle?.cylinders),
+              ),
+            );
+            const matchedVins = new Set(
+              pool
+                .filter((_, i) => electrificationStateSatisfies(poolNhtsa[i]?.electrificationState, requestedTypes))
+                .map((c) => c.vin),
+            );
+            return { candidates: trimOrderedCandidates, shortfall: null as { requested: number; confirmed: number } | null, matchedVins };
           })()
         : {
             candidates: trimOrderedCandidates,
             shortfall: null as { requested: number; confirmed: number } | null,
+            matchedVins: null as Set<string> | null,
           };
       const electrificationFilteredCandidates = electrificationResult.candidates;
       const electrificationShortfall = electrificationResult.shortfall;
+      // Predicate form for the ordering functions below. Deliberately
+      // undefined (not a function that always returns false) when
+      // electrification-preferred wasn't requested at all, so
+      // applyLocalBestForBudgetOrdering/applyLocalLowerRiskOrdering's own
+      // "absent electrificationMatchOf -> zero effect" short-circuit
+      // applies and existing non-electrification searches are byte-for-byte
+      // unchanged.
+      const electrificationMatchOf = electrificationResult.matchedVins
+        ? (c: AutoDevListing) => electrificationResult.matchedVins!.has(c.vin)
+        : undefined;
 
       const diversified = applyDiversity(
         // EXPERIMENT (preview only): local best_for_budget ordering, applied
@@ -1866,12 +1602,21 @@ const handler = createMcpHandler((server) => {
         // lower_risk (feature/lower-risk-mvp): same architecture, its own
         // local reordering pass (applyLocalLowerRiskOrdering, above) —
         // mutually exclusive with best_for_budget's pass, never both.
+        //
+        // KNOWN LIMITATION, flagged not hidden (SYS-20260909-010): the
+        // cheapest/lowest_mileage/newest axes intentionally do NOT get an
+        // electrification-preferred nudge — those three axes' own module
+        // docs establish "provider's exact sort is untouched" as a
+        // deliberate guarantee, and adding a ranking nudge there would
+        // break that documented exactness. electrificationRequirement:
+        // "preferred" currently only affects ordering under best_for_budget
+        // (default) and lower_risk.
         input.priorityAxis === "best_for_budget" || input.priorityAxis == null
           ? applyConfigurationVarietyPass(
-              applyLocalBestForBudgetOrdering(electrificationFilteredCandidates, intent.semantic.trimPreference),
+              applyLocalBestForBudgetOrdering(electrificationFilteredCandidates, intent.semantic.trimPreference, electrificationMatchOf),
             )
           : input.priorityAxis === "lower_risk"
-          ? applyLocalLowerRiskOrdering(electrificationFilteredCandidates)
+          ? applyLocalLowerRiskOrdering(electrificationFilteredCandidates, electrificationMatchOf)
           : electrificationFilteredCandidates,
         targetCount * 2,
       );
