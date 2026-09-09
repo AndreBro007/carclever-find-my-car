@@ -22,7 +22,7 @@ import { computeMatchScore } from "@/lib/match-score";
 import { resolveLinks } from "@/lib/link-resolution";
 import { sanitizeDealerName } from "@/lib/dealer-name";
 import { applyKnownHybridOverride, formatFuelTypeForDisplay } from "@/lib/fuel-type";
-import { decodeNhtsaElectrification, nhtsaIndicatesElectrified, type NhtsaElectrificationResult } from "@/lib/nhtsa-client";
+import { decodeNhtsaElectrification, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, type ElectrificationState } from "@/lib/nhtsa-client";
 import { getCorpusCountForDescription, initCorpusCount } from "@/lib/corpus-count";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting, type CardIntentInput } from "@/lib/qualifier-accounting";
@@ -244,6 +244,37 @@ const SHORTLIST_SIZE = 5;
  * Only stage-2 per-VIN detail calls scale with this, and those run in parallel.
  */
 const BROAD_SHORTLIST_SIZE = 8;
+
+/**
+ * Bounded pool size for electrificationRequirement: "required" pre-filtering
+ * (SYS-20260909-002/005/006). Live-measured (Sep 9 2026, real spike against
+ * 39 real VINs, see DECISIONS.md SYS-20260909-002): 39/39 clean decodes with
+ * zero throttling at concurrency 12/20/39, ~0.8-1.1s worst-case added wall
+ * time at pool=20. André signed off on 20 specifically — do not raise this
+ * without a new spike, since it was chosen as a latency/coverage tradeoff,
+ * not a hard technical ceiling (NHTSA's own rate limit is undocumented).
+ */
+const ELECTRIFICATION_POOL_SIZE = 20;
+
+/**
+ * True when a decoded NHTSA electrification state satisfies one of the
+ * caller's requested electrificationTypes (SYS-20260909-005/006). Per André
+ * (Sep 9 2026): requesting "hybrid" implicitly satisfies a "mild_hybrid"
+ * decode — callers never need to list both. "plug_in_hybrid" and "electric"
+ * are never implied by anything else and never imply anything else.
+ * "unknown"/"ambiguous"/"not_electrified" never satisfy any requested type —
+ * this is the enforcement point for the audit's "unknown != false" rule for
+ * a required electrification search.
+ */
+function electrificationStateSatisfies(
+  state: ElectrificationState | undefined,
+  requestedTypes: ElectrificationState[],
+): boolean {
+  if (!state) return false;
+  if (requestedTypes.includes(state)) return true;
+  if (state === "mild_hybrid" && requestedTypes.includes("hybrid")) return true;
+  return false;
+}
 
 /**
  * Absolute wall-clock budget from request start, after which NO new widening
@@ -1741,6 +1772,55 @@ const handler = createMcpHandler((server) => {
           })
         : trimFilteredCandidates;
 
+      // Electrification-required pre-filter (SYS-20260909-002/003/005/006).
+      // Runs BEFORE diversity/shortlist slicing, on a BOUNDED pool of up to
+      // ELECTRIFICATION_POOL_SIZE (20, per the live spike in SYS-20260909-002:
+      // 39/39 clean decodes at pool=20-39 with no throttling) candidates from
+      // the front of the already-ranked list — never the full candidate set,
+      // to keep the added NHTSA-call latency bounded (~0.8-1.1s worst case
+      // measured). Only runs for electrificationRequirement: "required";
+      // "preferred" and unset are zero-cost here (existing shortlist-stage
+      // decode at the getListingByVin refetch below still runs regardless,
+      // for the badge logic).
+      //
+      // A vehicle is kept only if NHTSA's own decode CONFIRMS one of the
+      // requested electrificationTypes — unknown/ambiguous/not_electrified
+      // are all excluded, never assumed to satisfy the request (audit
+      // Section C, "unknown != false" standing principle). Per André
+      // (Sep 9 2026): "hybrid" implicitly includes "mild_hybrid";
+      // "plug_in_hybrid"/"electric" are never implied by "hybrid".
+      //
+      // KNOWN LIMITATION, flagged not hidden: this decodes the top-20 pool
+      // by rank, not the full trimOrderedCandidates set. If fewer than
+      // targetCount of those 20 confirm, the shortlist is genuinely shorter
+      // — the code deliberately does NOT expand the pool past 20 to backfill,
+      // since that's the exact bounded-latency tradeoff the spike measured
+      // and André signed off on. `electrificationShortfall` below surfaces
+      // this to the response's dataNotes rather than silently truncating.
+      const electrificationRequired =
+        input.electrificationRequirement === "required" &&
+        input.electrificationTypes != null &&
+        input.electrificationTypes.length > 0;
+      let electrificationShortfall: { requested: number; confirmed: number } | null = null;
+      const electrificationFilteredCandidates = electrificationRequired
+        ? await (async () => {
+            const requestedTypes = input.electrificationTypes!;
+            const pool = trimOrderedCandidates.slice(0, ELECTRIFICATION_POOL_SIZE);
+            const poolNhtsa = await Promise.all(
+              pool.map((c) =>
+                decodeNhtsaElectrification(c.vin, c.vehicle?.make, c.vehicle?.model, c.vehicle?.cylinders),
+              ),
+            );
+            const confirmed = pool.filter((_, i) =>
+              electrificationStateSatisfies(poolNhtsa[i]?.electrificationState, requestedTypes),
+            );
+            if (confirmed.length < targetCount) {
+              electrificationShortfall = { requested: targetCount, confirmed: confirmed.length };
+            }
+            return confirmed;
+          })()
+        : trimOrderedCandidates;
+
       const diversified = applyDiversity(
         // EXPERIMENT (preview only): local best_for_budget ordering, applied
         // only for that axis (or unset, its default) — cheapest/
@@ -1752,11 +1832,11 @@ const handler = createMcpHandler((server) => {
         // mutually exclusive with best_for_budget's pass, never both.
         input.priorityAxis === "best_for_budget" || input.priorityAxis == null
           ? applyConfigurationVarietyPass(
-              applyLocalBestForBudgetOrdering(trimOrderedCandidates, intent.semantic.trimPreference),
+              applyLocalBestForBudgetOrdering(electrificationFilteredCandidates, intent.semantic.trimPreference),
             )
           : input.priorityAxis === "lower_risk"
-          ? applyLocalLowerRiskOrdering(trimOrderedCandidates)
-          : trimOrderedCandidates,
+          ? applyLocalLowerRiskOrdering(electrificationFilteredCandidates)
+          : electrificationFilteredCandidates,
         targetCount * 2,
       );
       const leanShortlist = diversified.slice(0, targetCount);
@@ -2204,6 +2284,13 @@ const handler = createMcpHandler((server) => {
       }
       if (rawResult.degraded) {
         dataNotes.push(rawResult.degraded);
+      }
+      if (electrificationShortfall) {
+        dataNotes.push(
+          `Only ${electrificationShortfall.confirmed} of the usual ${electrificationShortfall.requested} results could be ` +
+            `confirmed by NHTSA as matching the required electrification type — fewer results are shown rather than ` +
+            `including any vehicle whose electrification status couldn't be verified.`,
+        );
       }
       if (scopeNote === "nationwide" && rawZip != null) {
         dataNotes.push("The requested location wasn't recognized, so this search was widened to nationwide.");
