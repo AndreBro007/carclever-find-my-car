@@ -54,10 +54,10 @@ const NHTSA_BASE_URL = "https://vpic.nhtsa.dot.gov/api/vehicles/decodevinvalues"
 const NHTSA_TIMEOUT_MS = 3_000;
 
 /**
- * Canonical electrification classification (SYS-20260909-003), replacing
+ * Canonical electrification classification, replacing
  * the boolean-only nhtsaIndicatesElectrified() helper. Fixture-backed
- * against 39 real VIN decodes for `hybrid`/`plug_in_hybrid`/
- * `not_electrified` — see DECISIONS.md SYS-20260909-003 for the exact
+ * against real VIN decode fixtures for `hybrid`/`plug_in_hybrid`/
+ * `not_electrified` — see tests/nhtsa-classifier.test.ts for the exact
  * corpus. `mild_hybrid`, `electric`, and `ambiguous` are implemented from
  * NHTSA's documented ElectrificationLevel vocabulary but were NOT
  * exercised by that corpus (zero real examples of any of the three
@@ -105,7 +105,7 @@ export function classifyElectrification(
   if (level.includes("phev") || level.includes("plug-in") || level.includes("plug in")) {
     return "plug_in_hybrid";
   }
-  // Broadened SYS-20260909-008 (found via regression fixture test): the
+  // Broadened after a regression fixture test caught a real classifier bug: the
   // exact phrase "mild hybrid" or literal "mhev" missed a realistic NHTSA
   // variant like "Mild HEV (Hybrid Electric Vehicle)" — "mild" and "hev"
   // appear in the string but not adjacent as "mild hybrid", so the old
@@ -130,12 +130,12 @@ export function classifyElectrification(
   // includes fuel-cell vehicles (NHTSA's "FCV"): out of scope for this
   // project's hybrid/PHEV/electric taxonomy, so FCV correctly falls
   // through to ambiguous rather than silently miscounting as electric
-  // — confirmed via ChatGPT review, addendum to SYS-20260909-003.
+  // — confirmed via ChatGPT review.
   return "ambiguous";
 }
 
 export interface NhtsaElectrificationResult {
-  /** Canonical classification (SYS-20260909-003) derived from the raw
+  /** Canonical classification derived from the raw
    * fields below. Prefer this over hand-rolling ElectrificationLevel
    * string matching at call sites — see classifyElectrification(). */
   electrificationState: ElectrificationState;
@@ -274,7 +274,7 @@ export async function decodeNhtsaElectrification(
  * mild hybrid, plug-in hybrid, or battery electric vehicle, regardless of
  * what Auto.dev's own fuel field says.
  *
- * Kept as a thin wrapper over `electrificationState` (SYS-20260909-003)
+ * Kept as a thin wrapper over `electrificationState`
  * rather than removed, so any existing call site relying on the old
  * boolean keeps working unchanged. New code should prefer reading
  * `electrificationState` directly — this collapses `mild_hybrid` into
@@ -294,17 +294,25 @@ export function nhtsaIndicatesElectrified(result: NhtsaElectrificationResult | n
 
 /**
  * Bounded pool size for electrificationRequirement pre-processing, both
- * "required" (pre-filter) and "preferred" (ranking-only match lookup) —
- * SYS-20260909-002/005/006/010. Live-measured (Sep 9 2026, real spike
- * against 39 real VINs, see DECISIONS.md SYS-20260909-002): 39/39 clean
- * decodes with zero throttling at concurrency 12/20/39, ~0.8-1.1s
- * worst-case added wall time at pool=20. André signed off on 20
- * specifically — do not raise this without a new spike, since it was
- * chosen as a latency/coverage tradeoff, not a hard technical ceiling
- * (NHTSA's own rate limit is undocumented). Moved here from route.ts
- * (SYS-20260909-010) alongside electrificationStateSatisfies() so both
- * are importable from a test file — Next.js Route Handler files only
- * permit a fixed set of named exports and cannot export arbitrary
+ * "required" (pre-filter) and "preferred" (ranking-only match lookup).
+ *
+ * OPEN VALIDATION QUESTION — the value below (20) has NOT been derived
+ * from a real measurement. No instrumented spike against live NHTSA
+ * traffic has actually been run (attempted Sep 9 2026, blocked by a
+ * sandbox network-egress restriction before any data was collected —
+ * see DECISIONS.md SYS-20260909-001). Earlier comments in this file and
+ * elsewhere in the repo cited a "live spike" with specific latency/
+ * hit-rate numbers and an "André signed off on 20" claim; those citations
+ * pointed to decision-log entries that do
+ * not exist and should not be trusted. Treat 20 as an unvalidated
+ * placeholder only, not an empirically justified or approved constant.
+ * The real spike (pool-size vs. NHTSA latency/parallelism/hit-rate,
+ * using real VINs) still needs to be run before this number can be
+ * treated as settled.
+ *
+ * Moved here from route.ts alongside electrificationStateSatisfies() so
+ * both are importable from a test file — Next.js Route Handler files
+ * only permit a fixed set of named exports and cannot export arbitrary
  * functions/constants for direct unit testing (confirmed by a real local
  * build failure this session).
  */
@@ -312,7 +320,7 @@ export const ELECTRIFICATION_POOL_SIZE = 20;
 
 /**
  * True when a decoded NHTSA electrification state satisfies one of the
- * caller's requested electrificationTypes (SYS-20260909-005/006/010). Per
+ * caller's requested electrificationTypes. Per
  * André (Sep 9 2026): requesting "hybrid" implicitly satisfies a
  * "mild_hybrid" decode — callers never need to list both, and in fact
  * cannot list "mild_hybrid" directly at all (it was removed from the

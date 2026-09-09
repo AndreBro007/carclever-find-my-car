@@ -1,5 +1,5 @@
 // Functional regression tests for electrificationRequirement ("required"
-// and "preferred") — SYS-20260909-006/010, addressing the gap ChatGPT
+// and "preferred") — addressing the gap ChatGPT
 // flagged in the frozen branch at commit 6f599a6: "preferred" was accepted
 // by the schema but had no effect on ranking.
 //
@@ -15,7 +15,7 @@
 // decode step itself (decodeNhtsaElectrification, the bounded pool-of-20
 // fetch, or the shortfall-computation closure in route.ts). That decode
 // step is covered separately by tests/nhtsa-classifier.test.ts (classifier
-// correctness) and by the live spike in DECISIONS.md SYS-20260909-002
+// correctness) and would be covered by a real NHTSA latency/hit-rate spike once one is actually run (not yet done — see the open validation question on ELECTRIFICATION_POOL_SIZE)
 // (latency/concurrency, real NHTSA calls). No live VIN test was run in this
 // pass — that remains explicitly unverified, not silently assumed to work.
 //
@@ -297,7 +297,7 @@ function toListing(l: MiniListing): AutoDevListing {
 
 // ===========================================================================
 // Legacy `goals` schema rejection -- real Zod schema, real safeParse call,
-// not a source-text check. SYS-20260909-005/007.
+// not a source-text check.
 // ===========================================================================
 {
   const resultWithGoals = FindMatchingVehicleInput.safeParse({ goals: ["family", "reliability"] });

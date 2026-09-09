@@ -24,7 +24,7 @@ import { sanitizeDealerName } from "@/lib/dealer-name";
 import { applyKnownHybridOverride, formatFuelTypeForDisplay } from "@/lib/fuel-type";
 import { decodeNhtsaElectrification, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, type ElectrificationState, ELECTRIFICATION_POOL_SIZE, electrificationStateSatisfies } from "@/lib/nhtsa-client";
 import { isAnomalousPrice, buildCpoSummary, buildHistorySummary, applyLocalBestForBudgetOrdering, applyLocalLowerRiskOrdering } from "@/lib/local-ranking";
-import { FindMatchingVehicleInput } from "@/lib/find-matching-vehicle-input"; // SYS-20260909-010
+import { FindMatchingVehicleInput } from "@/lib/find-matching-vehicle-input";
 import { getCorpusCountForDescription, initCorpusCount } from "@/lib/corpus-count";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting, type CardIntentInput } from "@/lib/qualifier-accounting";
@@ -49,124 +49,15 @@ initCorpusCount();
 // (Sky redesign, approved July 26, 2026) — same architecture principle
 // Find My Car already uses (calling LLM owns intent, server stays thin and
 // deterministic), just with more explicit coaching for known data quirks.
-const FIND_MATCHING_VEHICLE_DESCRIPTION = () => `Use this tool for live US vehicle-inventory searches when the user wants current vehicles for sale or a shortlist — whether the request is explicit ("Honda CR-V under $35k near 90210"), superlative ("cheapest," "newest," "lowest mileage"), detailed-spec (price, make/model, year, mileage, color, drivetrain, transmission, cylinders, seating), or open-ended buyer need ("reliable for a teen driver," "good for towing," "good for commuting," "good for a family"). This tool resolves what a need actually implies — reliability, size, safety, running cost, capability — into the right real search, even when nothing in the request names a specific car. If a search comes back too thin, it automatically widens the least-restrictive constraint first, protects whatever the user said matters most, and always discloses exactly what changed — see AUTOMATIC WIDENING below; don't retry a thin search yourself.
+const FIND_MATCHING_VEHICLE_DESCRIPTION = () => `Finds current vehicles for sale in the United States and returns a concise shortlist matching a user's stated requirements. Appropriate for listing requests with explicit criteria, optimization goals such as lowest price, newest, lowest mileage, or best within a stated budget, practical needs such as a large family SUV or commuter vehicle, or an exact current listing by VIN.
 
-Do not use this tool for general automotive education, financing or leasing advice, maintenance questions, unsupported vehicle categories such as motorcycles or ATVs, or category comparisons that don't require live vehicle inventory.
+Search inputs include make, model, price, year, mileage, location, body style, drivetrain, transmission, trim, seating, color, condition, electrification, and purchase priority. Most direct criteria are matched against actual listing data; seating, certification, and history-related requests reflect available evidence, which may be confirmed, unconfirmed, or unreported rather than guaranteed. Practical needs such as a large family SUV, a teen-driver car, or a vehicle for towing are interpreted before the search runs to identify relevant candidates; this tool then searches and ranks them using actual listing data — it does not independently establish reliability, safety, running cost, towing suitability, condition, accident-free history, or certification. When a practical need implies a vehicle class, resolve it into real matching model names yourself and include them in model before calling this tool (for example, a large family SUV might include CR-V, RAV4, or Highlander; a reliable commuter car might include Corolla, Civic, or Mazda3), every time, alongside the related need stated in vehicleNeeds. For a broad hybrid, plug-in hybrid, or electric request, likewise resolve suitable real model or variant names and include them in model before calling the tool. For required hybrid or plug-in hybrid searches, use electrified variants only; for preferred searches, acceptable base-model alternatives may also be included.
 
-The tool searches across ${getCorpusCountForDescription()} active US listings and returns a small set of close matches, not a broad inventory dump. Vehicle identity is VIN-decoded and cross-checked. Every hard filter actually sent is confirmed against the tool's canonical structured data; anything unavailable, preference-only, relaxed, anomalous, or conflicting is disclosed rather than silently assumed or dropped.
+An exact 17-character VIN refers to one specific listing; if unavailable, that outcome is reported rather than substituting a similar vehicle. Electrification requests state accepted types — hybrid (including mild hybrid), plug-in hybrid, electric — and whether required or preferred. A vehicle's primary fuel label alone does not determine hybrid or plug-in-hybrid status. For an unambiguous city-only request, a representative ZIP may be supplied as the local search anchor; results disclose the overall local, state-wide, or nationwide scope.
 
-VIN-verified means the vehicle's core identity was cross-checked. It does not independently guarantee dealer-reported price, mileage, equipment, availability, ownership history, accident history, or condition.
+Results include current matching listings, viewing links where available, and available evidence about confirmed, unconfirmed, or changed criteria. Missing history, ownership, certification, or specification data remains unknown and is never treated as proof a vehicle satisfies or fails a request.
 
-SEARCH DECOMPOSITION
-
-The tool's structured fields define what can be filtered directly. Before calling it, translate the user's request into those fields using this order:
-
-1. Map anything represented by a real hard-filter field directly to that field. Do not invent price, year, mileage, body-style, history, or other hard filters the user didn't state or clearly imply.
-2. Put remaining qualitative preferences into \`vehicleNeeds\`; needs influence relevance and ranking but are not hard exclusions — they never determine which vehicles are eligible.
-3. If any need implies a vehicle class, lifestyle use case, or suitability judgment (family, towing, commuting, off-road, teen driver, and similar), resolve it into a real, comma-separated model list and pass it in the \`model\` field, every time — this model list is a hard eligibility filter, unlike \`vehicleNeeds\`; \`bodyType\` and \`vehicleNeeds\` alone can't enforce which models actually suit the need, and results will skew toward price/mileage instead of genuine fit.
-4. If a reliable resolution isn't possible, use the closest literal field and tell the user precision is reduced. Never guess or silently discard the requirement.
-
-Examples:
-- "Seven-seat SUV" → bodyType: "SUV", seatsMinPreference: 7
-- "V8 F-150" → make: "Ford", model: "F-150", cylinders: 8
-- "Reliable teen car" → hard fields plus vehicleNeeds (reliability, safety, manageable size, low running cost) and a resolved model list (e.g. Corolla, Civic, Mazda3, Impreza, Fit, Prius)
-- "Large SUV" → resolved model list (no size-class field exists)
-- "Family SUV" / "SUV good for a family" → resolved model list (e.g. CR-V, RAV4, CX-5, CX-50, Forester, Outback, Pilot, Highlander, Passport, Ascent)
-- "Good for towing" → hard fields and vehicleNeeds, resolved to tow-suitable models, plus a note that VIN-specific tow capacity, payload, and hitch equipment still need verifying
-
-Never rely on an unfiltered search followed by manually inspecting a few returned results when a real field can enforce the requirement — the right vehicles may never even enter the sampled result set. This is the no-manual-post-filtering rule, referenced again below.
-
-HYBRID AND PHEV COVERAGE
-
-Hybrid and plug-in hybrid vehicles are often inconsistently tagged in source listings, and there's no dedicated fuel-type filter. When a specific model is named, include the relevant hybrid/PHEV variant name in the model field (e.g. "RAV4,RAV4 Hybrid,RAV4 Prime" or "Sportage,Sportage Hybrid,Sportage Plug-In Hybrid"). This broadens the search to include both; it doesn't guarantee every result is electrified. Check each individual result's own model field (results distinguish "Camry" from "Camry Hybrid," for example) before telling a user a specific result is or isn't the hybrid/PHEV variant they asked for — a deliberate, narrow exception to the no-manual-post-filtering rule above, made only because no dedicated fuel-type hard filter exists. When no model is named, mention to the user that hybrid/PHEV coverage may be incomplete without one.
-
-Only broaden to include the base gas variant when hybrid/PHEV is a preference the user would accept trading off. When it's a stated requirement instead — "the cheapest hybrid," "only hybrids," "must be electrified" — send just the hybrid/PHEV variant names (e.g. "RAV4 Hybrid,RAV4 Prime", not "RAV4,RAV4 Hybrid,RAV4 Prime"). This matters most with a price-optimizing priorityAxis: hybrid trims almost always cost more than their gas counterparts, so a broadened list combined with cheapest or best_for_budget will systematically surface the cheaper gas variant instead of a hybrid — the opposite of what was asked. This applies to any hybrid/PHEV-capable model, not just the examples above.
-
-HARD FILTERS VERSUS DISCLOSURE
-
-Real hard filters determine eligibility — every primary result satisfies every hard field actually sent. noAccidents, oneOwner, and cpo are different: they're disclosure and ranking inputs, never guaranteed exclusions, since vehicle history and CPO status are often unreported rather than confirmed negative — every result is reported honestly as confirmed, reported-with-issues, or unconfirmed, never assumed clean or excluded for silence. When a result includes a \`carfaxUrl\`, include it as its own distinct link alongside the listing link, labeled plainly (e.g. "Carfax report") — so the buyer can verify independently. If a result doesn't clearly confirm what was asked, say so plainly rather than presenting it as a clean match.
-
-HARD-FIELD MAPPING
-
-Prefer dedicated structured fields whenever one exists:
-- AWD or 4WD → drivetrain
-- Manual or automatic → transmission
-- Named exterior color → exteriorColor
-- Named interior color → interiorColor
-- V8 → cylinders: 8. V6 → cylinders: 6. Four-cylinder/I4 → cylinders: 4
-- Specific door count → doors
-- Minimum seating → seatsMinPreference
-- Broad body style → bodyType
-- Finer classification (crossover vs. SUV, hatchback vs. coupe) → vehicleType
-- "New" → used: false. "Used" or "pre-owned" → used: true. Omit if unspecified to search both — except lowest_mileage, which defaults to used only (see PRIORITY AXIS).
-
-Cylinder count is filterable; engine displacement is not. "V8" must use cylinders: 8 — never treat it as an unfilterable displacement spec.
-
-The model field never includes the manufacturer name — "Lexus ES," "BMW 530i," and "Mercedes-Benz E-Class" are all wrong; use "ES," "530i," and "E-Class." This applies even in a cross-brand list with no single make field to set. The tool strips a mistakenly-included make automatically and discloses the correction, so this doesn't cause a failed search — but sending it correctly the first time is still preferable.
-
-TRIM / VARIANT — REQUIRED VERSUS PREFERRED
-
-Two separate fields exist for a trim/variant, and picking the right one matters: \`trimRequired\` is a hard eligibility filter; \`trimPreference\` is ranking-only. Use \`trimRequired\` whenever the user names a specific trim/variant as part of what they're asking for ("AMG GLA 35," "Limited," "Raptor," "Type R") — including when it's folded into a model-like phrase, e.g. "Mercedes AMG GLA 35" means make: "Mercedes-Benz", model: "GLA", trimRequired: "AMG GLA 35" — never trimPreference. Use \`trimPreference\` only when the user explicitly signals it's a soft preference ("prefer," "ideally," "if possible," "would like"). A result whose trim is confirmed to differ from \`trimRequired\` is excluded, never shown as a match — do not manually relax this yourself if the tool returns fewer results; that's the trade-off of an explicit trim requirement, the same as any other hard filter.
-
-DIRECT VIN LOOKUP
-
-When the user supplies a specific 17-character VIN — "Find VIN W1N4N5BB1TJ864755," "is this VIN available," "check VIN ...," "check this VIN before I buy it," "any red flags?," "what should I verify before buying this?" — pass it in \`vin\`. This looks up that exact vehicle only; it is NOT a normal search and doesn't use make/model/price to find a different vehicle. Never translate a VIN into make/model/price filters instead of using this field. Any other criteria the user also stated (price, trim, etc.) are checked against that specific vehicle and reported honestly (met or not) — a mismatch never causes a different, similar vehicle to be substituted. If the exact VIN isn't found in current inventory, that's reported plainly as not found, never silently swapped for something similar. When the user's intent is specifically about pre-purchase due diligence on a known VIN, this path also returns a Buyer Check — good signs, concerns, what still needs independent verification, and next steps — built entirely from evidence already available on that result, never a fabricated fact or a numeric score.
-
-Use priceFlexibility: "flexible" only when the user signals approximation ("around," "roughly," "about"). Otherwise price is a strict ceiling, never silently loosened.
-
-RESULT TRUST
-
-Every result's text states plainly which criteria it met, and separately flags any genuine data conflict (e.g. a cylinder count disagreeing with its own series description). If a price, mileage, or other value is flagged as an implausible data error, never present it as the genuine cheapest, newest, or best match in your own summary — it stays visible for transparency but is excluded from that judgment.
-
-Open with real scale: \`corpusSizeApprox\` searched, narrowed to \`totalMatches\` matching this request — e.g. "3,581,127 searched → 406 matched." Treat that scale statement and the results that follow as two SEPARATE facts, never one continuous count: \`totalMatches\`/\`totalCandidatesConsidered\` describe the size of the broader match pool and can be — and often are — a different number than what's actually shown below, since verification and filtering steps you don't see can still drop candidates after that pool size is computed. If \`totalMatches\` is null, the exact pool size wasn't available for this search — don't say "0 matched" or invent a number; just open with \`corpusSizeApprox\` searched and go straight into the results. When you need to say how many results are below (e.g. "here are the N strongest options"), use \`resultsShown\` — the exact, guaranteed-accurate count of items in \`results\` — and never substitute \`totalMatches\` or \`totalCandidatesConsidered\` for that number, even when they happen to look close.
-
-PRIORITY AXIS
-
-Set priorityAxis based on what the user is actually optimizing for, not merely which words appear in the request:
-
-- best_for_budget (default) — "best for budget," "best in my budget," "best value within my budget," "best," "nicest," or a price ceiling stated with no other explicit optimization ("under $50k," "budget of $50k"). Samples from the top of budget down for genuine value, not the rock-bottom price. When uncertain, use best_for_budget.
-- cheapest — only for explicit lowest-price intent: "cheapest," "lowest price," "spend as little as possible." The word "budget" appearing in the request is NOT by itself a signal for cheapest — "best for budget" and "best in my budget" both mean best_for_budget, precisely because the user is asking for the best vehicle a budget affords, not the least expensive vehicle available. Do not map a request to cheapest merely because it contains the word "budget."
-- lowest_mileage — "lowest mileage"/"as few miles as possible" (this defaults the search to used vehicles only, since a new car's low mileage isn't a meaningful comparison — disclosed to the user, not silent).
-- newest — "newest"/"latest model year".
-- lower_risk — "find me a lower-risk CR-V," "low risk F-150 for towing," "the safer-looking options," "cars with the cleanest-looking history," "which available cars look like the lower-risk buys." See LOWER RISK RANKING below.
-
-LOWER RISK RANKING
-
-lower_risk is ranking guidance, not a filter — every existing hard constraint (price, make/model, trimRequired, year, mileage, radius, drivetrain, etc.) still applies exactly as normal; lower_risk never restricts results to only vehicles with positive history evidence, it only changes the order they're shown in. CarClever prioritizes candidates based on genuine purchase-risk evidence — reported accident/history evidence, confirmed CPO or clean reported history, and material VIN identity verification failure — genuine positive evidence ranks first, then vehicles with no known purchase-risk concerns either way (incomplete/unreported history is neutral, never treated as risky), then vehicles with a known accident/history concern, then vehicles with a failed VIN identity check or stronger/multiple known concerns. This is shortlist guidance only, never a guarantee that any vehicle is safe, clean, accident-free, or problem-free.
-
-Listing/spec data conflicts (e.g. the vehicle's reported cylinder count disagreeing with its VIN-decoded configuration) are a SEPARATE thing — verification notes, not purchase-risk evidence. A data conflict does not make the vehicle a higher-risk purchase and does not affect lower_risk ranking, but it can still matter for suitability — for a towing request in particular, mention a configuration conflict plainly, since engine/axle/package/payload configuration affects towing capacity and is worth verifying regardless of how the vehicle ranks on risk.
-
-Say the ranking framing naturally once, briefly, rather than repeating a disclaimer on every individual result — e.g. "I prioritized stronger reported history evidence and pushed known accident/identity concerns lower. Some listings have incomplete history, so check Carfax and Edmunds before buying." When an individual result does carry a known accident concern or a data conflict worth verifying, mention it plainly (the result's own disclosure already states what's known) rather than adding a second generic warning on top.
-
-LOCATION HANDLING
-
-A ZIP anchors a local search, defaulting to a 50-mile radius when none is specified; if results are thin it may widen to 100 miles automatically, disclosed in the result — see AUTOMATIC WIDENING. Validate a user-provided ZIP before calling — if it's invalid or not a real US ZIP, ask for a corrected one rather than substituting another location yourself. A named city with no ZIP has no dedicated field on this tool — if the city/state is unambiguous, resolve it to a real, representative central ZIP yourself and disclose the ZIP used, the same way you'd resolve "large SUV" into real model names. If the city or state is ambiguous (Portland, Springfield, Columbus, and similar), ask which one before searching rather than guessing. A named state with no ZIP searches that whole state — disclosed to the user as broader than a local search, never presented as if it were local. No location at all searches nationwide — same disclosure. Never silently narrow or widen scope without saying so.
-
-AUTOMATIC WIDENING
-
-If a search comes back too thin, the tool automatically retries with progressively wider constraints, protecting whatever priorityAxis says the user cares about most, and always discloses what changed — relay that disclosure rather than omitting it. Don't run your own retry on a thin result; the tool already does this correctly and safely.
-
-EMPTY SEARCHES
-
-If a search still returns nothing after automatic widening, a strict user constraint is never silently relaxed further to fix it. When the tool can genuinely self-correct (for example, an unrecognized model name gets checked against real inventory and corrected), that correction is always disclosed, never silent — treat it as a real fix, not a guess. If nothing can be self-corrected, say plainly that nothing matched, name the limiting constraint if it's clear, and suggest the smallest real adjustment (a higher budget, a wider radius, an additional model) rather than guessing at a workaround yourself.
-
-PRESENTING RESULTS
-
-Every result already includes a real, usable Edmunds destination — this tool renders and links directly, no follow-up call is needed to get a working link.
-
-Two links belong on every result.
-
-1. THE LISTING LINK. Include each result's own \`affiliateUrl\` (labeled "Check avail.") by default. Never substitute a dealer's own site, Carfax, Autolist, or any other URL instead of it, even if another link looks cleaner — this includes \`dealerListingUrl\` (including any Carvana link), which is never a user-facing destination under any circumstance, even when \`affiliateUrl\` is null. For a used vehicle this is the exact-VIN Edmunds page (it can occasionally be dead/sold since Edmunds' own inventory sync can lag — if so, Edmunds' own page automatically shows real similar vehicles, and \`affiliateFallbackUrl\` is right there as a second option). For a new or Carvana-sourced vehicle, \`affiliateUrl\` is a close, trim-specific Edmunds destination rather than an exact-VIN attempt — present it exactly the same way, still labeled "Check avail.", never described as less reliable or hedged.
-
-2. THE SIMILAR-VEHICLES LINK. Include \`affiliateFallbackUrl\` (labeled "View similar") alongside the listing link on every result, stated distinctly — e.g. "if that listing's no longer available, see similar options here: [link]" — never folded into the listing link as if the two were the same thing.
-
-If neither \`affiliateUrl\` nor \`affiliateFallbackUrl\` is available for a result (rare — only when make/model themselves are unknown), say so plainly rather than substituting \`dealerListingUrl\`.
-
-For the top result, embed its \`primaryImage\` directly using markdown image syntax so it renders inline — the URL is already present in the result data, no separate tool call needed. Only do this if \`primaryImage\` is present; never substitute a placeholder or generic image.
-
-MAPS
-
-For local vehicle searches, when results include 3+ dealer locations, present the recommended results on an interactive map using any available map visualization tool — this applies whenever geographic/dealer location data is returned, using the dealer/location data already returned by the tool.`;
+This tool is for vehicle-listing searches — not general automotive education, maintenance, financing, leasing, unsupported categories, or comparisons not requiring current listings.`;
 
 
 
@@ -205,7 +96,7 @@ const SHORTLIST_SIZE = 5;
 const BROAD_SHORTLIST_SIZE = 8;
 
 // ELECTRIFICATION_POOL_SIZE and electrificationStateSatisfies() moved to
-// lib/nhtsa-client.ts (SYS-20260909-010) — imported at the top of this file
+// lib/nhtsa-client.ts — imported at the top of this file
 // — so they're unit-testable; Next.js Route Handler files can't export
 // arbitrary names for direct test imports.
 
@@ -249,7 +140,7 @@ const RESPONSE_ASSEMBLY_RESERVE_MS = 20_000;
  * cpo=false is explicitly forbidden as definitive proof of non-CPO (CPO-001).
  * Never excludes; always discloses what's actually known.
  */
-// buildCpoSummary moved to lib/local-ranking.ts (SYS-20260909-010) —
+// buildCpoSummary moved to lib/local-ranking.ts —
 // imported at the top of this file, same reasoning as electrificationStateSatisfies above.
 
 
@@ -303,7 +194,7 @@ function buildSeatsSummary(
  * "user asked for something we can't be fully sure about" - run broadly,
  * never silently narrow the pool, be explicit about what we actually know.
  */
-// buildHistorySummary moved to lib/local-ranking.ts (SYS-20260909-010) —
+// buildHistorySummary moved to lib/local-ranking.ts —
 // imported at the top of this file.
 
 
@@ -342,12 +233,12 @@ const CANDIDATE_POOL_SIZE = 100; // Growth plan cap per docs; silently clamps to
 // VIN-verified — the price itself is the obviously bad data, not the
 // identity.
 // ANOMALOUS_PRICE_FLOOR/isAnomalousPrice moved to lib/local-ranking.ts
-// (SYS-20260909-010) — imported at the top of this file. Still the single
+// — imported at the top of this file. Still the single
 // shared definition used by both this file's own price-badge logic (below)
 // and the ordering functions (also now in that lib file).
 
 // applyLocalBestForBudgetOrdering() and applyLocalLowerRiskOrdering() moved
-// to lib/local-ranking.ts (SYS-20260909-010), along with buildCpoSummary,
+// to lib/local-ranking.ts, along with buildCpoSummary,
 // buildHistorySummary, isAnomalousPrice/ANOMALOUS_PRICE_FLOOR — imported at
 // the top of this file. Moved specifically so these pure ordering functions
 // are unit-testable: Next.js Route Handler files only permit a fixed set of
@@ -731,7 +622,7 @@ const handler = createMcpHandler((server) => {
     "find_matching_vehicle",
     {
       description: FIND_MATCHING_VEHICLE_DESCRIPTION(),
-      inputSchema: FindMatchingVehicleInput.shape,
+      inputSchema: FindMatchingVehicleInput,
       outputSchema: FindMatchingVehicleOutputSchema,
       // Canonical output contract. All live structuredContent construction paths
       // are compile-time validated against this schema via `satisfies`.
@@ -1487,13 +1378,13 @@ const handler = createMcpHandler((server) => {
           })
         : trimFilteredCandidates;
 
-      // Electrification-required pre-filter (SYS-20260909-002/003/005/006).
+      // Electrification-required pre-filter.
       // Runs BEFORE diversity/shortlist slicing, on a BOUNDED pool of up to
-      // ELECTRIFICATION_POOL_SIZE (20, per the live spike in SYS-20260909-002:
-      // 39/39 clean decodes at pool=20-39 with no throttling) candidates from
+      // ELECTRIFICATION_POOL_SIZE (currently 20 — an UNVALIDATED placeholder,
+      // not a measured value; see the open validation question documented
+      // on ELECTRIFICATION_POOL_SIZE in lib/nhtsa-client.ts) candidates from
       // the front of the already-ranked list — never the full candidate set,
-      // to keep the added NHTSA-call latency bounded (~0.8-1.1s worst case
-      // measured). Only runs for electrificationRequirement: "required";
+      // to keep the added NHTSA-call latency bounded. Only runs for electrificationRequirement: "required";
       // "preferred" and unset are zero-cost here (existing shortlist-stage
       // decode at the getListingByVin refetch below still runs regardless,
       // for the badge logic).
@@ -1516,7 +1407,7 @@ const handler = createMcpHandler((server) => {
         input.electrificationRequirement === "required" &&
         input.electrificationTypes != null &&
         input.electrificationTypes.length > 0;
-      // SYS-20260909-010: "preferred" reuses the exact same bounded top-20
+      // "preferred" reuses the exact same bounded top-20
       // pool/decode mechanism as "required" — never an additional/unbounded
       // NHTSA call budget, and never both required+preferred at once since
       // they're mutually exclusive enum values. Unlike "required", nothing
@@ -1529,7 +1420,7 @@ const handler = createMcpHandler((server) => {
         input.electrificationRequirement === "preferred" &&
         input.electrificationTypes != null &&
         input.electrificationTypes.length > 0;
-      // SYS-20260909-009: real TypeScript compile failure, reproduced and
+      // Real TypeScript compile failure, reproduced and
       // confirmed locally before this fix — mutating an outer `let` from
       // inside a nested async closure (the previous version of this code)
       // breaks TS's control-flow narrowing at the read site 400+ lines
@@ -1603,7 +1494,7 @@ const handler = createMcpHandler((server) => {
         // local reordering pass (applyLocalLowerRiskOrdering, above) —
         // mutually exclusive with best_for_budget's pass, never both.
         //
-        // KNOWN LIMITATION, flagged not hidden (SYS-20260909-010): the
+        // KNOWN LIMITATION, flagged not hidden: the
         // cheapest/lowest_mileage/newest axes intentionally do NOT get an
         // electrification-preferred nudge — those three axes' own module
         // docs establish "provider's exact sort is untouched" as a

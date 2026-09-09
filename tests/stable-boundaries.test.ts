@@ -660,8 +660,17 @@ test("D6. MCP metadata contract: domain absent, single widgetDomain, prefersBord
 
 // ============================================================================
 // D7. RESULT-COUNT DISPLAY — resultsShown ground-truth contract
-test("D7c. tool description no longer instructs opening with totalMatches immediately before introducing results, and explicitly names resultsShown as the authoritative shown-count field", () => {
+//
+// NOTE: as of the v8 public-contract replacement, the explicit "use
+// resultsShown, not totalMatches" narration sentence was moved OUT of
+// the main tool description (per explicit instruction: field/code
+// enforcement is the real fix, the description sentence was procedural
+// narration) and INTO the output schema's own field-level .describe()
+// on resultsShown in lib/find-matching-vehicle-output.ts. This test now
+// checks that real location instead of the description text.
+test("D7c. tool description no longer primes totalMatches immediately before introducing results, and resultsShown is enforced + described at the output-schema level", () => {
   const routeSource = stripComments(fs.readFileSync("app/[transport]/route.ts", "utf8"));
+  const outputSchemaSource = fs.readFileSync("lib/find-matching-vehicle-output.ts", "utf8");
 
   // The old priming phrase ("...matching this request, here are the
   // strongest options:") juxtaposed totalMatches directly against the
@@ -671,12 +680,17 @@ test("D7c. tool description no longer instructs opening with totalMatches immedi
     "the old totalMatches-priming phrasing must not reappear — it directly caused the resurfaced count-display bug",
   );
 
-  // The description must explicitly tell the calling LLM to use
-  // resultsShown, not totalMatches/totalCandidatesConsidered, for stating
-  // how many results are shown.
+  // resultsShown must be enforced as a required numeric field in the
+  // output schema, and its own field-level description must explain the
+  // ground-truth/results.length semantics — this is the real fix, not
+  // narration text in the main description.
   assert.ok(
-    /use \\`resultsShown\\`/.test(routeSource) || /use `resultsShown`/.test(routeSource),
-    "tool description must explicitly instruct using resultsShown for the shown-result count",
+    /resultsShown:\s*z\.number\(\)\.describe\(/.test(outputSchemaSource),
+    "resultsShown must be a required z.number() with its own .describe() explaining it is the exact results.length count",
+  );
+  assert.ok(
+    /resultsShown.*\.describe\("[^"]*results\.length/.test(outputSchemaSource) || /always equals results\.length/.test(outputSchemaSource),
+    "resultsShown's own field description must state it equals results.length",
   );
 });
 
