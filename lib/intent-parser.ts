@@ -31,7 +31,7 @@ export interface ParsedIntent {
   semantic: {
     trimPreference?: string;
     seatsMin?: number;
-    vehicleNeeds: string[]; // e.g. "family", "reliability", "commuting" — renamed from goals, SYS-20260909-005
+    vehicleNeeds: string[]; // e.g. "family", "reliability", "commuting" — renamed from goals, [unverified citation removed]
   };
   /**
    * User explicitly asked for a named trim/variant (SYS-20260823) — a hard

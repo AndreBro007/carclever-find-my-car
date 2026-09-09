@@ -1,11 +1,11 @@
 // Regression fixtures for lib/nhtsa-client.ts's classifyElectrification()
-// (SYS-20260909-003) and app/[transport]/route.ts's electrificationStateSatisfies()
-// (SYS-20260909-006), covering the release-gate fixtures required before
-// implementation authorization (SYS-20260909-004, feasibility package
+// and app/[transport]/route.ts's electrificationStateSatisfies()
+// covering the release-gate fixtures required before
+// implementation authorization (see FEASIBILITY_EQUIVALENCE_PACKAGE_20260909.md,
 // Section 7, cases 3-5).
 //
-// Real-corpus cases (hybrid/plug_in_hybrid/not_electrified) are the exact 39
-// VINs decoded live Sep 9 2026 (DECISIONS.md SYS-20260909-002/003) —
+// Real-corpus cases (hybrid/plug_in_hybrid/not_electrified) use 39
+// VINs pulled from existing project docs (not a live NHTSA decode run —
 // hardcoded here as fixtures rather than re-hitting the live NHTSA API on
 // every test run, since the classifier is pure and doesn't need network
 // access to test. mild_hybrid/electric/ambiguous cases are deterministic,
@@ -32,7 +32,7 @@ function check(name: string, cond: boolean, detail?: string) {
   }
 }
 
-// --- electrificationStateSatisfies, mirrored from route.ts (SYS-20260909-006) ---
+// --- electrificationStateSatisfies, mirrored from route.ts ---
 // Kept as a local copy rather than importing a non-exported route.ts helper —
 // route.ts doesn't export it (it's a route-local function), so this
 // reproduces the exact same logic to test it in isolation. If route.ts's
@@ -48,7 +48,7 @@ function electrificationStateSatisfies(
   return false;
 }
 
-// --- Real corpus (39 VINs decoded live Sep 9 2026, DECISIONS.md SYS-20260909-002) ---
+// --- Real corpus (39 VINs sourced from existing project docs; NOT independently re-verified against a live NHTSA decode) ---
 // [ElectrificationLevel, FuelTypeSecondary, expected state]
 const REAL_CORPUS: Array<[string, string | null, ElectrificationState]> = [
   ["", null, "not_electrified"], // 29 VINs total shared this exact shape
@@ -68,9 +68,9 @@ for (const [level, secondary, expected] of REAL_CORPUS) {
 
 // --- Deterministic fixtures: mild_hybrid, electric (BEV), ambiguous, FCV ---
 // (Regression cases 5 and part of the feasibility package's release gates —
-// no live NHTSA record for these existed in the 39-VIN spike corpus.)
+// no matching example existed in the 39-VIN doc-sourced corpus.)
 const SYNTHETIC_CASES: Array<[string, string | null, ElectrificationState, string]> = [
-  ["Mild HEV (Hybrid Electric Vehicle)", "Electric", "mild_hybrid", "documented NHTSA mild-hybrid form -- this exact case caught a real classifier bug (SYS-20260909-008): the original pattern only matched the literal phrase 'mild hybrid' or 'mhev', so this variant fell through to plain 'hybrid'. Fixed by broadening the check to 'mild' + any hybrid/HEV wording."],
+  ["Mild HEV (Hybrid Electric Vehicle)", "Electric", "mild_hybrid", "documented NHTSA mild-hybrid form -- this exact case caught a real classifier bug: the original pattern only matched the literal phrase 'mild hybrid' or 'mhev', so this variant fell through to plain 'hybrid'. Fixed by broadening the check to 'mild' + any hybrid/HEV wording."],
   ["Mild Hybrid Electric Vehicle (MHEV)", "Electric", "mild_hybrid", "alternate documented mild-hybrid form"],
   ["BEV (Battery Electric Vehicle)", null, "electric", "documented NHTSA BEV form"],
   ["Electric", null, "electric", "bare 'Electric' level, no hybrid qualifier"],

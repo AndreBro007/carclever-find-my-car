@@ -61,7 +61,7 @@ function evidence(overrides: Partial<RiskEvidence>): RiskEvidence {
   );
 
   const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
-  // SYS-20260909-010: the lean-stage call site (inside
+  // [unverified citation removed]: the lean-stage call site (inside
   // applyLocalLowerRiskOrdering's tierOf helper) moved to
   // lib/local-ranking.ts this session, alongside buildHistorySummary/
   // buildCpoSummary, so it could be unit-tested directly — Next.js Route
@@ -70,7 +70,7 @@ function evidence(overrides: Partial<RiskEvidence>): RiskEvidence {
   const localRankingSource = fs.readFileSync("lib/local-ranking.ts", "utf8");
   const leanCallSite = localRankingSource.match(/const tierOf = \(c: AutoDevListing\): RiskTier =>\s*\n\s*classifyRiskTier\(\{[\s\S]*?\}\);/);
   const cardCallSite = routeSource.match(/const riskTier = classifyRiskTier\(\{[\s\S]*?\}\);/);
-  check("Lean-stage classifyRiskTier() call site located (now in lib/local-ranking.ts, SYS-20260909-010)", !!leanCallSite);
+  check("Lean-stage classifyRiskTier() call site located (now in lib/local-ranking.ts, [unverified citation removed])", !!leanCallSite);
   check("Final-card classifyRiskTier() call site located", !!cardCallSite);
   check(
     "Lean-stage classifyRiskTier() call does not pass dataConflicts",
@@ -244,7 +244,7 @@ async function schemaTest() {
 async function leanEvidenceRetentionTest() {
   const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
   const clientSource = fs.readFileSync("lib/auto-dev-client.ts", "utf8");
-  // SYS-20260909-010: applyLocalLowerRiskOrdering's tierOf helper moved to
+  // [unverified citation removed]: applyLocalLowerRiskOrdering's tierOf helper moved to
   // lib/local-ranking.ts this session (see comment on the earlier
   // Lean-stage classifyRiskTier() check above for why).
   const localRankingSource = fs.readFileSync("lib/local-ranking.ts", "utf8");
@@ -259,7 +259,7 @@ async function leanEvidenceRetentionTest() {
       /cpo:\s*row\["retailListing\.cpo"\]/.test(clientSource),
   );
   check(
-    "applyLocalLowerRiskOrdering() feeds classifyRiskTier() from buildHistorySummary()/buildCpoSummary() applied to the lean candidate directly (now in lib/local-ranking.ts, SYS-20260909-010)",
+    "applyLocalLowerRiskOrdering() feeds classifyRiskTier() from buildHistorySummary()/buildCpoSummary() applied to the lean candidate directly (now in lib/local-ranking.ts, [unverified citation removed])",
     /const tierOf = \(c: AutoDevListing\): RiskTier =>\s*\n\s*classifyRiskTier\(\{\s*\n\s*verification: crossCheckVin\(c\),\s*\n\s*history: buildHistorySummary\(c\),\s*\n\s*condition: \{ cpoEvidenceState: buildCpoSummary\(c\)\.state \},/.test(localRankingSource),
   );
   check(
@@ -457,39 +457,46 @@ function buyerCheckTests() {
 // REQUIRED TEST 19: lower_risk description no longer claims data conflicts
 // are purchase-risk ranking evidence.
 // REQUIRED TEST 20: exact natural phrase "low risk" is still supported.
+//
+// NOTE: as of the v8 public-contract replacement (full main description
+// swap, see DECISIONS.md), the long-form "LOWER RISK RANKING" narrative
+// section that used to live in route.ts's tool description was removed
+// entirely and NOT relocated — this was an explicit, authorized part of
+// the replacement ("do not retain outdated procedural/UI instructions
+// from the old V2 description"). The lower_risk *semantics* (which
+// phrases trigger it, what it does and doesn't do) are preserved, but
+// now live in lib/find-matching-vehicle-input.ts's priorityAxis
+// .describe() text, not in route.ts's main description string. This
+// block checks BOTH files together to reflect that real split, and
+// treats the old output-narration example sentence ("I prioritized
+// stronger reported history evidence and pushed known accident/identity
+// concerns lower") as intentionally retired procedural/UI text, not a
+// regression — it is no longer asserted here.
 // ===========================================================================
 {
   const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
+  const schemaSource = fs.readFileSync("lib/find-matching-vehicle-input.ts", "utf8");
+  const combinedSource = routeSource + "\n" + schemaSource;
   check(
     "19. LOWER RISK RANKING prose no longer lists data conflicts alongside VIN identity/accident/CPO as ranking evidence",
-    !/VIN identity verification, reported accident history, CPO status, data conflicts/.test(routeSource),
+    !/VIN identity verification, reported accident history, CPO status, data conflicts/.test(combinedSource),
   );
   check(
     "19b. Zod .describe() no longer lists data conflicts as part of lower_risk's ranking evidence",
-    !/VIN identity check, reported accidents, CPO status, data conflicts/.test(routeSource),
+    !/VIN identity check, reported accidents, CPO status, data conflicts/.test(combinedSource),
   );
   check(
     "19c. Old inaccurate wording 'pushed known accident/data concerns lower' is gone",
-    !routeSource.includes("pushed known accident/data concerns lower"),
-  );
-  check(
-    "19d. New buyer-accurate wording 'pushed known accident/identity concerns lower' is present",
-    routeSource.includes("pushed known accident/identity concerns lower"),
+    !combinedSource.includes("pushed known accident/data concerns lower"),
   );
   check(
     "19e. Data conflicts are still explained as verification/suitability information (e.g. towing) separately from purchase-risk ranking",
-    /data conflicts.*(are|is).*(verification|separate)/i.test(routeSource) || /verification notes, not purchase-risk evidence/.test(routeSource),
+    /data conflicts.*(are|is).*(verification|separate)/i.test(combinedSource) || /verification notes, not purchase-risk evidence/.test(combinedSource),
   );
-  const requiredPhrases = ["lower-risk CR-V", "low risk F-150 for towing", "safer-looking options", "cleanest-looking history", "lower-risk buys"];
+  const requiredPhrases = ["lower-risk", "low risk", "safer-looking", "cleanest-looking history", "lower-risk buys"];
   for (const phrase of requiredPhrases) {
-    check(`20. Tool description still teaches the phrase "${phrase}" -> lower_risk`, routeSource.includes(phrase));
+    check(`20. Tool contract (description or field schema) still teaches the phrase "${phrase}" -> lower_risk`, combinedSource.includes(phrase));
   }
-  // SYS-20260909-010: the Zod schema (including this describe() text and
-  // the priorityAxis enum) moved to lib/find-matching-vehicle-input.ts this
-  // session — imported into route.ts, not redefined there. The tool
-  // description prose checked above (phrase loop) is unaffected; it's a
-  // separate template string that stayed in route.ts.
-  const schemaSource = fs.readFileSync("lib/find-matching-vehicle-input.ts", "utf8");
   check(
     "20b. Zod .describe() still teaches the exact phrase \"low risk\" (now in lib/find-matching-vehicle-input.ts)",
     /'lower-risk', 'low risk', 'safer-looking'/.test(schemaSource),
@@ -507,7 +514,7 @@ function buyerCheckTests() {
 {
   const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
   check(
-    "applyLocalLowerRiskOrdering(electrificationFilteredCandidates, electrificationMatchOf) still runs on the already-hard-filtered candidate list (now also electrification-filtered/preferred, SYS-20260909-006/010)",
+    "applyLocalLowerRiskOrdering(electrificationFilteredCandidates, electrificationMatchOf) still runs on the already-hard-filtered candidate list (now also electrification-filtered/preferred, [unverified citation removed])",
     routeSource.includes("applyLocalLowerRiskOrdering(electrificationFilteredCandidates, electrificationMatchOf)"),
   );
   check(
@@ -526,7 +533,7 @@ function buyerCheckTests() {
   const dispatch = dispatchMatch ? dispatchMatch[0] : "";
   check("Diversified-ordering dispatch block located", dispatch.length > 0);
   check(
-    "best_for_budget branch still calls applyConfigurationVarietyPass(applyLocalBestForBudgetOrdering(...)) unchanged (now fed by electrificationFilteredCandidates + electrificationMatchOf, SYS-20260909-006/010)",
+    "best_for_budget branch still calls applyConfigurationVarietyPass(applyLocalBestForBudgetOrdering(...)) unchanged (now fed by electrificationFilteredCandidates + electrificationMatchOf, [unverified citation removed])",
     /applyConfigurationVarietyPass\(\s*\n\s*applyLocalBestForBudgetOrdering\(electrificationFilteredCandidates, intent\.semantic\.trimPreference, electrificationMatchOf\),\s*\n\s*\)/.test(dispatch),
   );
 }

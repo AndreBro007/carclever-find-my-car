@@ -1,6 +1,6 @@
 /**
  * Pure candidate-ordering/disclosure logic, extracted from
- * app/[transport]/route.ts (SYS-20260909-010) specifically so it can be
+ * app/[transport]/route.ts ([unverified citation removed]) specifically so it can be
  * unit-tested with real functional assertions on real AutoDevListing
  * fixtures — Next.js Route Handler files only permit a fixed set of named
  * exports (GET/POST/etc + a few config options), so these functions could
@@ -96,7 +96,7 @@ export function buildHistorySummary(
  * lowest_mileage/newest are untouched — this function is never called for
  * those axes.
  *
- * electrificationMatchOf (SYS-20260909-010, electrificationRequirement:
+ * electrificationMatchOf ([unverified citation removed], electrificationRequirement:
  * "preferred"): confirmed match sorts first, but ONLY as a tiebreaker BELOW
  * the real balancedScore comparison — deliberately placed after scoreDiff,
  * not alongside trimMatchRank at the top, so a genuinely better price/
@@ -177,7 +177,7 @@ export function applyLocalBestForBudgetOrdering(
  * evidence — see lib/risk-tier.ts). Sort by tier rank only (positive <
  * unknown < amber < red); candidates within the same tier keep their
  * existing relative order (stable sort), UNLESS electrificationMatchOf is
- * given (SYS-20260909-010, "preferred"), in which case a confirmed match
+ * given ([unverified citation removed], "preferred"), in which case a confirmed match
  * sorts first WITHIN the same tier only — never promotes a worse-risk-tier
  * candidate ahead of a better one just for being electrified. Absent
  * electrificationMatchOf, this key is always 0 for every candidate and has
