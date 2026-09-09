@@ -43,3 +43,5 @@ Design decisions, provider data audit, API contracts, and field handling live in
 <!-- Remove outputSchema from find_matching_vehicle (c8a5c36) -->
 
 <!-- deploy-trigger-nudge 1788931627 -->
+
+<!-- deploy-trigger-nudge release-v2 1788932776 -->
