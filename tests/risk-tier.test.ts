@@ -456,22 +456,32 @@ function buyerCheckTests() {
 // ===========================================================================
 // REQUIRED TEST 19: lower_risk description no longer claims data conflicts
 // are purchase-risk ranking evidence.
-// REQUIRED TEST 20: exact natural phrase "low risk" is still supported.
+// REQUIRED TEST 20 (SUPERSEDED, see below): exact natural phrase "low risk"
+// support previously asserted a set of trigger phrases the description
+// taught for lower_risk.
 //
-// NOTE: as of the v8 public-contract replacement (full main description
-// swap, see DECISIONS.md), the long-form "LOWER RISK RANKING" narrative
-// section that used to live in route.ts's tool description was removed
-// entirely and NOT relocated — this was an explicit, authorized part of
-// the replacement ("do not retain outdated procedural/UI instructions
-// from the old V2 description"). The lower_risk *semantics* (which
-// phrases trigger it, what it does and doesn't do) are preserved, but
-// now live in lib/find-matching-vehicle-input.ts's priorityAxis
-// .describe() text, not in route.ts's main description string. This
-// block checks BOTH files together to reflect that real split, and
-// treats the old output-narration example sentence ("I prioritized
-// stronger reported history evidence and pushed known accident/identity
-// concerns lower") as intentionally retired procedural/UI text, not a
-// regression — it is no longer asserted here.
+// UPDATE (exact-v8-wording field replacement): as explicitly instructed,
+// all 31 input field descriptions -- including priorityAxis -- were
+// replaced with the verbatim wording from FINAL_DESCRIPTION_20260908.md,
+// not the previously-accumulated operational prose. v8's priorityAxis
+// entry is deliberately terse: "Ranking objective: best_for_budget,
+// cheapest, lowest_mileage, newest, or lower_risk. ... Lower risk ranks
+// available purchase-risk evidence and is not a guarantee." It does NOT
+// teach any of the natural-language trigger phrases ("lower-risk",
+// "low risk", "safer-looking", "cleanest-looking history", "lower-risk
+// buys") that the old field description used to spell out, and it does
+// NOT restate the "data conflicts are verification notes, not
+// purchase-risk evidence" clarification either.
+//
+// This is a REAL, FLAGGED content loss, not a relocation -- unlike the
+// earlier main-description trim (where this same content survived in
+// the field-level description), this phrase-teaching guidance has NO
+// surviving location anywhere in the contract after the exact-v8
+// replacement. It is being reported as such rather than silently
+// re-added, since the explicit instruction was exact v8 wording only.
+// The two tests that asserted this content (old "20"/"20b") are removed
+// here rather than left failing or faked; see DECISIONS.md for the
+// full flag raised to André/ChatGPT.
 // ===========================================================================
 {
   const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
@@ -490,16 +500,9 @@ function buyerCheckTests() {
     !combinedSource.includes("pushed known accident/data concerns lower"),
   );
   check(
-    "19e. Data conflicts are still explained as verification/suitability information (e.g. towing) separately from purchase-risk ranking",
-    /data conflicts.*(are|is).*(verification|separate)/i.test(combinedSource) || /verification notes, not purchase-risk evidence/.test(combinedSource),
-  );
-  const requiredPhrases = ["lower-risk", "low risk", "safer-looking", "cleanest-looking history", "lower-risk buys"];
-  for (const phrase of requiredPhrases) {
-    check(`20. Tool contract (description or field schema) still teaches the phrase "${phrase}" -> lower_risk`, combinedSource.includes(phrase));
-  }
-  check(
-    "20b. Zod .describe() still teaches the exact phrase \"low risk\" (now in lib/find-matching-vehicle-input.ts)",
-    /'lower-risk', 'low risk', 'safer-looking'/.test(schemaSource),
+    "19d. priorityAxis field still includes the base 'lower_risk' enum value and a purchase-risk-evidence, not-a-guarantee description (exact v8 wording)",
+    /ranks available purchase-risk evidence and is not a guarantee/.test(combinedSource) &&
+      /"lower_risk"/.test(schemaSource),
   );
   check(
     "20c. priorityAxis Zod enum still includes lower_risk (now in lib/find-matching-vehicle-input.ts)",
