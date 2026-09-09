@@ -5,7 +5,7 @@
  * does most of the natural-language interpretation before calling this tool
  * (it fills in the structured `FindMatchingVehicleInput` fields itself, per
  * the tool's Zod schema). This module's job is narrower: take those already-
- * mostly-structured inputs plus any freeform `goals` the host model passed
+ * mostly-structured inputs plus any freeform `vehicleNeeds` the host model passed
  * through, and produce the intent object that drives search + scoring +
  * transparency — including the semantic (non-filter) fields.
  *
@@ -31,7 +31,7 @@ export interface ParsedIntent {
   semantic: {
     trimPreference?: string;
     seatsMin?: number;
-    goals: string[]; // e.g. "family", "reliability", "commuting"
+    vehicleNeeds: string[]; // e.g. "family", "reliability", "commuting" — renamed from goals, SYS-20260909-005
   };
   /**
    * User explicitly asked for a named trim/variant (SYS-20260823) — a hard
@@ -133,9 +133,9 @@ export function parseIntent(input: {
   trimPreference?: string;
   trimRequired?: string;
   seatsMinPreference?: number;
-  goals?: string[];
+  vehicleNeeds?: string[];
 }): ParsedIntent {
-  const goals = input.goals ?? [];
+  const vehicleNeeds = input.vehicleNeeds ?? [];
   const verificationRequired: string[] = [];
   const interpretationNotes: string[] = [];
 
@@ -143,7 +143,7 @@ export function parseIntent(input: {
   // (Trust Class C, provider_filter_allowed: false — SYS-20260812-016/025).
   let seatsMin = input.seatsMinPreference;
   if (seatsMin == null) {
-    for (const goal of goals) {
+    for (const goal of vehicleNeeds) {
       if (GOAL_SEAT_HINTS[goal] != null) {
         seatsMin = GOAL_SEAT_HINTS[goal];
         break;
@@ -152,13 +152,13 @@ export function parseIntent(input: {
   }
   if (seatsMin != null) verificationRequired.push("seating");
 
-  // Powertrain-adjacent goals (e.g. "reliable", "low_total_cost") don't map
+  // Powertrain-adjacent needs (e.g. "reliable", "low_total_cost") don't map
   // to a hard filter here — Find My Car has no TCO/reliability data on
   // Starter tier. They're passed through as ranking-adjacent soft signals
   // only, not silently promised as verified.
-  if (goals.length > 0) {
+  if (vehicleNeeds.length > 0) {
     interpretationNotes.push(
-      `Goals (${goals.join(", ")}) influence ranking only — Find My Car does not have ` +
+      `Needs (${vehicleNeeds.join(", ")}) influence ranking only — Find My Car does not have ` +
         `reliability, ownership-cost, or history data on the Starter tier to verify these claims.`,
     );
   }
@@ -217,7 +217,7 @@ export function parseIntent(input: {
     semantic: {
       trimPreference: input.trimPreference,
       seatsMin,
-      goals,
+      vehicleNeeds,
     },
     trimRequired,
     verificationRequired,
