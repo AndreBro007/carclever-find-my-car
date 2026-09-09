@@ -200,16 +200,38 @@ const FindMatchingVehicleInput = z.object({
   noAccidents: z.boolean().optional().describe("true if the user specifically wants no reported accidents. Never excludes results — accident history is disclosed per result (reported clean, reported issues, or unreported), not hard-filtered, since roughly half of listings have no history data at all and unknown must never be treated as false."), // maps to history.accidentCount=0
   oneOwner: z.boolean().optional().describe("true if the user specifically wants a one-owner vehicle. Never excludes results — ownership history is disclosed per result, not hard-filtered, for the same reason as noAccidents."), // maps to history.ownerCount=1
 })
-  .strict() // SYS-20260909-005: plain z.object() silently strips unknown keys — .strict() is required so legacy `goals` (and any other unrecognized field) triggers a hard validation error instead of being dropped.
-  .superRefine((val, ctx) => {
-    if ("goals" in (val as Record<string, unknown>)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Unsupported legacy field 'goals'; use 'vehicleNeeds' instead. 'vehicleNeeds' remains optional — this error only fires because 'goals' was sent, not because a needs field is missing.",
-        path: ["goals"],
-      });
-    }
-  });
+  // SYS-20260909-005/007: legacy `goals` must be HARD-REJECTED post-cutover,
+  // never silently stripped (André, Sep 9 2026). `.strict()` is required —
+  // plain z.object() silently drops unrecognized keys during ordinary Zod
+  // parsing.
+  //
+  // IMPORTANT, verified against the actual installed @modelcontextprotocol/sdk
+  // source this session: this schema is registered below as `inputSchema`,
+  // and the SDK runs its OWN validation (McpServer.validateToolInput) against
+  // exactly the schema object we hand it, before our handler function ever
+  // sees `input` — our handler receives only the already-parsed/rejected
+  // result. A `.superRefine()`/`.passthrough()` chain was tried first for a
+  // fully custom "unsupported legacy field 'goals'; use 'vehicleNeeds'"
+  // message, but that converts this into a ZodEffects wrapper with no
+  // `.shape` property — the SDK's normalizeObjectSchema() falls back to
+  // EMPTY_OBJECT_JSON_SCHEMA when `.shape` is missing, which would have
+  // silently erased every field description from the tool schema shown to
+  // the host. `.strict()` alone (no further chaining) is the version that
+  // keeps `.shape` intact (confirmed: `typeof schema.shape === "object"`
+  // after `.strict()`), so the SDK both (a) advertises the real schema to
+  // hosts and (b) genuinely rejects `goals` server-side via its own
+  // safeParseAsync call — verified locally: `{goals:[...]}` produces
+  // `{code: "unrecognized_keys", keys: ["goals"], message: 'Unrecognized
+  // key: "goals"'}`, surfaced to the host as an McpError, not silently
+  // dropped. Tradeoff, flagged not hidden: the rejection message is Zod's
+  // own generic "Unrecognized key" text, not the fully custom wording
+  // originally requested — a fully custom per-field message would require
+  // intercepting the raw CallToolRequest upstream of the SDK's own
+  // validateToolInput, which is a different, larger change outside this
+  // route file's scope. The field's own `.describe()` text already tells
+  // any host reading the error+schema together that `vehicleNeeds` is the
+  // correct field.
+  .strict();
 
 const ResolveDealerUrlOutput = z.object({
   affiliateUrl: z.string().nullable(),
