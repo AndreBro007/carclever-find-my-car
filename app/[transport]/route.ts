@@ -622,7 +622,7 @@ const handler = createMcpHandler((server) => {
     "find_matching_vehicle",
     {
       description: FIND_MATCHING_VEHICLE_DESCRIPTION(),
-      inputSchema: FindMatchingVehicleInput.shape,
+      inputSchema: FindMatchingVehicleInput,
       outputSchema: FindMatchingVehicleOutputSchema,
       // Canonical output contract. All live structuredContent construction paths
       // are compile-time validated against this schema via `satisfies`.

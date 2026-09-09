@@ -50,32 +50,48 @@ export const FindMatchingVehicleInput = z.object({
   // SYS-20260909-001, and FINAL_DESCRIPTION_20260908.md's "Not in the
   // schema" note). `.strict()` is required — plain z.object() silently
   // drops unrecognized keys during ordinary Zod parsing.
+  .strict()
+  // Cross-field validation: electrificationRequirement is meaningless
+  // without a non-empty electrificationTypes to apply it to. Reject
+  // { electrificationRequirement: "required" } (no types at all) and
+  // { electrificationRequirement: "preferred", electrificationTypes: [] }
+  // (empty array) the same way — both leave the requirement with
+  // nothing to require or prefer.
   //
-  // IMPORTANT, verified against the actual installed @modelcontextprotocol/sdk
-  // source this session: this schema is registered below as `inputSchema`,
-  // and the SDK runs its OWN validation (McpServer.validateToolInput) against
-  // exactly the schema object we hand it, before our handler function ever
-  // sees `input` — our handler receives only the already-parsed/rejected
-  // result. A `.superRefine()`/`.passthrough()` chain was tried first for a
-  // fully custom "unsupported legacy field 'goals'; use 'vehicleNeeds'"
-  // message, but that converts this into a ZodEffects wrapper with no
-  // `.shape` property — the SDK's normalizeObjectSchema() falls back to
-  // EMPTY_OBJECT_JSON_SCHEMA when `.shape` is missing, which would have
-  // silently erased every field description from the tool schema shown to
-  // the host. `.strict()` alone (no further chaining) is the version that
-  // keeps `.shape` intact (confirmed: `typeof schema.shape === "object"`
-  // after `.strict()`), so the SDK both (a) advertises the real schema to
-  // hosts and (b) genuinely rejects `goals` server-side via its own
-  // safeParseAsync call — verified locally: `{goals:[...]}` produces
-  // `{code: "unrecognized_keys", keys: ["goals"], message: 'Unrecognized
-  // key: "goals"'}`, surfaced to the host as an McpError, not silently
-  // dropped. Tradeoff, flagged not hidden: the rejection message is Zod's
-  // own generic "Unrecognized key" text, not the fully custom wording
-  // originally requested — a fully custom per-field message would require
-  // intercepting the raw CallToolRequest upstream of the SDK's own
-  // validateToolInput, which is a different, larger change outside this
-  // route file's scope. The field's own `.describe()` text already tells
-  // any host reading the error+schema together that `vehicleNeeds` is the
-  // correct field.
-  .strict();
-
+  // CORRECTED comment (this session): an earlier version of this file
+  // claimed `.superRefine()` breaks the SDK's schema/description
+  // exposure by producing a ZodEffects wrapper with no `.shape`
+  // property, and therefore avoided it entirely. That claim was tested
+  // directly against the actual installed packages this session
+  // (zod@4.4.3, @modelcontextprotocol/server) and is FALSE for this
+  // version: `.shape` remains present and correct on a `.superRefine()`
+  // result here, and — more importantly — the SDK's own JSON-schema
+  // generation path (standardSchemaToJsonSchema -> z.toJSONSchema())
+  // does not use `.shape`/getSchemaShape() for tool registration at
+  // all; it uses Zod v4's native `.toJSONSchema()`, which correctly
+  // unwraps a refined schema and preserves every field's `.describe()`
+  // text. Verified directly: a `.strict().superRefine()` schema in this
+  // exact setup produces a complete, fully-described JSON schema AND
+  // enforces the refinement during real parsing. See DECISIONS.md for
+  // the corrected finding — this replaces the prior avoidance rationale
+  // rather than sitting alongside it as an unresolved contradiction.
+  .superRefine((data, ctx) => {
+    if (data.electrificationRequirement !== undefined) {
+      const types = data.electrificationTypes;
+      if (types === undefined || types.length === 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["electrificationTypes"],
+          message: "electrificationTypes must be present and non-empty when electrificationRequirement is set — required/preferred has nothing to apply to otherwise.",
+        });
+      }
+    }
+  });
+  //
+  // The legacy-`goals`-rejection mechanism above (`.strict()`) is
+  // unaffected by this addition: `.strict()` already ran and rejected
+  // unrecognized keys before `.superRefine()` ever sees the data,
+  // confirmed by the same direct test — `.strict().superRefine(...)`
+  // still produces the exact `{code: "unrecognized_keys", keys:
+  // ["goals"], message: 'Unrecognized key: "goals"'}` result, surfaced
+  // to the host as an McpError, not silently dropped.
