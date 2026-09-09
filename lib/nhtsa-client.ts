@@ -115,7 +115,11 @@ function classifyElectrification(
     return "hybrid";
   }
   // Level present but didn't match any known NHTSA vocabulary pattern —
-  // genuinely ambiguous, not a bug in the classifier's pattern list.
+  // genuinely ambiguous, not a bug in the classifier's pattern list. This
+  // includes fuel-cell vehicles (NHTSA's "FCV"): out of scope for this
+  // project's hybrid/PHEV/electric taxonomy, so FCV correctly falls
+  // through to ambiguous rather than silently miscounting as electric
+  // — confirmed via ChatGPT review, addendum to SYS-20260909-003.
   return "ambiguous";
 }
 
