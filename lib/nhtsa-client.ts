@@ -85,7 +85,7 @@ export type ElectrificationState =
  * a canonical state. Never infers from Auto.dev's primary-fuel label —
  * NHTSA fields only, per the audit's explicit requirement.
  */
-function classifyElectrification(
+export function classifyElectrification(
   electrificationLevel: string | null,
   fuelTypeSecondary: string | null,
 ): ElectrificationState {
@@ -105,7 +105,18 @@ function classifyElectrification(
   if (level.includes("phev") || level.includes("plug-in") || level.includes("plug in")) {
     return "plug_in_hybrid";
   }
-  if (level.includes("mild hybrid") || level.includes("mhev")) {
+  // Broadened SYS-20260909-008 (found via regression fixture test): the
+  // exact phrase "mild hybrid" or literal "mhev" missed a realistic NHTSA
+  // variant like "Mild HEV (Hybrid Electric Vehicle)" — "mild" and "hev"
+  // appear in the string but not adjacent as "mild hybrid", so the old
+  // check fell through to the plain hybrid branch below and silently
+  // misclassified a mild hybrid as a full hybrid. Any occurrence of "mild"
+  // combined with hybrid-family wording anywhere in the string is treated
+  // as mild_hybrid — this is intentionally broad (a false positive here
+  // just means a mild hybrid gets treated as mild_hybrid, which is
+  // correct; there's no other NHTSA vocabulary "mild" would plausibly
+  // appear in that isn't mild-hybrid-related).
+  if (level.includes("mild") && (level.includes("hybrid") || level.includes("hev") || level.includes("mhev"))) {
     return "mild_hybrid";
   }
   if (level.includes("bev") || (level.includes("electric") && !level.includes("hybrid"))) {
