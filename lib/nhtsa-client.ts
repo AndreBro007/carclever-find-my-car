@@ -291,3 +291,46 @@ export function nhtsaIndicatesElectrified(result: NhtsaElectrificationResult | n
     result.electrificationState === "electric"
   );
 }
+
+/**
+ * Bounded pool size for electrificationRequirement pre-processing, both
+ * "required" (pre-filter) and "preferred" (ranking-only match lookup) —
+ * SYS-20260909-002/005/006/010. Live-measured (Sep 9 2026, real spike
+ * against 39 real VINs, see DECISIONS.md SYS-20260909-002): 39/39 clean
+ * decodes with zero throttling at concurrency 12/20/39, ~0.8-1.1s
+ * worst-case added wall time at pool=20. André signed off on 20
+ * specifically — do not raise this without a new spike, since it was
+ * chosen as a latency/coverage tradeoff, not a hard technical ceiling
+ * (NHTSA's own rate limit is undocumented). Moved here from route.ts
+ * (SYS-20260909-010) alongside electrificationStateSatisfies() so both
+ * are importable from a test file — Next.js Route Handler files only
+ * permit a fixed set of named exports and cannot export arbitrary
+ * functions/constants for direct unit testing (confirmed by a real local
+ * build failure this session).
+ */
+export const ELECTRIFICATION_POOL_SIZE = 20;
+
+/**
+ * True when a decoded NHTSA electrification state satisfies one of the
+ * caller's requested electrificationTypes (SYS-20260909-005/006/010). Per
+ * André (Sep 9 2026): requesting "hybrid" implicitly satisfies a
+ * "mild_hybrid" decode — callers never need to list both, and in fact
+ * cannot list "mild_hybrid" directly at all (it was removed from the
+ * public electrificationTypes enum in route.ts as a caller-selectable
+ * value, SYS-20260909 enum-narrowing fix — it remains purely an internal
+ * NHTSA classification outcome). "plug_in_hybrid" and "electric" are never
+ * implied by anything else and never imply anything else.
+ * "unknown"/"ambiguous"/"not_electrified" never satisfy any requested
+ * type — this is the enforcement point for the audit's "unknown != false"
+ * rule for a required electrification search. Multiple requested types
+ * use OR semantics (any one match is sufficient), never AND.
+ */
+export function electrificationStateSatisfies(
+  state: ElectrificationState | undefined,
+  requestedTypes: ElectrificationState[],
+): boolean {
+  if (!state) return false;
+  if (requestedTypes.includes(state)) return true;
+  if (state === "mild_hybrid" && requestedTypes.includes("hybrid")) return true;
+  return false;
+}
