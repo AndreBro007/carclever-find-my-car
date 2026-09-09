@@ -60,17 +60,17 @@ SEARCH DECOMPOSITION
 The tool's structured fields define what can be filtered directly. Before calling it, translate the user's request into those fields using this order:
 
 1. Map anything represented by a real hard-filter field directly to that field. Do not invent price, year, mileage, body-style, history, or other hard filters the user didn't state or clearly imply.
-2. Put remaining qualitative preferences into \`goals\`; goals influence relevance and ranking but are not hard exclusions — they never determine which vehicles are eligible.
-3. If any goal implies a vehicle class, lifestyle use case, or suitability judgment (family, towing, commuting, off-road, teen driver, and similar), resolve it into a real, comma-separated model list and pass it in the \`model\` field, every time — this model list is a hard eligibility filter, unlike \`goals\`; \`bodyType\` and \`goals\` alone can't enforce which models actually suit the need, and results will skew toward price/mileage instead of genuine fit.
+2. Put remaining qualitative preferences into \`vehicleNeeds\`; needs influence relevance and ranking but are not hard exclusions — they never determine which vehicles are eligible.
+3. If any need implies a vehicle class, lifestyle use case, or suitability judgment (family, towing, commuting, off-road, teen driver, and similar), resolve it into a real, comma-separated model list and pass it in the \`model\` field, every time — this model list is a hard eligibility filter, unlike \`vehicleNeeds\`; \`bodyType\` and \`vehicleNeeds\` alone can't enforce which models actually suit the need, and results will skew toward price/mileage instead of genuine fit.
 4. If a reliable resolution isn't possible, use the closest literal field and tell the user precision is reduced. Never guess or silently discard the requirement.
 
 Examples:
 - "Seven-seat SUV" → bodyType: "SUV", seatsMinPreference: 7
 - "V8 F-150" → make: "Ford", model: "F-150", cylinders: 8
-- "Reliable teen car" → hard fields plus goals (reliability, safety, manageable size, low running cost) and a resolved model list (e.g. Corolla, Civic, Mazda3, Impreza, Fit, Prius)
+- "Reliable teen car" → hard fields plus vehicleNeeds (reliability, safety, manageable size, low running cost) and a resolved model list (e.g. Corolla, Civic, Mazda3, Impreza, Fit, Prius)
 - "Large SUV" → resolved model list (no size-class field exists)
 - "Family SUV" / "SUV good for a family" → resolved model list (e.g. CR-V, RAV4, CX-5, CX-50, Forester, Outback, Pilot, Highlander, Passport, Ascent)
-- "Good for towing" → hard fields and goals, resolved to tow-suitable models, plus a note that VIN-specific tow capacity, payload, and hitch equipment still need verifying
+- "Good for towing" → hard fields and vehicleNeeds, resolved to tow-suitable models, plus a note that VIN-specific tow capacity, payload, and hitch equipment still need verifying
 
 Never rely on an unfiltered search followed by manually inspecting a few returned results when a real field can enforce the requirement — the right vehicles may never even enter the sampled result set. This is the no-manual-post-filtering rule, referenced again below.
 
@@ -183,7 +183,9 @@ const FindMatchingVehicleInput = z.object({
   trimPreference: z.string().optional().describe("Preferred trim level, e.g. 'Limited' or 'Sport'. Use ONLY when the user signals it's a soft preference ('prefer', 'ideally', 'if possible'). Ranking input only — never excludes a result with a different or unknown trim. If the user simply names a specific trim/variant as what they want, use trimRequired instead."),
   trimRequired: z.string().optional().describe("A specific trim/variant the user explicitly asked for, e.g. 'AMG GLA 35', 'Raptor', 'Type R', 'Limited'. A HARD eligibility requirement — a result with a confirmed different trim is excluded, not just ranked lower. Use this whenever a trim/variant name is part of the request, even folded into what looks like a model name (e.g. 'Mercedes AMG GLA 35' -> model: 'GLA', trimRequired: 'AMG GLA 35'). Never sent to Auto.dev as a query filter; matched locally against each result's own reported trim."),
   seatsMinPreference: z.number().optional().describe("Minimum seating capacity needed, e.g. 7 for a family needing three rows. Never excludes a result — seat count is disclosed per result (meets, falls short, or unreported), not hard-filtered, since seating capacity is not a real Auto.dev filter."),
-  goals: z.array(z.string()).optional().describe("Freeform buyer goals like 'family', 'reliability', 'commuting'. Ranking/context input only, not a hard filter — this tool has no reliability or ownership-cost data to verify these claims against."),
+  vehicleNeeds: z.array(z.string()).optional().describe("Freeform buyer needs like 'family', 'reliability', 'commuting'. Ranking/context input only, not a hard filter — this tool has no reliability or ownership-cost data to verify these claims against. Replaces the retired `goals` field (SYS-20260909-004/005) — no dual-accept."),
+  electrificationTypes: z.array(z.enum(["hybrid", "plug_in_hybrid", "electric", "mild_hybrid"])).optional().describe("Which electrified powertrain type(s) satisfy the request. 'hybrid' implicitly includes mild hybrids — never list 'mild_hybrid' separately. 'plug_in_hybrid' is distinct and never implied by 'hybrid'. Combine with electrificationRequirement to say whether this is a hard requirement or a ranking preference."),
+  electrificationRequirement: z.enum(["required", "preferred"]).optional().describe("'required' excludes any vehicle NHTSA cannot confirm as one of electrificationTypes (unconfirmed/ambiguous vehicles are dropped, never assumed to satisfy the request). 'preferred' only affects ranking — no vehicle is excluded for unconfirmed electrification."),
   // Widened per design doc §2 — all live-verified filterable.
   drivetrain: z.string().optional().describe("AWD, 4WD, FWD, or RWD. Comma-separate multiple values if the user is open to more than one."),
   transmission: z.enum(["Automatic", "Manual"]).optional().describe("Automatic or Manual. A real, verified hard filter — always use this field when the user names a transmission type."),
@@ -197,7 +199,17 @@ const FindMatchingVehicleInput = z.object({
   state: z.string().optional().describe("Two-letter US state code, e.g. CA, TX, NY. Use for a state-wide search when the user names a state but gives no city or ZIP — the search is disclosed as covering the whole state rather than a specific area."),
   noAccidents: z.boolean().optional().describe("true if the user specifically wants no reported accidents. Never excludes results — accident history is disclosed per result (reported clean, reported issues, or unreported), not hard-filtered, since roughly half of listings have no history data at all and unknown must never be treated as false."), // maps to history.accidentCount=0
   oneOwner: z.boolean().optional().describe("true if the user specifically wants a one-owner vehicle. Never excludes results — ownership history is disclosed per result, not hard-filtered, for the same reason as noAccidents."), // maps to history.ownerCount=1
-});
+})
+  .strict() // SYS-20260909-005: plain z.object() silently strips unknown keys — .strict() is required so legacy `goals` (and any other unrecognized field) triggers a hard validation error instead of being dropped.
+  .superRefine((val, ctx) => {
+    if ("goals" in (val as Record<string, unknown>)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Unsupported legacy field 'goals'; use 'vehicleNeeds' instead. 'vehicleNeeds' remains optional — this error only fires because 'goals' was sent, not because a needs field is missing.",
+        path: ["goals"],
+      });
+    }
+  });
 
 const ResolveDealerUrlOutput = z.object({
   affiliateUrl: z.string().nullable(),
@@ -732,7 +744,7 @@ async function buildResultCard(
     badges.push("nhtsa-trim-conflict");
   }
   if (nhtsa && nhtsaIndicatesElectrified(nhtsa) && normalizedFuel === "gasoline") badges.push("nhtsa-electrification-confirmed");
-  if (intent.semantic.goals.length > 0) badges.push("inferred-match");
+  if (intent.semantic.vehicleNeeds.length > 0) badges.push("inferred-match");
   if (historySummary.state === "known_issues") badges.push("history-issues-reported");
   if (cpoSummary.state === "confirmed_cpo") badges.push("cpo-confirmed");
   // Real evidence (Aug 14): a listing priced $85 for a 2024 CR-V passed every
@@ -1550,10 +1562,10 @@ const handler = createMcpHandler((server) => {
 
       // --- Result-count target (SYS-20260816-008) ---
       // A search is "broad" when it isn't anchored to specific model names, or
-      // when the need was expressed as goals rather than exact hard filters.
+      // when the need was expressed as vehicleNeeds rather than exact hard filters.
       // Those are the searches where the host model tends to narrow the answer
       // further on its own, so they get the larger shortlist.
-      const isBroadSearch = !baseQuery.model || (input.goals != null && input.goals.length > 0);
+      const isBroadSearch = !baseQuery.model || (input.vehicleNeeds != null && input.vehicleNeeds.length > 0);
       const targetCount = isBroadSearch ? BROAD_SHORTLIST_SIZE : SHORTLIST_SIZE;
 
       // How many results the user would actually SEE: post-verification AND
