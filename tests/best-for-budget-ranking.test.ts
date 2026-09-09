@@ -11,16 +11,17 @@
 // this file was deliberately removed while the formula was still
 // experimental.
 //
-// applyLocalBestForBudgetOrdering() and isAnomalousPrice() are not
-// exported from app/[transport]/route.ts (local functions in a Next.js
-// route handler file with framework-level side effects at import time),
-// so this file keeps a byte-for-byte faithful copy of the current
-// function bodies below, rather than importing them directly. Whenever
-// the real functions in route.ts change, this copy must be updated to
-// match — that synchronization is manual, not automatic, and is worth
-// checking by eye at review time.
+// SYS-20260909-010: applyLocalBestForBudgetOrdering()/isAnomalousPrice()
+// were moved out of app/[transport]/route.ts into lib/local-ranking.ts this
+// session specifically so they could be imported directly here instead of
+// hand-copied — this file used to carry its own "byte-for-byte faithful
+// copy" (see git history) that had to be manually kept in sync with
+// route.ts by eye at review time. That synchronization risk is gone now:
+// this is the same function the route actually calls, not a parallel copy.
 //
 // Run: npx tsx tests/best-for-budget-ranking.test.ts
+
+import { applyLocalBestForBudgetOrdering, isAnomalousPrice } from "@/lib/local-ranking";
 
 interface MiniListing {
   vin: string;
@@ -38,72 +39,7 @@ function toAutoDevShape(l: MiniListing) {
     vin: l.vin,
     vehicle: { make: l.make, model: l.model, year: l.year, trim: l.trim },
     retailListing: { price: l.price, miles: l.miles, used: l.used },
-  };
-}
-
-// --- Faithful copy, current as of commit 6e302b1 (main) ---
-
-const ANOMALOUS_PRICE_FLOOR = 1000;
-function isAnomalousPrice(price: number | undefined | null): boolean {
-  return price != null && price < ANOMALOUS_PRICE_FLOOR;
-}
-
-function trimMatches(requested: string, actual: string | null | undefined): boolean {
-  if (!actual) return false;
-  return actual.trim().toLowerCase() === requested.trim().toLowerCase();
-}
-
-function applyLocalBestForBudgetOrdering(candidates: any[], trimPreference: string | undefined): any[] {
-  if (candidates.length === 0) return candidates;
-
-  const years = candidates.map((c) => c.vehicle?.year).filter((y: any): y is number => y != null);
-  const miles = candidates.map((c) => c.retailListing?.miles).filter((m: any): m is number => m != null);
-  const genuinePrices = candidates
-    .map((c) => c.retailListing?.price)
-    .filter((p: any): p is number => p != null && !isAnomalousPrice(p));
-  const yearMin = years.length > 0 ? Math.min(...years) : null;
-  const yearMax = years.length > 0 ? Math.max(...years) : null;
-  const milesMin = miles.length > 0 ? Math.min(...miles) : null;
-  const milesMax = miles.length > 0 ? Math.max(...miles) : null;
-  const priceMin = genuinePrices.length > 0 ? Math.min(...genuinePrices) : null;
-  const priceMax = genuinePrices.length > 0 ? Math.max(...genuinePrices) : null;
-
-  const yearRank = (y: number | undefined): number => {
-    if (y == null || yearMin == null || yearMax == null || yearMax === yearMin) return 0.5;
-    return (y - yearMin) / (yearMax - yearMin);
-  };
-  const mileageRank = (m: number | undefined): number => {
-    if (m == null || milesMin == null || milesMax == null || milesMax === milesMin) return 0.5;
-    return (milesMax - m) / (milesMax - milesMin);
-  };
-  const priceRank = (c: any): number => {
-    const p = c.retailListing?.price;
-    if (isAnomalousPrice(p)) return 0.5;
-    if (p == null || priceMin == null || priceMax == null || priceMax === priceMin) return 0.5;
-    return (priceMax - p) / (priceMax - priceMin);
-  };
-  const balancedScore = (c: any): number =>
-    (yearRank(c.vehicle?.year) + mileageRank(c.retailListing?.miles) + priceRank(c)) / 3;
-  const trimMatchRank = (c: any): number =>
-    trimPreference && trimMatches(trimPreference, c.vehicle?.trim) ? 0 : 1;
-  const anomalyRank = (c: any): number => (isAnomalousPrice(c.retailListing?.price) ? 1 : 0);
-
-  return [...candidates].sort((a, b) => {
-    const trimDiff = trimMatchRank(a) - trimMatchRank(b);
-    if (trimDiff !== 0) return trimDiff;
-
-    const anomalyDiff = anomalyRank(a) - anomalyRank(b);
-    if (anomalyDiff !== 0) return anomalyDiff;
-
-    const scoreDiff = balancedScore(b) - balancedScore(a);
-    if (scoreDiff !== 0) return scoreDiff;
-
-    const priceA = a.retailListing?.price ?? Infinity;
-    const priceB = b.retailListing?.price ?? Infinity;
-    if (priceA !== priceB) return priceA - priceB;
-
-    return 0;
-  });
+  } as any;
 }
 
 // --- Test harness ---
@@ -194,13 +130,13 @@ function check(name: string, cond: boolean, detail?: string) {
 // ===========================================================================
 {
   const fs = require("fs");
-  const routeSource: string = fs.readFileSync("app/[transport]/route.ts", "utf8");
-  const fnMatch = routeSource.match(/function applyLocalBestForBudgetOrdering\([\s\S]*?\n\}\n/);
+  const routeSource: string = fs.readFileSync("lib/local-ranking.ts", "utf8");
+  const fnMatch = routeSource.match(/export function applyLocalBestForBudgetOrdering\([\s\S]*?\n\}\n/);
   const fnBody = fnMatch ? fnMatch[0] : "";
   check(
     "5. applyLocalBestForBudgetOrdering() source never reads retailListing.used (no condition quota possible)",
     fnBody.length > 0 && !fnBody.includes(".used"),
-    fnBody.length === 0 ? "could not locate function in route.ts — update this test's regex" : "found a .used reference inside the function body",
+    fnBody.length === 0 ? "could not locate function in lib/local-ranking.ts — update this test's regex" : "found a .used reference inside the function body",
   );
 }
 

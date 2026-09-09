@@ -4,14 +4,15 @@
   "hardConstraints": {
     "priceMax": 35000,
     "yearMin": 2021,
-    "powertrains": ["hybrid"],
+    "electrificationTypes": ["hybrid"],
+    "electrificationRequirement": "required",
     "drivetrains": ["AWD", "4WD"],
     "seatsMin": 5,
     "location": { "zip": "30305", "radiusMiles": 100, "strict": false }
   },
   "softPreferences": {
     "colors": ["Blue"],
-    "goals": ["reliability", "low_total_cost"]
+    "vehicleNeeds": ["reliability", "low_total_cost"]
   },
   "exclusions": { "makes": ["BMW"] },
   "flexibility": {
@@ -21,11 +22,12 @@
     "radius": "flexible",
     "condition": "unspecified"
   },
-  "verificationRequired": ["powertrain", "drivetrain", "seating", "history", "destination"],
+  "verificationRequired": ["electrification", "drivetrain", "seating", "history", "destination"],
   "interpretationNotes": [
-    "Hybrid is a hard semantic requirement but Auto.dev Listings fuel is not safe as the sole candidate gate.",
+    "Hybrid is a hard semantic requirement (electrificationRequirement: required) but Auto.dev Listings fuel is not safe as the sole candidate gate -- NHTSA's own decode is the authoritative confirmation (SYS-20260909-002/003/006), and an unconfirmed/ambiguous vehicle is excluded, never assumed to satisfy the request.",
     "AWD/4WD and seating require post-search verification.",
-    "Radius may widen only with disclosure."
+    "Radius may widen only with disclosure.",
+    "'goals' is retired; 'vehicleNeeds' is the sole soft-preference field, no dual-acceptance period (SYS-20260909-004/005)."
   ],
   "sourcePrompt": "Find me a reliable blue hybrid AWD vehicle under $35,000 near 30305 and no BMWs."
 }

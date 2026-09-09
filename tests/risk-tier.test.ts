@@ -61,9 +61,16 @@ function evidence(overrides: Partial<RiskEvidence>): RiskEvidence {
   );
 
   const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
-  const leanCallSite = routeSource.match(/const tierOf = \(c: AutoDevListing\): RiskTier =>\s*\n\s*classifyRiskTier\(\{[\s\S]*?\}\);/);
+  // SYS-20260909-010: the lean-stage call site (inside
+  // applyLocalLowerRiskOrdering's tierOf helper) moved to
+  // lib/local-ranking.ts this session, alongside buildHistorySummary/
+  // buildCpoSummary, so it could be unit-tested directly — Next.js Route
+  // Handler files can't export arbitrary names. The final-card call site
+  // (buildResultCard) stays in route.ts, unaffected by that move.
+  const localRankingSource = fs.readFileSync("lib/local-ranking.ts", "utf8");
+  const leanCallSite = localRankingSource.match(/const tierOf = \(c: AutoDevListing\): RiskTier =>\s*\n\s*classifyRiskTier\(\{[\s\S]*?\}\);/);
   const cardCallSite = routeSource.match(/const riskTier = classifyRiskTier\(\{[\s\S]*?\}\);/);
-  check("Lean-stage classifyRiskTier() call site located", !!leanCallSite);
+  check("Lean-stage classifyRiskTier() call site located (now in lib/local-ranking.ts, SYS-20260909-010)", !!leanCallSite);
   check("Final-card classifyRiskTier() call site located", !!cardCallSite);
   check(
     "Lean-stage classifyRiskTier() call does not pass dataConflicts",
@@ -237,6 +244,10 @@ async function schemaTest() {
 async function leanEvidenceRetentionTest() {
   const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
   const clientSource = fs.readFileSync("lib/auto-dev-client.ts", "utf8");
+  // SYS-20260909-010: applyLocalLowerRiskOrdering's tierOf helper moved to
+  // lib/local-ranking.ts this session (see comment on the earlier
+  // Lean-stage classifyRiskTier() check above for why).
+  const localRankingSource = fs.readFileSync("lib/local-ranking.ts", "utf8");
 
   check(
     "LEAN_SELECT_FIELDS requests history.accidents, history.accidentCount, and retailListing.cpo",
@@ -248,8 +259,8 @@ async function leanEvidenceRetentionTest() {
       /cpo:\s*row\["retailListing\.cpo"\]/.test(clientSource),
   );
   check(
-    "applyLocalLowerRiskOrdering() feeds classifyRiskTier() from buildHistorySummary()/buildCpoSummary() applied to the lean candidate directly",
-    /const tierOf = \(c: AutoDevListing\): RiskTier =>\s*\n\s*classifyRiskTier\(\{\s*\n\s*verification: crossCheckVin\(c\),\s*\n\s*history: buildHistorySummary\(c\),\s*\n\s*condition: \{ cpoEvidenceState: buildCpoSummary\(c\)\.state \},/.test(routeSource),
+    "applyLocalLowerRiskOrdering() feeds classifyRiskTier() from buildHistorySummary()/buildCpoSummary() applied to the lean candidate directly (now in lib/local-ranking.ts, SYS-20260909-010)",
+    /const tierOf = \(c: AutoDevListing\): RiskTier =>\s*\n\s*classifyRiskTier\(\{\s*\n\s*verification: crossCheckVin\(c\),\s*\n\s*history: buildHistorySummary\(c\),\s*\n\s*condition: \{ cpoEvidenceState: buildCpoSummary\(c\)\.state \},/.test(localRankingSource),
   );
   check(
     "cardShape.dataConflicts is still populated from detectDataConflicts() (verification info not lost, just excluded from risk classification)",
@@ -473,13 +484,19 @@ function buyerCheckTests() {
   for (const phrase of requiredPhrases) {
     check(`20. Tool description still teaches the phrase "${phrase}" -> lower_risk`, routeSource.includes(phrase));
   }
+  // SYS-20260909-010: the Zod schema (including this describe() text and
+  // the priorityAxis enum) moved to lib/find-matching-vehicle-input.ts this
+  // session — imported into route.ts, not redefined there. The tool
+  // description prose checked above (phrase loop) is unaffected; it's a
+  // separate template string that stayed in route.ts.
+  const schemaSource = fs.readFileSync("lib/find-matching-vehicle-input.ts", "utf8");
   check(
-    "20b. Zod .describe() still teaches the exact phrase \"low risk\"",
-    /'lower-risk', 'low risk', 'safer-looking'/.test(routeSource),
+    "20b. Zod .describe() still teaches the exact phrase \"low risk\" (now in lib/find-matching-vehicle-input.ts)",
+    /'lower-risk', 'low risk', 'safer-looking'/.test(schemaSource),
   );
   check(
-    "20c. priorityAxis Zod enum still includes lower_risk",
-    /z\.enum\(\["best_for_budget", "cheapest", "lowest_mileage", "newest", "lower_risk"\]\)/.test(routeSource),
+    "20c. priorityAxis Zod enum still includes lower_risk (now in lib/find-matching-vehicle-input.ts)",
+    /z\.enum\(\["best_for_budget", "cheapest", "lowest_mileage", "newest", "lower_risk"\]\)/.test(schemaSource),
   );
 }
 
@@ -490,8 +507,8 @@ function buyerCheckTests() {
 {
   const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
   check(
-    "applyLocalLowerRiskOrdering(trimOrderedCandidates) still runs on the already-hard-filtered candidate list",
-    routeSource.includes("applyLocalLowerRiskOrdering(trimOrderedCandidates)"),
+    "applyLocalLowerRiskOrdering(electrificationFilteredCandidates, electrificationMatchOf) still runs on the already-hard-filtered candidate list (now also electrification-filtered/preferred, SYS-20260909-006/010)",
+    routeSource.includes("applyLocalLowerRiskOrdering(electrificationFilteredCandidates, electrificationMatchOf)"),
   );
   check(
     "trimOrderedCandidates is still derived from the already-hard-filtered pipeline",
@@ -509,8 +526,8 @@ function buyerCheckTests() {
   const dispatch = dispatchMatch ? dispatchMatch[0] : "";
   check("Diversified-ordering dispatch block located", dispatch.length > 0);
   check(
-    "best_for_budget branch still calls applyConfigurationVarietyPass(applyLocalBestForBudgetOrdering(...)) unchanged",
-    /applyConfigurationVarietyPass\(\s*\n\s*applyLocalBestForBudgetOrdering\(trimOrderedCandidates, intent\.semantic\.trimPreference\),\s*\n\s*\)/.test(dispatch),
+    "best_for_budget branch still calls applyConfigurationVarietyPass(applyLocalBestForBudgetOrdering(...)) unchanged (now fed by electrificationFilteredCandidates + electrificationMatchOf, SYS-20260909-006/010)",
+    /applyConfigurationVarietyPass\(\s*\n\s*applyLocalBestForBudgetOrdering\(electrificationFilteredCandidates, intent\.semantic\.trimPreference, electrificationMatchOf\),\s*\n\s*\)/.test(dispatch),
   );
 }
 

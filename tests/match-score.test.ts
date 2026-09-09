@@ -38,7 +38,7 @@ function intent(overrides: Partial<ParsedIntent["hardConstraints"]> = {}): Parse
       model: "Camry",
       ...overrides,
     },
-    semantic: { goals: [] },
+    semantic: { vehicleNeeds: [] },
     verificationRequired: [],
     interpretationNotes: [],
     modelPrefixesStripped: [],
@@ -232,13 +232,13 @@ test("V2.4-10. Explicit CPO search: CPO (a Used subset) still receives the Used-
 test("V2.4-11. Lower-priced Used vehicle scores at least as well as a higher-priced New vehicle at the same trim preference (value case)", () => {
   const usedLowerPrice = computeMatchScore(
     listing({ price: 19000, used: true, miles: 12000, trim: "XLE" }),
-    { ...intent({ priceMax: 25000 }), semantic: { trimPreference: "XLE", goals: [] } } as ParsedIntent,
+    { ...intent({ priceMax: 25000 }), semantic: { trimPreference: "XLE", vehicleNeeds: [] } } as ParsedIntent,
     verifiedMatch(),
     intentInput(),
   );
   const newHigherPrice = computeMatchScore(
     listing({ price: 24000, used: false, trim: "XLE" }),
-    { ...intent({ priceMax: 25000 }), semantic: { trimPreference: "XLE", goals: [] } } as ParsedIntent,
+    { ...intent({ priceMax: 25000 }), semantic: { trimPreference: "XLE", vehicleNeeds: [] } } as ParsedIntent,
     verifiedMatch(),
     intentInput(),
   );

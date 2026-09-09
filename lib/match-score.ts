@@ -165,12 +165,12 @@ function resolvedCriteriaFit(
   intent: ParsedIntent,
   intentInput: CardIntentInput,
 ): number {
-  if (intent.semantic.goals.length === 0 && intent.semantic.seatsMin == null) {
+  if (intent.semantic.vehicleNeeds.length === 0 && intent.semantic.seatsMin == null) {
     // No soft/semantic intent to resolve against. Previously a flat 1.0 —
     // now 0.96, deliberately leaving just enough headroom (0.04-0.06) for
     // the Used-value tie-break below to actually differentiate mixed
     // New/Used results in this exact case (a plain high-budget search
-    // with no stated goals is precisely the scenario ChatGPT flagged: a
+    // with no stated needs is precisely the scenario ChatGPT flagged: a
     // hard 1.0 ceiling would make the tie-break a permanent no-op here).
     // A New candidate that doesn't qualify for the tie-break still gets
     // 0.96 — a ~1-point matchScore difference from the old 1.0 baseline,
