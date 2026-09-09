@@ -1823,8 +1823,16 @@ const handler = createMcpHandler((server) => {
         input.electrificationRequirement === "required" &&
         input.electrificationTypes != null &&
         input.electrificationTypes.length > 0;
-      let electrificationShortfall: { requested: number; confirmed: number } | null = null;
-      const electrificationFilteredCandidates = electrificationRequired
+      // SYS-20260909-009: real TypeScript compile failure, reproduced and
+      // confirmed locally before this fix — mutating an outer `let` from
+      // inside a nested async closure (the previous version of this code)
+      // breaks TS's control-flow narrowing at the read site 400+ lines
+      // below (`if (electrificationShortfall)` was typed `never` there,
+      // a genuine TS limitation with this pattern, not a false alarm).
+      // Fixed by having the closure RETURN both values together instead
+      // of mutating a captured variable — ordinary destructuring narrows
+      // correctly.
+      const electrificationResult = electrificationRequired
         ? await (async () => {
             const requestedTypes = input.electrificationTypes!;
             const pool = trimOrderedCandidates.slice(0, ELECTRIFICATION_POOL_SIZE);
@@ -1836,12 +1844,18 @@ const handler = createMcpHandler((server) => {
             const confirmed = pool.filter((_, i) =>
               electrificationStateSatisfies(poolNhtsa[i]?.electrificationState, requestedTypes),
             );
-            if (confirmed.length < targetCount) {
-              electrificationShortfall = { requested: targetCount, confirmed: confirmed.length };
-            }
-            return confirmed;
+            const shortfall =
+              confirmed.length < targetCount
+                ? { requested: targetCount, confirmed: confirmed.length }
+                : null;
+            return { candidates: confirmed, shortfall };
           })()
-        : trimOrderedCandidates;
+        : {
+            candidates: trimOrderedCandidates,
+            shortfall: null as { requested: number; confirmed: number } | null,
+          };
+      const electrificationFilteredCandidates = electrificationResult.candidates;
+      const electrificationShortfall = electrificationResult.shortfall;
 
       const diversified = applyDiversity(
         // EXPERIMENT (preview only): local best_for_budget ordering, applied
