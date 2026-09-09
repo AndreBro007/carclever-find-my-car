@@ -11,7 +11,7 @@
 // this file was deliberately removed while the formula was still
 // experimental.
 //
-// [unverified citation removed]: applyLocalBestForBudgetOrdering()/isAnomalousPrice()
+// applyLocalBestForBudgetOrdering()/isAnomalousPrice()
 // were moved out of app/[transport]/route.ts into lib/local-ranking.ts this
 // session specifically so they could be imported directly here instead of
 // hand-copied — this file used to carry its own "byte-for-byte faithful

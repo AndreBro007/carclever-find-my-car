@@ -53,7 +53,7 @@ const MetaSchema = z.object({
   // (never a separate count) so it can never drift from it, and is the
   // ONLY field the calling LLM should use when stating how many results
   // are below — never totalMatches or totalCandidatesConsidered.
-  resultsShown: z.number(),
+  resultsShown: z.number().describe("The exact count of items in `results` below — always equals results.length. May differ from totalMatches and totalCandidatesConsidered, which describe an earlier, broader match-pool stage and are not guaranteed to match the final result count."),
   corpusSizeApprox: z.string(),
   relaxations: z.array(RelaxationSchema),
   dataNotes: z.array(z.string()),

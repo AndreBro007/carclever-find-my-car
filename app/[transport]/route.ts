@@ -24,7 +24,7 @@ import { sanitizeDealerName } from "@/lib/dealer-name";
 import { applyKnownHybridOverride, formatFuelTypeForDisplay } from "@/lib/fuel-type";
 import { decodeNhtsaElectrification, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, type ElectrificationState, ELECTRIFICATION_POOL_SIZE, electrificationStateSatisfies } from "@/lib/nhtsa-client";
 import { isAnomalousPrice, buildCpoSummary, buildHistorySummary, applyLocalBestForBudgetOrdering, applyLocalLowerRiskOrdering } from "@/lib/local-ranking";
-import { FindMatchingVehicleInput } from "@/lib/find-matching-vehicle-input"; // [unverified citation removed]
+import { FindMatchingVehicleInput } from "@/lib/find-matching-vehicle-input";
 import { getCorpusCountForDescription, initCorpusCount } from "@/lib/corpus-count";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting, type CardIntentInput } from "@/lib/qualifier-accounting";
@@ -55,7 +55,7 @@ Search inputs include make, model, price, year, mileage, location, body style, d
 
 An exact 17-character VIN refers to one specific listing; if unavailable, that outcome is reported rather than substituting a similar vehicle. Electrification requests state accepted types — hybrid (including mild hybrid), plug-in hybrid, electric — and whether required or preferred. A vehicle's primary fuel label alone does not determine hybrid or plug-in-hybrid status. For an unambiguous city-only request, a representative ZIP may be supplied as the local search anchor; results disclose the overall local, state-wide, or nationwide scope.
 
-Results include current matching listings, viewing links where available, and available evidence about confirmed, unconfirmed, or changed criteria. Missing history, ownership, certification, or specification data remains unknown and is never treated as proof a vehicle satisfies or fails a request. When stating how many results are shown, use \`resultsShown\` — the exact, guaranteed-accurate count of items in \`results\` — never \`totalMatches\` or \`totalCandidatesConsidered\`, which describe a broader match-pool size and can differ from what's actually shown below.
+Results include current matching listings, viewing links where available, and available evidence about confirmed, unconfirmed, or changed criteria. Missing history, ownership, certification, or specification data remains unknown and is never treated as proof a vehicle satisfies or fails a request.
 
 This tool is for vehicle-listing searches — not general automotive education, maintenance, financing, leasing, unsupported categories, or comparisons not requiring current listings.`;
 
@@ -96,7 +96,7 @@ const SHORTLIST_SIZE = 5;
 const BROAD_SHORTLIST_SIZE = 8;
 
 // ELECTRIFICATION_POOL_SIZE and electrificationStateSatisfies() moved to
-// lib/nhtsa-client.ts ([unverified citation removed]) — imported at the top of this file
+// lib/nhtsa-client.ts — imported at the top of this file
 // — so they're unit-testable; Next.js Route Handler files can't export
 // arbitrary names for direct test imports.
 
@@ -140,7 +140,7 @@ const RESPONSE_ASSEMBLY_RESERVE_MS = 20_000;
  * cpo=false is explicitly forbidden as definitive proof of non-CPO (CPO-001).
  * Never excludes; always discloses what's actually known.
  */
-// buildCpoSummary moved to lib/local-ranking.ts ([unverified citation removed]) —
+// buildCpoSummary moved to lib/local-ranking.ts —
 // imported at the top of this file, same reasoning as electrificationStateSatisfies above.
 
 
@@ -194,7 +194,7 @@ function buildSeatsSummary(
  * "user asked for something we can't be fully sure about" - run broadly,
  * never silently narrow the pool, be explicit about what we actually know.
  */
-// buildHistorySummary moved to lib/local-ranking.ts ([unverified citation removed]) —
+// buildHistorySummary moved to lib/local-ranking.ts —
 // imported at the top of this file.
 
 
@@ -233,12 +233,12 @@ const CANDIDATE_POOL_SIZE = 100; // Growth plan cap per docs; silently clamps to
 // VIN-verified — the price itself is the obviously bad data, not the
 // identity.
 // ANOMALOUS_PRICE_FLOOR/isAnomalousPrice moved to lib/local-ranking.ts
-// ([unverified citation removed]) — imported at the top of this file. Still the single
+// — imported at the top of this file. Still the single
 // shared definition used by both this file's own price-badge logic (below)
 // and the ordering functions (also now in that lib file).
 
 // applyLocalBestForBudgetOrdering() and applyLocalLowerRiskOrdering() moved
-// to lib/local-ranking.ts ([unverified citation removed]), along with buildCpoSummary,
+// to lib/local-ranking.ts, along with buildCpoSummary,
 // buildHistorySummary, isAnomalousPrice/ANOMALOUS_PRICE_FLOOR — imported at
 // the top of this file. Moved specifically so these pure ordering functions
 // are unit-testable: Next.js Route Handler files only permit a fixed set of
@@ -1407,7 +1407,7 @@ const handler = createMcpHandler((server) => {
         input.electrificationRequirement === "required" &&
         input.electrificationTypes != null &&
         input.electrificationTypes.length > 0;
-      // [unverified citation removed]: "preferred" reuses the exact same bounded top-20
+      // "preferred" reuses the exact same bounded top-20
       // pool/decode mechanism as "required" — never an additional/unbounded
       // NHTSA call budget, and never both required+preferred at once since
       // they're mutually exclusive enum values. Unlike "required", nothing
@@ -1420,7 +1420,7 @@ const handler = createMcpHandler((server) => {
         input.electrificationRequirement === "preferred" &&
         input.electrificationTypes != null &&
         input.electrificationTypes.length > 0;
-      // [unverified citation removed]: real TypeScript compile failure, reproduced and
+      // Real TypeScript compile failure, reproduced and
       // confirmed locally before this fix — mutating an outer `let` from
       // inside a nested async closure (the previous version of this code)
       // breaks TS's control-flow narrowing at the read site 400+ lines
@@ -1494,7 +1494,7 @@ const handler = createMcpHandler((server) => {
         // local reordering pass (applyLocalLowerRiskOrdering, above) —
         // mutually exclusive with best_for_budget's pass, never both.
         //
-        // KNOWN LIMITATION, flagged not hidden ([unverified citation removed]): the
+        // KNOWN LIMITATION, flagged not hidden: the
         // cheapest/lowest_mileage/newest axes intentionally do NOT get an
         // electrification-preferred nudge — those three axes' own module
         // docs establish "provider's exact sort is untouched" as a

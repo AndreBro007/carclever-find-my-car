@@ -61,7 +61,7 @@ function evidence(overrides: Partial<RiskEvidence>): RiskEvidence {
   );
 
   const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
-  // [unverified citation removed]: the lean-stage call site (inside
+  // The lean-stage call site (inside
   // applyLocalLowerRiskOrdering's tierOf helper) moved to
   // lib/local-ranking.ts this session, alongside buildHistorySummary/
   // buildCpoSummary, so it could be unit-tested directly — Next.js Route
@@ -70,7 +70,7 @@ function evidence(overrides: Partial<RiskEvidence>): RiskEvidence {
   const localRankingSource = fs.readFileSync("lib/local-ranking.ts", "utf8");
   const leanCallSite = localRankingSource.match(/const tierOf = \(c: AutoDevListing\): RiskTier =>\s*\n\s*classifyRiskTier\(\{[\s\S]*?\}\);/);
   const cardCallSite = routeSource.match(/const riskTier = classifyRiskTier\(\{[\s\S]*?\}\);/);
-  check("Lean-stage classifyRiskTier() call site located (now in lib/local-ranking.ts, [unverified citation removed])", !!leanCallSite);
+  check("Lean-stage classifyRiskTier() call site located (now in lib/local-ranking.ts)", !!leanCallSite);
   check("Final-card classifyRiskTier() call site located", !!cardCallSite);
   check(
     "Lean-stage classifyRiskTier() call does not pass dataConflicts",
@@ -244,7 +244,7 @@ async function schemaTest() {
 async function leanEvidenceRetentionTest() {
   const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
   const clientSource = fs.readFileSync("lib/auto-dev-client.ts", "utf8");
-  // [unverified citation removed]: applyLocalLowerRiskOrdering's tierOf helper moved to
+  // applyLocalLowerRiskOrdering's tierOf helper moved to
   // lib/local-ranking.ts this session (see comment on the earlier
   // Lean-stage classifyRiskTier() check above for why).
   const localRankingSource = fs.readFileSync("lib/local-ranking.ts", "utf8");
@@ -259,7 +259,7 @@ async function leanEvidenceRetentionTest() {
       /cpo:\s*row\["retailListing\.cpo"\]/.test(clientSource),
   );
   check(
-    "applyLocalLowerRiskOrdering() feeds classifyRiskTier() from buildHistorySummary()/buildCpoSummary() applied to the lean candidate directly (now in lib/local-ranking.ts, [unverified citation removed])",
+    "applyLocalLowerRiskOrdering() feeds classifyRiskTier() from buildHistorySummary()/buildCpoSummary() applied to the lean candidate directly (now in lib/local-ranking.ts)",
     /const tierOf = \(c: AutoDevListing\): RiskTier =>\s*\n\s*classifyRiskTier\(\{\s*\n\s*verification: crossCheckVin\(c\),\s*\n\s*history: buildHistorySummary\(c\),\s*\n\s*condition: \{ cpoEvidenceState: buildCpoSummary\(c\)\.state \},/.test(localRankingSource),
   );
   check(
@@ -514,7 +514,7 @@ function buyerCheckTests() {
 {
   const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
   check(
-    "applyLocalLowerRiskOrdering(electrificationFilteredCandidates, electrificationMatchOf) still runs on the already-hard-filtered candidate list (now also electrification-filtered/preferred, [unverified citation removed])",
+    "applyLocalLowerRiskOrdering(electrificationFilteredCandidates, electrificationMatchOf) still runs on the already-hard-filtered candidate list (now also electrification-filtered/preferred, DECISIONS.md SYS-20260909-001)",
     routeSource.includes("applyLocalLowerRiskOrdering(electrificationFilteredCandidates, electrificationMatchOf)"),
   );
   check(
@@ -533,7 +533,7 @@ function buyerCheckTests() {
   const dispatch = dispatchMatch ? dispatchMatch[0] : "";
   check("Diversified-ordering dispatch block located", dispatch.length > 0);
   check(
-    "best_for_budget branch still calls applyConfigurationVarietyPass(applyLocalBestForBudgetOrdering(...)) unchanged (now fed by electrificationFilteredCandidates + electrificationMatchOf, [unverified citation removed])",
+    "best_for_budget branch still calls applyConfigurationVarietyPass(applyLocalBestForBudgetOrdering(...)) unchanged (now fed by electrificationFilteredCandidates + electrificationMatchOf, DECISIONS.md SYS-20260909-001)",
     /applyConfigurationVarietyPass\(\s*\n\s*applyLocalBestForBudgetOrdering\(electrificationFilteredCandidates, intent\.semantic\.trimPreference, electrificationMatchOf\),\s*\n\s*\)/.test(dispatch),
   );
 }

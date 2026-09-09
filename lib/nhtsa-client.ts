@@ -105,7 +105,7 @@ export function classifyElectrification(
   if (level.includes("phev") || level.includes("plug-in") || level.includes("plug in")) {
     return "plug_in_hybrid";
   }
-  // Broadened [unverified citation removed] (found via regression fixture test): the
+  // Broadened after a regression fixture test caught a real classifier bug: the
   // exact phrase "mild hybrid" or literal "mhev" missed a realistic NHTSA
   // variant like "Mild HEV (Hybrid Electric Vehicle)" — "mild" and "hev"
   // appear in the string but not adjacent as "mild hybrid", so the old
@@ -130,12 +130,12 @@ export function classifyElectrification(
   // includes fuel-cell vehicles (NHTSA's "FCV"): out of scope for this
   // project's hybrid/PHEV/electric taxonomy, so FCV correctly falls
   // through to ambiguous rather than silently miscounting as electric
-  // — confirmed via ChatGPT review, addendum to [unverified citation removed].
+  // — confirmed via ChatGPT review.
   return "ambiguous";
 }
 
 export interface NhtsaElectrificationResult {
-  /** Canonical classification ([unverified citation removed]) derived from the raw
+  /** Canonical classification derived from the raw
    * fields below. Prefer this over hand-rolling ElectrificationLevel
    * string matching at call sites — see classifyElectrification(). */
   electrificationState: ElectrificationState;
@@ -274,7 +274,7 @@ export async function decodeNhtsaElectrification(
  * mild hybrid, plug-in hybrid, or battery electric vehicle, regardless of
  * what Auto.dev's own fuel field says.
  *
- * Kept as a thin wrapper over `electrificationState` ([unverified citation removed])
+ * Kept as a thin wrapper over `electrificationState`
  * rather than removed, so any existing call site relying on the old
  * boolean keeps working unchanged. New code should prefer reading
  * `electrificationState` directly — this collapses `mild_hybrid` into
@@ -303,7 +303,7 @@ export function nhtsaIndicatesElectrified(result: NhtsaElectrificationResult | n
  * see DECISIONS.md SYS-20260909-001). Earlier comments in this file and
  * elsewhere in the repo cited a "live spike" with specific latency/
  * hit-rate numbers and an "André signed off on 20" claim; those citations
- * pointed to decision-log entries ([unverified citation removed] and others) that do
+ * pointed to decision-log entries that do
  * not exist and should not be trusted. Treat 20 as an unvalidated
  * placeholder only, not an empirically justified or approved constant.
  * The real spike (pool-size vs. NHTSA latency/parallelism/hit-rate,
@@ -320,7 +320,7 @@ export const ELECTRIFICATION_POOL_SIZE = 20;
 
 /**
  * True when a decoded NHTSA electrification state satisfies one of the
- * caller's requested electrificationTypes ([unverified citation removed]). Per
+ * caller's requested electrificationTypes. Per
  * André (Sep 9 2026): requesting "hybrid" implicitly satisfies a
  * "mild_hybrid" decode — callers never need to list both, and in fact
  * cannot list "mild_hybrid" directly at all (it was removed from the
