@@ -490,8 +490,8 @@ function buyerCheckTests() {
 {
   const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
   check(
-    "applyLocalLowerRiskOrdering(trimOrderedCandidates) still runs on the already-hard-filtered candidate list",
-    routeSource.includes("applyLocalLowerRiskOrdering(trimOrderedCandidates)"),
+    "applyLocalLowerRiskOrdering(electrificationFilteredCandidates) still runs on the already-hard-filtered candidate list (now also electrification-filtered when required, SYS-20260909-006)",
+    routeSource.includes("applyLocalLowerRiskOrdering(electrificationFilteredCandidates)"),
   );
   check(
     "trimOrderedCandidates is still derived from the already-hard-filtered pipeline",
@@ -509,8 +509,8 @@ function buyerCheckTests() {
   const dispatch = dispatchMatch ? dispatchMatch[0] : "";
   check("Diversified-ordering dispatch block located", dispatch.length > 0);
   check(
-    "best_for_budget branch still calls applyConfigurationVarietyPass(applyLocalBestForBudgetOrdering(...)) unchanged",
-    /applyConfigurationVarietyPass\(\s*\n\s*applyLocalBestForBudgetOrdering\(trimOrderedCandidates, intent\.semantic\.trimPreference\),\s*\n\s*\)/.test(dispatch),
+    "best_for_budget branch still calls applyConfigurationVarietyPass(applyLocalBestForBudgetOrdering(...)) unchanged (now fed by electrificationFilteredCandidates, SYS-20260909-006)",
+    /applyConfigurationVarietyPass\(\s*\n\s*applyLocalBestForBudgetOrdering\(electrificationFilteredCandidates, intent\.semantic\.trimPreference\),\s*\n\s*\)/.test(dispatch),
   );
 }
 
