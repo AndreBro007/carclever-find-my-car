@@ -68,13 +68,13 @@
  *                                    most protected combination)
  *   priorityAxis "best_for_budget" (default) or unset -> base order as-is
  *
- * goals (freeform buyer text like "reliable for a teen driver") deliberately
+ * vehicleNeeds (freeform buyer text like "reliable for a teen driver") deliberately
  * does NOT feed into this — mapping arbitrary text to a specific widening
  * dimension needs real semantic judgment, which is exactly what this
  * codebase's architecture keeps server-side out of scope (decode-then-execute
  * pattern used everywhere else in route.ts). priorityAxis is a clean fit
  * because it's already structured and already decoded by the host model;
- * goals is not.
+ * vehicleNeeds is not.
  *
  * Every step taken is reported in `relaxations`, never silent
  * (SYS-20260812-011 #3). Widening only ever LOOSENS a constraint — it never
