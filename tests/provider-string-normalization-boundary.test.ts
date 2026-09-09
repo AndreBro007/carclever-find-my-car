@@ -348,8 +348,8 @@ async function errorBoundaryTest() {
     routeSource.includes("trimRequiredLeanFilter") && routeSource.includes("trimRequiredFullFilter"),
   );
   check(
-    "17. lower_risk dispatch branch untouched (still present, unrelated to this diff, now fed by electrificationFilteredCandidates per SYS-20260909-006)",
-    routeSource.includes('applyLocalLowerRiskOrdering(electrificationFilteredCandidates)'),
+    "17. lower_risk dispatch branch untouched (still present, unrelated to this diff, now fed by electrificationFilteredCandidates + electrificationMatchOf per SYS-20260909-006/010)",
+    routeSource.includes('applyLocalLowerRiskOrdering(electrificationFilteredCandidates, electrificationMatchOf)'),
   );
   check(
     "18. buildBuyerCheck() import/usage untouched (still present, unrelated to this diff)",
