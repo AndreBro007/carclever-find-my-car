@@ -33,10 +33,10 @@ export const FindMatchingVehicleInput = z.object({
   electrificationRequirement: z.enum(["required", "preferred"]).optional().describe("Whether the stated electrification types are required or preferred."),
   // Widened per design doc §2 — all live-verified filterable.
   drivetrain: z.string().optional().describe("Requested drivetrain: AWD, 4WD, FWD, RWD, or a comma-separated acceptable set."),
-  transmission: z.enum(["Automatic", "Manual"]).optional().describe("Requested transmission: Automatic or Manual."),
+  transmission: z.enum(["Automatic", "Manual"]).optional().describe("Requested transmission: Automatic or Manual. Supply this field only when the user explicitly stated or clearly implied a transmission preference; do not invent a value."),
   exteriorColor: z.string().optional().describe("Requested exterior colour."),
   interiorColor: z.string().optional().describe("Requested interior colour."),
-  vehicleType: z.string().optional().describe("Finer vehicle classification when the user expressly distinguishes it, such as Crossover, Wagon, Hatchback, Coupe, or SUV."),
+  vehicleType: z.string().optional().describe("Finer vehicle classification when the user expressly distinguishes it, such as Crossover, Wagon, Hatchback, or Coupe. Do not duplicate bodyType; this field is for distinctions narrower than broad body styles."),
   doors: z.number().optional().describe("Requested door count."),
   cylinders: z.number().optional().describe("Requested engine cylinder count: V8 is 8, V6 is 6, and I4/four-cylinder is 4. Engine displacement is not represented by this field."),
   used: z.boolean().optional().describe("Vehicle condition: true for used only, false for new only; omitted includes both."),

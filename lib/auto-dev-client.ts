@@ -305,7 +305,7 @@ export function parseFacetGroup(
   return parsed.sort((a, b) => b.count - a.count);
 }
 
-function buildListingsParams(query: ListingsQuery): URLSearchParams {
+export function buildListingsParams(query: ListingsQuery): URLSearchParams {
   const params = new URLSearchParams();
 
   // Real Auto.dev v2 syntax (confirmed against docs.auto.dev/v2/products/vehicle-listings
@@ -320,7 +320,13 @@ function buildListingsParams(query: ListingsQuery): URLSearchParams {
   if (query.transmission) params.set("vehicle.transmission", query.transmission);
   if (query.exteriorColor) params.set("vehicle.exteriorColor", query.exteriorColor);
   if (query.interiorColor) params.set("vehicle.interiorColor", query.interiorColor);
-  if (query.vehicleType) params.set("vehicle.type", query.vehicleType);
+  // Regression fix (SYS-20260911): vehicleType must not duplicate bodyType (broad body
+  // style) as a redundant hard filter. When a user says "SUV", they mean bodyType. If
+  // vehicleType is identical to bodyType (case-insensitive), omit it — it adds no value
+  // and breaks the result universe (Test #5: Denver SUV went from 13,617 to 17 matches).
+  if (query.vehicleType && (!query.bodyType || query.vehicleType.toLowerCase() !== query.bodyType.toLowerCase())) {
+    params.set("vehicle.type", query.vehicleType);
+  }
   if (query.doors != null) params.set("vehicle.doors", String(query.doors));
   if (query.cylinders != null) params.set("vehicle.cylinders", String(query.cylinders));
 
