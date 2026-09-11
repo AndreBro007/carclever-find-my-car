@@ -76,7 +76,9 @@ export const RESULTS_CARD_RESOURCE_URI = "ui://carclever-find-my-car/results-car
 // inspection.
 export function getAppOrigin(): string {
   if (process.env.VERCEL_ENV === "production") {
-    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL ?? "carclever-find-my-car.vercel.app"}`;
+    // Check for project-specific custom origin first (set via NEXT_PUBLIC_WIDGET_ORIGIN env var)
+    // Fall back to Vercel project domain, then hardcoded default
+    return `https://${process.env.NEXT_PUBLIC_WIDGET_ORIGIN?.replace(/^https?:\/\//, "") ?? process.env.VERCEL_PROJECT_PRODUCTION_URL ?? "carclever-find-my-car.vercel.app"}`;
   }
   // Preview (or any other non-production env): prefer the stable branch
   // alias -- the domain any connector/browser actually reaches this
