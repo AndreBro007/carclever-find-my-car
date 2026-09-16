@@ -1,7 +1,5 @@
-// CJ Affiliate constants for Edmunds
-export const CJ_CLICK_DOMAIN = 'https://www.anrdoezrs.net';
-export const CJ_PUBLISHER_ID = '101637236';
-export const CJ_EDMUNDS_PRODUCT_AD_ID = '17033607';
+// Impact.com affiliate constants for Edmunds (migrated from CJ Affiliate, Sep 2026)
+export const IMPACT_BASE_LINK = 'https://edmunds.sjv.io/c/7765200/3949600/52125';
 export const EDMUNDS_BASE = 'https://www.edmunds.com';
 
 /**
@@ -175,9 +173,13 @@ export function buildEdmundsCategoryUrl(
 }
 
 /**
- * Wraps an Edmunds URL with a CJ affiliate click-through link.
+ * Wraps an Edmunds URL with an Impact.com affiliate deep-link.
+ * Migrated from CJ Affiliate (wrapWithCJ) Sep 2026 — same purpose,
+ * different network. Live-tested and confirmed working end-to-end
+ * 2026-09-16 (real VIN, real click-through, correct destination page,
+ * Impact tracking params present in the resolved URL).
  */
-export function wrapWithCJ(rawUrl: string): string {
+export function wrapWithImpact(rawUrl: string): string {
   const encoded = encodeURIComponent(rawUrl);
-  return `${CJ_CLICK_DOMAIN}/click-${CJ_PUBLISHER_ID}-${CJ_EDMUNDS_PRODUCT_AD_ID}?url=${encoded}`;
+  return `${IMPACT_BASE_LINK}?u=${encoded}`;
 }
