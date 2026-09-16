@@ -1,6 +1,6 @@
 /**
  * Link resolution — every result gets a live-tested-reliable path to
- * Edmunds/CJ revenue, plus the real dealer/marketplace link where usable.
+ * Edmunds/affiliate revenue, plus the real dealer/marketplace link where usable.
  *
  * Design (2026-08-17, DECISIONS.md SYS-20260817-001/002): a VIN-specific
  * Edmunds featured-listing link can be dead (sold/delisted, or the listing
