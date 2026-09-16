@@ -1,4 +1,3 @@
-// Affiliate tracking constants for Edmunds
 export const AFFILIATE_BASE_LINK = 'https://edmunds.sjv.io/c/7765200/3949600/52125';
 export const EDMUNDS_BASE = 'https://www.edmunds.com';
 
