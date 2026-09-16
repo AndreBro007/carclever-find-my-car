@@ -57,7 +57,7 @@
  * kind — this server does not call out to Edmunds, Google, or any search
  * vendor at request time.
  */
-import { buildEdmundsUrl, buildEdmundsCategoryUrl, wrapWithImpact } from "./edmunds-cj";
+import { buildEdmundsUrl, buildEdmundsCategoryUrl, wrapWithAffiliateNetwork } from "./edmunds-cj";
 import type { AutoDevListing } from "./auto-dev-client";
 
 export interface LinkResolution {
@@ -115,7 +115,7 @@ export function resolveLinks(listing: AutoDevListing): LinkResolution {
     // attempt at all for this branch — see module doc for why.
     const rawClose = buildEdmundsCategoryUrl({ make, model, year, trim }, { used, cpo });
     if (rawClose) {
-      affiliateUrl = wrapWithImpact(rawClose);
+      affiliateUrl = wrapWithAffiliateNetwork(rawClose);
       checkAvailSource = "close";
     }
   } else {
@@ -125,7 +125,7 @@ export function resolveLinks(listing: AutoDevListing): LinkResolution {
     // View similar sitting right next to it.
     const rawEdmunds = buildEdmundsUrl({ vin, make, model, year });
     if (rawEdmunds) {
-      affiliateUrl = wrapWithImpact(rawEdmunds);
+      affiliateUrl = wrapWithAffiliateNetwork(rawEdmunds);
       checkAvailSource = "exact";
     }
   }
@@ -138,7 +138,7 @@ export function resolveLinks(listing: AutoDevListing): LinkResolution {
   const rawFallback = treatAsNewOrCarvana
     ? buildEdmundsCategoryUrl({ make, model }, { used, cpo })
     : buildEdmundsCategoryUrl({ make, model, year, trim }, { used, cpo });
-  const affiliateFallbackUrl = rawFallback ? wrapWithImpact(rawFallback) : null;
+  const affiliateFallbackUrl = rawFallback ? wrapWithAffiliateNetwork(rawFallback) : null;
 
   const dealerUrlRaw = listing.retailListing?.vdp;
   const dealerListingUrl = looksObviouslyBroken(dealerUrlRaw) ? null : dealerUrlRaw ?? null;
