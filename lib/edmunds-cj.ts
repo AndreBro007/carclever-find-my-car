@@ -1,5 +1,5 @@
-// Impact.com affiliate constants for Edmunds (migrated from CJ Affiliate, Sep 2026)
-export const IMPACT_BASE_LINK = 'https://edmunds.sjv.io/c/7765200/3949600/52125';
+// Affiliate tracking constants for Edmunds
+export const AFFILIATE_BASE_LINK = 'https://edmunds.sjv.io/c/7765200/3949600/52125';
 export const EDMUNDS_BASE = 'https://www.edmunds.com';
 
 /**
@@ -173,13 +173,9 @@ export function buildEdmundsCategoryUrl(
 }
 
 /**
- * Wraps an Edmunds URL with an Impact.com affiliate deep-link.
- * Migrated from CJ Affiliate (wrapWithCJ) Sep 2026 — same purpose,
- * different network. Live-tested and confirmed working end-to-end
- * 2026-09-16 (real VIN, real click-through, correct destination page,
- * Impact tracking params present in the resolved URL).
+ * Wraps an Edmunds URL with an affiliate tracking deep-link.
  */
-export function wrapWithImpact(rawUrl: string): string {
+export function wrapWithAffiliateNetwork(rawUrl: string): string {
   const encoded = encodeURIComponent(rawUrl);
-  return `${IMPACT_BASE_LINK}?u=${encoded}`;
+  return `${AFFILIATE_BASE_LINK}?u=${encoded}`;
 }
