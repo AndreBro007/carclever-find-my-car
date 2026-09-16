@@ -262,7 +262,7 @@ test("D2s. decodeNhtsaElectrification() returns an empty trimOptions array (neve
 // seconds per search. No host search, no vendor API, fully synchronous.
 // ----------------------------------------------------------------------------
 
-const IMPACT_PREFIX = "https://edmunds.sjv.io/c/7765200/3949600/52125";
+const AFFILIATE_PREFIX = "https://edmunds.sjv.io/c/7765200/3949600/52125";
 
 test("D2h. resolveLinks() Used vehicle -> checkAvailSource 'exact', Check avail. is the deterministic exact-VIN URL", async () => {
   const { resolveLinks } = await import("../lib/link-resolution");
@@ -276,7 +276,7 @@ test("D2h. resolveLinks() Used vehicle -> checkAvailSource 'exact', Check avail.
   const links = resolveLinks(l as any);
 
   assert.equal(links.checkAvailSource, "exact");
-  assert.ok(links.affiliateUrl!.startsWith(IMPACT_PREFIX));
+  assert.ok(links.affiliateUrl!.startsWith(AFFILIATE_PREFIX));
   const decoded = decodeURIComponent(links.affiliateUrl!.split("u=")[1]);
   assert.ok(decoded.includes("1FTEW2KP9TKE60602"));
 });
@@ -293,7 +293,7 @@ test("D2i. resolveLinks() New vehicle (used: false) -> checkAvailSource 'close',
   const links = resolveLinks(l as any);
 
   assert.equal(links.checkAvailSource, "close");
-  assert.ok(links.affiliateUrl!.startsWith(IMPACT_PREFIX));
+  assert.ok(links.affiliateUrl!.startsWith(AFFILIATE_PREFIX));
   const decoded = decodeURIComponent(links.affiliateUrl!.split("u=")[1]);
   assert.ok(!decoded.includes("1FTEW2KP9TKE60602"), "New must never attempt the exact-VIN URL -- ~15-23% real hit rate doesn't justify presenting it");
   assert.ok(decoded.includes("new-ford-f-150-lariat-for-sale"), "should be the trim-specific new-vehicle category URL");
@@ -355,7 +355,7 @@ test("D2k. resolveLinks() CPO listing: affiliateFallbackUrl always routes to the
   assert.ok(!decodedPlain.includes("certified-pre-owned"), "non-CPO listings must keep the existing plain used-{make}-{model}-{trim} fallback, unaffected");
 });
 
-test("D2l. resolveLinks() all final links remain Impact-wrapped across every branch (Used/New/Carvana/CPO/unavailable-bare)", async () => {
+test("D2l. resolveLinks() all final links remain affiliate-wrapped across every branch (Used/New/Carvana/CPO/unavailable-bare)", async () => {
   const { resolveLinks } = await import("../lib/link-resolution");
 
   const scenarios = [
@@ -368,11 +368,11 @@ test("D2l. resolveLinks() all final links remain Impact-wrapped across every bra
   for (const s of scenarios) {
     const links = resolveLinks(s as any);
     if (links.affiliateUrl) {
-      assert.ok(links.affiliateUrl.startsWith(IMPACT_PREFIX), `affiliateUrl must be Impact-wrapped for scenario ${JSON.stringify(s)}`);
+      assert.ok(links.affiliateUrl.startsWith(AFFILIATE_PREFIX), `affiliateUrl must be affiliate-wrapped for scenario ${JSON.stringify(s)}`);
       assert.ok(!links.affiliateUrl.includes("google.com"), "must never expose a raw Google URL");
     }
     if (links.affiliateFallbackUrl) {
-      assert.ok(links.affiliateFallbackUrl.startsWith(IMPACT_PREFIX), "affiliateFallbackUrl must always be Impact-wrapped");
+      assert.ok(links.affiliateFallbackUrl.startsWith(AFFILIATE_PREFIX), "affiliateFallbackUrl must always be affiliate-wrapped");
     }
   }
 });
