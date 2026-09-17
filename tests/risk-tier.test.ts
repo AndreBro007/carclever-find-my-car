@@ -194,7 +194,7 @@ async function schemaTest() {
   const { FindMatchingVehicleOutputSchema } = await import("@/lib/find-matching-vehicle-output");
   const minimalResult = {
     canonicalVehicleId: "1HGCV1F34NA000001",
-    risk: { tier: "amber" },
+    risk: { tier: "amber", reasons: ["A reported accident or history issue is on file for this vehicle."] },
     identity: { vin: "1HGCV1F34NA000001", year: 2024, make: "Honda", model: "CR-V", trim: "EX", series: null, squishVin: null, bodyStyleConfig: null },
     condition: { inventoryType: "used" as const, used: true, cpo: false, cpoEvidenceState: "reported_not_cpo" as const },
     powertrain: { type: "Gasoline", engine: null, drivetrain: "AWD", transmission: null },
@@ -204,7 +204,7 @@ async function schemaTest() {
     media: { primaryImage: null, cardImageUrl: null, photoUrls: [] },
     verification: { identityVerificationStatus: "potential_match" as const, verifiedAttributes: [], unknownAttributes: [], conflictingAttributes: [] },
     ranking: { matchScore: 90, matchScoreLabel: "Strong match" as const, breakdown: { statedCriteriaFit: 1, resolvedCriteriaFit: 1, identityConfidence: 1, penalizedByRelaxation: [] } },
-    links: { affiliateUrl: null, affiliateFallbackUrl: null, dealerListingUrl: null, isCarvana: false, linkStatus: "none-available" as const },
+    links: { affiliateUrl: null, affiliateFallbackUrl: null, dealerListingUrl: null, isCarvana: false, linkStatus: "none-available" as const, checkAvailSource: "none" as const },
     detail: { carfaxUrl: null, cpoNote: "Not reported as CPO", ownerHistoryNote: null, interiorColor: null, exteriorColor: null, cylinders: null, seats: null, seatsNote: "", dataConfidence: null, historyUsageType: null, historyPersonalUse: null, titleStatus: null, fuelTypeDisplay: "Gasoline" },
     badges: ["vin-verified"],
     intentConfirmations: [],
@@ -276,7 +276,7 @@ async function cardRiskBadgeTests() {
       media: { cardImageUrl: null },
       detail: { carfaxUrl: null, exteriorColor: "Blue", fuelTypeDisplay: "Gasoline" },
       ranking: { matchScore: 90 },
-      links: { affiliateUrl: `https://www.edmunds.com/vin/${vin}/`, affiliateFallbackUrl: null, dealerListingUrl: null, isCarvana: false, linkStatus: "edmunds-only" },
+      links: { affiliateUrl: `https://www.edmunds.com/vin/${vin}/`, affiliateFallbackUrl: null, dealerListingUrl: null, isCarvana: false, linkStatus: "edmunds-only", checkAvailSource: "exact" as const },
       badges: ["vin-verified"],
       intentConfirmations: [],
       risk: riskTier ? { tier: riskTier } : undefined,
