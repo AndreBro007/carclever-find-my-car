@@ -41,3 +41,4 @@ Design decisions, provider data audit, API contracts, and field handling live in
 - `STATE.md` — current session and session archive
 
 <!-- Remove outputSchema from find_matching_vehicle (c8a5c36) -->
+<!-- connector-write-retest-20260918b -->
