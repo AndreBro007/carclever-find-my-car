@@ -44,6 +44,7 @@ export async function withFindMatchingVehicleErrorBoundary(
       meta: {
         totalCandidatesConsidered: 0,
         totalMatches: null,
+        resultsShown: 0,
         corpusSizeApprox: "unknown",
         relaxations: [],
         dataNotes: [],
