@@ -1,6 +1,6 @@
 /**
  * Link resolution — every result gets a live-tested-reliable path to
- * Edmunds/CJ revenue, plus the real dealer/marketplace link where usable.
+ * Edmunds/affiliate revenue, plus the real dealer/marketplace link where usable.
  *
  * Design (2026-08-17, DECISIONS.md SYS-20260817-001/002): a VIN-specific
  * Edmunds featured-listing link can be dead (sold/delisted, or the listing
@@ -57,7 +57,7 @@
  * kind — this server does not call out to Edmunds, Google, or any search
  * vendor at request time.
  */
-import { buildEdmundsUrl, buildEdmundsCategoryUrl, wrapWithCJ } from "./edmunds-cj";
+import { buildEdmundsUrl, buildEdmundsCategoryUrl, wrapWithAffiliateNetwork } from "./edmunds-cj";
 import type { AutoDevListing } from "./auto-dev-client";
 
 export interface LinkResolution {
@@ -115,7 +115,7 @@ export function resolveLinks(listing: AutoDevListing): LinkResolution {
     // attempt at all for this branch — see module doc for why.
     const rawClose = buildEdmundsCategoryUrl({ make, model, year, trim }, { used, cpo });
     if (rawClose) {
-      affiliateUrl = wrapWithCJ(rawClose);
+      affiliateUrl = wrapWithAffiliateNetwork(rawClose);
       checkAvailSource = "close";
     }
   } else {
@@ -125,7 +125,7 @@ export function resolveLinks(listing: AutoDevListing): LinkResolution {
     // View similar sitting right next to it.
     const rawEdmunds = buildEdmundsUrl({ vin, make, model, year });
     if (rawEdmunds) {
-      affiliateUrl = wrapWithCJ(rawEdmunds);
+      affiliateUrl = wrapWithAffiliateNetwork(rawEdmunds);
       checkAvailSource = "exact";
     }
   }
@@ -138,7 +138,7 @@ export function resolveLinks(listing: AutoDevListing): LinkResolution {
   const rawFallback = treatAsNewOrCarvana
     ? buildEdmundsCategoryUrl({ make, model }, { used, cpo })
     : buildEdmundsCategoryUrl({ make, model, year, trim }, { used, cpo });
-  const affiliateFallbackUrl = rawFallback ? wrapWithCJ(rawFallback) : null;
+  const affiliateFallbackUrl = rawFallback ? wrapWithAffiliateNetwork(rawFallback) : null;
 
   const dealerUrlRaw = listing.retailListing?.vdp;
   const dealerListingUrl = looksObviouslyBroken(dealerUrlRaw) ? null : dealerUrlRaw ?? null;

@@ -1,7 +1,4 @@
-// CJ Affiliate constants for Edmunds
-export const CJ_CLICK_DOMAIN = 'https://www.anrdoezrs.net';
-export const CJ_PUBLISHER_ID = '101637236';
-export const CJ_EDMUNDS_PRODUCT_AD_ID = '17033607';
+export const AFFILIATE_BASE_LINK = 'https://edmunds.sjv.io/c/7765200/3949600/52125';
 export const EDMUNDS_BASE = 'https://www.edmunds.com';
 
 /**
@@ -175,9 +172,9 @@ export function buildEdmundsCategoryUrl(
 }
 
 /**
- * Wraps an Edmunds URL with a CJ affiliate click-through link.
+ * Wraps an Edmunds URL with an affiliate tracking deep-link.
  */
-export function wrapWithCJ(rawUrl: string): string {
+export function wrapWithAffiliateNetwork(rawUrl: string): string {
   const encoded = encodeURIComponent(rawUrl);
-  return `${CJ_CLICK_DOMAIN}/click-${CJ_PUBLISHER_ID}-${CJ_EDMUNDS_PRODUCT_AD_ID}?url=${encoded}`;
+  return `${AFFILIATE_BASE_LINK}?u=${encoded}`;
 }
