@@ -1485,6 +1485,19 @@ const handler = createMcpHandler((server) => {
       const electrificationMatchOf = electrificationResult.matchedVins
         ? (c: AutoDevListing) => electrificationResult.matchedVins!.has(c.vin)
         : undefined;
+      // (SYS-20260924-008) "preferred" electrification, unlike "required",
+      // never excludes anything — so when the bounded top-20 pool
+      // (ELECTRIFICATION_POOL_SIZE) happens to contain zero matches for the
+      // requested type(s), the search silently proceeds with no reordering
+      // and no signal that the preference went unsatisfied. Surfaced
+      // explicitly via dataNotes below rather than left silent, mirroring
+      // the disclosure electrificationShortfall already provides for
+      // "required". Read-only signal only — changes no ranking, ordering,
+      // or exclusion behavior; matches the low-risk fix scope only.
+      const electrificationPreferredNoMatch =
+        electrificationPreferred &&
+        electrificationResult.matchedVins != null &&
+        electrificationResult.matchedVins.size === 0;
 
       const diversified = applyDiversity(
         // EXPERIMENT (preview only): local best_for_budget ordering, applied
@@ -1964,6 +1977,17 @@ const handler = createMcpHandler((server) => {
           `Only ${electrificationShortfall.confirmed} of the usual ${electrificationShortfall.requested} results could be ` +
             `confirmed by NHTSA as matching the required electrification type — fewer results are shown rather than ` +
             `including any vehicle whose electrification status couldn't be verified.`,
+        );
+      }
+      if (electrificationPreferredNoMatch) {
+        // (SYS-20260924-008) See electrificationPreferredNoMatch definition
+        // above for why this exists — closes the silent-failure gap
+        // "preferred" previously had with no equivalent to
+        // electrificationShortfall's disclosure.
+        dataNotes.push(
+          `None of the top-ranked results considered could be confirmed by NHTSA as ${input.electrificationTypes!.join(
+            " or ",
+          )} — showing the best matches by other criteria instead.`,
         );
       }
       if (scopeNote === "nationwide" && rawZip != null) {
