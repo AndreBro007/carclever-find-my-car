@@ -1,7 +1,12 @@
-// CJ Affiliate constants for Edmunds
-export const CJ_CLICK_DOMAIN = 'https://www.anrdoezrs.net';
-export const CJ_PUBLISHER_ID = '101637236';
-export const CJ_EDMUNDS_PRODUCT_AD_ID = '17033607';
+// Affiliate constants for Edmunds. Migrated from CJ Affiliate (anrdoezrs.net)
+// to Impact.com (2026-09-24, DECISIONS.md SYS-20260924 series) — CJ was
+// confirmed dead (returns an error on click-through) as of this date.
+// Scope of this change on `main` is deliberately narrow: only this constant
+// and wrapWithCJ()'s return statement below changed. The function name
+// itself is left as wrapWithCJ (not renamed) so no call site anywhere in
+// this file's importers needs to change — this is the smallest possible
+// diff that fixes the dead affiliate link, nothing else.
+export const AFFILIATE_BASE_LINK = 'https://edmunds.sjv.io/c/7765200/3949600/52125';
 export const EDMUNDS_BASE = 'https://www.edmunds.com';
 
 /**
@@ -152,9 +157,10 @@ export function buildEdmundsCategoryUrl(
 }
 
 /**
- * Wraps an Edmunds URL with a CJ affiliate click-through link.
+ * Wraps an Edmunds URL with an affiliate tracking deep-link.
+ * Function name kept as wrapWithCJ deliberately — see constant comment above.
  */
 export function wrapWithCJ(rawUrl: string): string {
   const encoded = encodeURIComponent(rawUrl);
-  return `${CJ_CLICK_DOMAIN}/click-${CJ_PUBLISHER_ID}-${CJ_EDMUNDS_PRODUCT_AD_ID}?url=${encoded}`;
+  return `${AFFILIATE_BASE_LINK}?u=${encoded}`;
 }
