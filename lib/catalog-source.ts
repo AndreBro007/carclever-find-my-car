@@ -24,7 +24,6 @@ const PAGE_SIZE = 20;
 const MAX_PAGES = 2; // 2 x 20 per query keeps the pool useful but bounded
 const MAX_MODELS = 5;
 const TRACKING_HOSTS = new Set(["edmunds.sjv.io"]);
-const IMAGE_HOST_SUFFIXES = [".edmunds.com", ".cloudfront.net"];
 const VIN_RE = /^[A-HJ-NPR-Z0-9]{17}$/;
 // The VIN is present in the feed but not searchable (ticket #882346). The field it
 // lives in is not yet confirmed, so we look in the standard identifier fields and
@@ -103,11 +102,24 @@ function allowedTrackingUrl(u: string | undefined): string | undefined {
     return undefined;
   }
 }
+const seenImageHosts = new Set<string>();
+// Photos come from Edmunds' own partner feed and are only ever fetched through our signed image
+// proxy (HMAC over the exact URL, image content-types only, size/time caps). So rather than guess a
+// host allowlist, accept any plain https URL and refuse anything that could point inward.
+// Each distinct host is logged once (host name only) so the rule can be tightened from evidence.
 function allowedImageUrl(u: string | undefined): string | undefined {
   if (!u) return undefined;
   try {
     const p = new URL(u);
-    return p.protocol === "https:" && IMAGE_HOST_SUFFIXES.some((s) => p.host.endsWith(s)) ? u : undefined;
+    if (p.protocol !== "https:" || p.username || p.password) return undefined;
+    const h = p.hostname.toLowerCase();
+    const isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.includes(":") || h.startsWith("[");
+    if (isIp || !h.includes(".") || h === "localhost" || /\.(local|internal|localhost|lan|home|corp)$/.test(h)) return undefined;
+    if (!seenImageHosts.has(h) && seenImageHosts.size < 25) {
+      seenImageHosts.add(h);
+      console.info(`[catalog] image host seen: ${h}`);
+    }
+    return u;
   } catch {
     return undefined;
   }

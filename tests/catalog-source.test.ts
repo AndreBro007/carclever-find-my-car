@@ -67,7 +67,11 @@ test("normalise: year falls back to the item Name when Year is missing; never in
 
 test("normalise: bad tracking host / image host dropped, out-of-stock dropped, junk rejected", () => {
   assert.equal(normalizeCatalogItem(item({ Url: "https://evil.example/x" }))!.catalog?.trackingUrl, undefined);
-  assert.equal(normalizeCatalogItem(item({ ImageUrl: "https://evil.example/a.jpg" }))!.retailListing?.primaryImage, undefined);
+  const img = (u: string) => normalizeCatalogItem(item({ ImageUrl: u }))!.retailListing?.primaryImage;
+  assert.equal(img("https://media.ed.edmunds-media.com/a.jpg"), "https://media.ed.edmunds-media.com/a.jpg"); // any normal https host is fine
+  for (const bad of ["http://img.edmunds.com/a.jpg", "https://127.0.0.1/a.jpg", "https://10.0.0.5/a.jpg", "https://[::1]/a.jpg", "https://localhost/a.jpg", "https://db.internal/a.jpg", "https://user:pw@img.edmunds.com/a.jpg", "https://nodots/a.jpg"]) {
+    assert.equal(img(bad), undefined, bad); // refuse anything that could point inward or leak credentials
+  }
   assert.equal(normalizeCatalogItem(item({ StockAvailability: "OutOfStock" })), null);
   assert.equal(normalizeCatalogItem(null), null);
   assert.equal(normalizeCatalogItem({}), null);
