@@ -23,12 +23,12 @@
  */
 import zipcodes from "zipcodes";
 import type { AutoDevListing, ListingsQuery, ListingsResponse } from "./auto-dev-client";
+import { classModels } from "./vehicle-class";
 
 const IMPACT_BASE = "https://api.impact.com";
 const REQUEST_TIMEOUT_MS = 8_000;
 const FALLBACK_PAGE_SIZE = 20;
 const PREFERRED_PAGE_SIZE = 100;
-const MAX_MODELS = 5;
 const MAX_BANDS = 3;
 const MIN_BAND_SPAN = 3_000; // dollars: don't split a narrow price range
 const DEFAULT_RADIUS_MILES = 50;
@@ -82,7 +82,10 @@ export function priceBands(q: ListingsQuery): string[][] {
 export interface CatalogRequest { expr: string; size: number }
 
 const YEAR_PAGE_SIZE = 40;
-const MAX_MODELS_WITH_YEARS = 3;
+const MODELS_PER_QUERY = 8; // models are sent as one `Text1 IN ('a','b',...)` query (IN is proven to work)
+const MAX_MODELS = 24;
+const MANY_HEADS_YEARS = 6;
+const MANY_HEADS_BACKUP_YEARS = 2;
 const YEARS_BACK = 9; // default window: this model year (+1) back nine more
 const OLDEST_YEAR = 1990;
 
@@ -131,13 +134,20 @@ export function planCatalogRequests(q: ListingsQuery): CatalogRequest[] {
     if (q.priceMin != null && Number.isFinite(q.priceMin) && q.priceMin > 0) parts.push(`CurrentPrice >= ${Math.floor(q.priceMin)}`);
     return parts;
   })();
-  const allModels = (q.model ?? "")
+  let allModels = (q.model ?? "")
     .split(",")
     .map(safeToken)
     .filter((m): m is string => !!m);
+  // The caller described a class (e.g. large 3-row SUV) but named no model: expand it here (catalogue only).
+  if (allModels.length === 0 && q.classHint) allModels = classModels(q.classHint, { make: q.make, priceMax: q.priceMax, priceMin: q.priceMin }).map(safeToken).filter((m): m is string => !!m);
+  allModels = [...new Set(allModels)].slice(0, MAX_MODELS);
   const heads: string[] = [];
-  if (allModels.length > 0) allModels.slice(0, MAX_MODELS_WITH_YEARS).forEach((m) => heads.push(`Text1 = '${m}'`));
-  else {
+  if (allModels.length > 0) {
+    for (let i = 0; i < allModels.length; i += MODELS_PER_QUERY) {
+      const chunk = allModels.slice(i, i + MODELS_PER_QUERY);
+      heads.push(chunk.length === 1 ? `Text1 = '${chunk[0]}'` : `Text1 IN (${chunk.map((m) => `'${m}'`).join(",")})`);
+    }
+  } else {
     const category = categoryFor(q.bodyType);
     if (category) heads.push(`Category = '${category}'`);
   }
@@ -150,11 +160,12 @@ export function planCatalogRequests(q: ListingsQuery): CatalogRequest[] {
   if (cities.length > 0) {
     // Local search: the biggest nearby cities' dealers first, plus a few newest national model years as a backup.
     const local = heads.flatMap((h) => cities.map((c) => ({ expr: [h, `Description ~ '${c}'`, ...priceParts].join(" AND "), size: PREFERRED_PAGE_SIZE })));
-    const backup = heads.flatMap((h) => yearsToQuery(q).slice(0, LOCAL_YEARS_BACKUP).map((y) => ({ expr: [h, `Name ~ '${y}'`, ...priceParts].join(" AND "), size: YEAR_PAGE_SIZE })));
+    const backup = heads.flatMap((h) => yearsToQuery(q).slice(0, heads.length > 1 ? MANY_HEADS_BACKUP_YEARS : LOCAL_YEARS_BACKUP).map((y) => ({ expr: [h, `Name ~ '${y}'`, ...priceParts].join(" AND "), size: YEAR_PAGE_SIZE })));
     return [...local, ...backup];
   }
   // One query per model year (newest first): a single national slice would be dominated by old, cheap cars.
-  return heads.flatMap((h) => yearsToQuery(q).map((y) => ({ expr: [h, `Name ~ '${y}'`, ...priceParts].join(" AND "), size: YEAR_PAGE_SIZE })));
+  const years = heads.length > 1 && q.yearMin == null && q.yearMax == null ? yearsToQuery(q).slice(0, MANY_HEADS_YEARS) : yearsToQuery(q);
+  return heads.flatMap((h) => years.map((y) => ({ expr: [h, `Name ~ '${y}'`, ...priceParts].join(" AND "), size: YEAR_PAGE_SIZE })));
 }
 
 export function buildCatalogQueries(q: ListingsQuery): string[] {

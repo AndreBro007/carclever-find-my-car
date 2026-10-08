@@ -1,5 +1,6 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { inferClassHint, classModels } from "../lib/vehicle-class";
 import { buildCatalogQueries, normalizeCatalogItem, detectVin, searchCatalogListings, clearCatalogCacheForTests, diagnoseCatalog, parseMakeFromName, priceBands, dealerZip, yearsToQuery, nearbyCities } from "../lib/catalog-source";
 import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, activeSource } from "../lib/listing-source";
 import { resetSourceModeStateForTests, noteAutoDevOutcome, autoDevLooksExhausted } from "../lib/source-mode";
@@ -42,7 +43,9 @@ test("queries: one per model year (newest first) per model; only queryable field
   assert.equal(q.length, 10);
   assert.equal(q[0], `Text1 = 'CR-V' AND Name ~ '${new Date().getFullYear() + 1}' AND CurrentPrice <= 30000`);
   assert.ok(q.every((e) => e.startsWith("Text1 = 'CR-V' AND Name ~ '") && e.endsWith("CurrentPrice <= 30000")));
-  assert.equal(buildCatalogQueries({ model: "CR-V,RAV4,Camry,Accord", priceMax: 30000 }).length, 30); // capped at 3 models
+  const multi = buildCatalogQueries({ model: "CR-V,RAV4,Camry,Accord", priceMax: 30000 });
+  assert.equal(multi.length, 10); // several models share ONE `IN (...)` query per year (one head -> the full 10-year window)
+  assert.ok(multi.every((e) => e.startsWith("Text1 IN ('CR-V','RAV4','Camry','Accord') AND Name ~ '")));
   assert.deepEqual(yearsToQuery({ yearMin: 2020, yearMax: 2022 }), [2022, 2021, 2020]); // explicit range honoured
   assert.equal(yearsToQuery({ yearMin: 1950 }).length, 12); // bounded
   assert.ok(buildCatalogQueries({ bodyType: "suv", priceMax: 25000 })[0].startsWith("Category = 'SUV' AND Name ~ '"));
@@ -242,9 +245,35 @@ test("local plan: nearest big cities' dealers (Description ~ city) plus a few ne
   assert.equal(plan.length, 5 + 4);
   assert.ok(plan.slice(0, 5).every((e) => /^Text1 = 'CR-V' AND Description ~ '[A-Za-z .\-]+' AND CurrentPrice <= 30000$/.test(e)), plan[0]);
   assert.ok(plan.slice(5).every((e) => /Name ~ '20\d\d'/.test(e)));
-  assert.equal(buildCatalogQueries({ model: "CR-V,RAV4", priceMax: 30000, zip: "90210" }).length, 2 * 3 + 2 * 4); // fewer cities when several models
+  assert.equal(buildCatalogQueries({ model: "CR-V,RAV4", priceMax: 30000, zip: "90210" }).length, 5 + 4); // one IN query: same plan size as a single model
   assert.equal(buildCatalogQueries({ model: "CR-V", priceMax: 30000, zip: "00000" }).length, 10); // unknown ZIP: national years as before
   assert.equal(buildCatalogQueries({ model: "CR-V", priceMax: 30000, zip: "90210", radius: 500 }).length, 10); // very wide radius: national
   assert.equal(buildCatalogQueries({ model: "CR-V", priceMax: 30000 }).length, 10);
   assert.deepEqual(nearbyCities("abcde", 5), []);
+});
+
+test("model lists: >8 models split into IN chunks (cap 24); nothing silently dropped at 3", () => {
+  const models = Array.from({ length: 11 }, (_, i) => `Model${i}`).join(",");
+  const plan = buildCatalogQueries({ model: models, priceMax: 30000, yearMin: 2023, yearMax: 2023 });
+  assert.equal(plan.length, 2); // 8 + 3 models, one year
+  assert.ok(plan[0].includes("'Model7'") && !plan[0].includes("'Model8'") && plan[1].includes("'Model10'"));
+});
+
+test("class safety net: large 3-row SUV without models expands to a curated model list; explicit models are respected", () => {
+  const chatgptCall = { bodyType: "SUV", vehicleType: "SUV", seatsMinPreference: 7, vehicleNeeds: ["large SUV", "three rows", "under 60k", "near 90210"], model: undefined as string | undefined };
+  assert.equal(inferClassHint(chatgptCall), "large_suv_3row");
+  assert.equal(inferClassHint({ ...chatgptCall, model: "Tahoe, Atlas" }), undefined); // the caller resolved the class: respect it
+  assert.equal(inferClassHint({ bodyType: "SUV", vehicleNeeds: ["commuter"] }), undefined); // not large
+  assert.equal(inferClassHint({ bodyType: "Sedan", vehicleNeeds: ["large"] }), undefined); // not an SUV
+  assert.equal(inferClassHint({ bodyType: "SUV", seatsMinPreference: 7 }), "large_suv_3row");
+  const budget = classModels("large_suv_3row", { priceMax: 60000 });
+  assert.ok(budget.includes("Atlas") && budget.includes("Telluride") && budget.includes("Tahoe") && budget.length <= 24);
+  assert.ok(!budget.includes("Trax") && !budget.includes("CR-V") && !budget.includes("HR-V")); // small SUVs never appear
+  assert.deepEqual(classModels("large_suv_3row", { make: "Toyota" }), ["Sequoia", "Highlander", "Grand Highlander", "Land Cruiser", "Lexus-free"].filter((m) => m !== "Lexus-free"));
+  assert.ok(classModels("large_suv_3row", { priceMax: 120000 }).slice(0, 3).join() !== budget.slice(0, 3).join()); // luxury budgets list luxury models first
+  const q = buildCatalogQueries({ bodyType: "SUV", priceMax: 60000, zip: "90210", radius: 100, classHint: "large_suv_3row" });
+  assert.ok(q.every((e) => !/Category/.test(e)), "class list replaces the unreliable Category filter");
+  assert.ok(q.slice(0, 9).every((e) => /^Text1 IN \(/.test(e)));
+  assert.equal(buildCatalogQueries({ bodyType: "SUV", priceMax: 60000, classHint: "large_suv_3row" }).length, 3 * 6); // 3 chunks x 6 years, no ZIP
+  assert.ok(buildCatalogQueries({ bodyType: "SUV", priceMax: 60000 })[0].startsWith("Category = 'SUV'")); // no hint: unchanged
 });

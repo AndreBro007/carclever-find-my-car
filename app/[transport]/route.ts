@@ -4,6 +4,7 @@ import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
 // spike/edmunds-catalog-mode: same four functions, now routed through the source facade
 // (Auto.dev unchanged unless mode/breaker selects the Edmunds catalogue).
 import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, activeSource } from "@/lib/listing-source";
+import { inferClassHint } from "@/lib/vehicle-class";
 // Widening ladder re-enabled 2026-08-16 (SYS-20260816-008). It was bypassed on
 // Aug 13 per André's request — "search itself needs to work correctly before any
 // widening logic runs on top of it." That precondition is now met: the stage-2
@@ -988,6 +989,7 @@ const handler = createMcpHandler((server) => {
         // cpo NOT sent as a filter — CPO-001 forbids treating cpo=false as
         // definitive. input.cpo still collected, used for disclosure below.
         state: input.state,
+        classHint: inferClassHint(input), // catalogue source only: expands a described class when no model names were given
         // accidentCount/ownerCount NOT sent as query filters — history is null
         // in 53% of real listings, so hard-filtering would violate "unknown != false".
         sort: resolveSort(input.priorityAxis, intent.hardConstraints.priceMax),
