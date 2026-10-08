@@ -75,7 +75,7 @@ export interface AutoDevListing {
   "@id"?: string;
   createdAt?: string;
   /** Set only for rows that came from the Edmunds/Impact catalogue (spike/edmunds-catalog-mode). */
-  catalog?: { itemId?: string; trackingUrl?: string };
+  catalog?: { itemId?: string; trackingUrl?: string; distanceMiles?: number };
   vehicle?: {
     make?: string;
     model?: string;
@@ -292,6 +292,8 @@ export interface ListingsResponse {
   degraded?: string;
   /** Which source produced these rows (spike/edmunds-catalog-mode). Absent = Auto.dev. */
   source?: "auto_dev" | "edmunds_catalog";
+  /** Catalogue rows were ordered/filtered by distance from the search ZIP (dealer ZIP -> offline ZIP table). */
+  localApplied?: boolean;
 }
 
 /**

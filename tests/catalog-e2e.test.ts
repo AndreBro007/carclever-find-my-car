@@ -45,3 +45,33 @@ test("route in catalogue mode: schema-valid cards, silent degradation, zero Auto
   assert.equal(sc.results[0].listing.mileage, null);
   assert.equal(autoDev, 0);
 });
+
+test("route with the REAL feed shape (no Make/Year/City/State): make from Name, mileage, dealer city from ZIP, two buttons, local scope", async () => {
+  const feed = (o: Record<string, unknown>) => ({ Name: "2021 Honda CR-V EX", Text1: "CR-V", Text2: "EX", Category: "SUV", CurrentPrice: "24999", Numeric1: "2021", Numeric2: "41234",
+    ShippingLabel: "78702", Manufacturer: "Acme Honda", Url: TRACK, ImageUrl: "https://cdn.inventoryrsc.com/a.jpg", CatalogItemId: "r1", Mpn: VIN, ...o });
+  const rows = [feed({}), feed({ CatalogItemId: "r2", Mpn: "1HGCV1F34MA000002", ShippingLabel: "10001", Name: "2019 Honda CR-V LX", Numeric1: "2019", CurrentPrice: "18000" }),
+    feed({ CatalogItemId: "r3", Mpn: "1HGCV1F34MA000003", ShippingLabel: "78660", Name: "2020 Honda CR-V LX", Numeric1: "2020", CurrentPrice: "21000" }),
+    feed({ CatalogItemId: "r4", Mpn: "1HGCV1F34MA000004", ShippingLabel: "78664", Name: "2022 Honda CR-V Sport", Numeric1: "2022", CurrentPrice: "26000" })];
+  let autoDev = 0;
+  globalThis.fetch = (async (u: string | URL) => {
+    const s = String(u);
+    if (s.includes("api.auto.dev")) { autoDev++; throw new Error("AUTO.DEV MUST NOT BE CALLED"); }
+    if (s.includes("api.impact.com")) return new Response(JSON.stringify({ Items: rows, Total: 4 }), { status: 200 });
+    return new Response("{}", { status: 404 });
+  }) as typeof fetch;
+  const { POST } = await import("../app/[transport]/route");
+  const hdr = { "content-type": "application/json", accept: "application/json, text/event-stream" };
+  const rpc = async (body: unknown) => { const r = await POST(new Request("http://localhost/mcp", { method: "POST", headers: hdr, body: JSON.stringify(body) })); const t = await r.text(); const m = t.match(/data: (.*)/); return JSON.parse(m ? m[1] : t); };
+  await rpc({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } } });
+  const out = await rpc({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "find_matching_vehicle", arguments: { model: "CR-V", priceMax: 30000, zip: "78701", radiusMiles: 50 } } });
+  assert.notEqual(out.result.isError, true);
+  const sc = out.result.structuredContent;
+  assert.equal(sc.meta.scopeNote, "local");
+  const first = sc.results[0];
+  assert.equal(first.identity.make, "Honda");
+  assert.equal(first.listing.mileage, 41234);
+  assert.equal(first.listing.city, "Austin"); assert.equal(first.listing.state, "TX");
+  assert.ok(first.links.affiliateUrl && first.links.affiliateFallbackUrl, "both buttons: Check avail. + View similar");
+  assert.ok(!sc.results.some((c: { identity: { year: number } }) => c.identity.year === 2019), "New York dealer is outside the 50-mile radius");
+  assert.equal(autoDev, 0);
+});

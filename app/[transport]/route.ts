@@ -1037,7 +1037,7 @@ const handler = createMcpHandler((server) => {
         baseQuery.used == null &&
         activeSource() !== "edmunds_catalog" && // catalogue cannot split new/used: one query, no duplicate pool
         (input.priorityAxis === "best_for_budget" || input.priorityAxis == null);
-      let rawResult: { data: AutoDevListing[]; total: number | null; error?: string; degraded?: string; source?: "auto_dev" | "edmunds_catalog" };
+      let rawResult: { data: AutoDevListing[]; total: number | null; error?: string; degraded?: string; source?: "auto_dev" | "edmunds_catalog"; localApplied?: boolean };
       if (useFairPool) {
         const [newResult, usedResult] = await Promise.all([
           searchListingsLean({ ...baseQuery, used: false }),
@@ -1097,7 +1097,7 @@ const handler = createMcpHandler((server) => {
       // good behavior" principle as the invalid-ZIP fix.
       const servedByCatalog = rawResult.source === "edmunds_catalog";
       const scopeNote: "local" | "statewide" | "nationwide" =
-        servedByCatalog && (rawZip != null || baseQuery.state)
+        servedByCatalog && !rawResult.localApplied && (rawZip != null || baseQuery.state)
         ? "nationwide" // catalogue has no ZIP/radius search: never claim local
         : rawZip != null && !zipIsValid
           ? "nationwide"
@@ -1999,7 +1999,7 @@ const handler = createMcpHandler((server) => {
           )} — showing the best matches by other criteria instead.`,
         );
       }
-      if (servedByCatalog && (rawZip != null || baseQuery.state)) {
+      if (servedByCatalog && !rawResult.localApplied && (rawZip != null || baseQuery.state)) {
         // Silent by design (owner decision): no user-visible note about the listing source.
       } else if (scopeNote === "nationwide" && rawZip != null) {
         dataNotes.push("The requested location wasn't recognized, so this search was widened to nationwide.");

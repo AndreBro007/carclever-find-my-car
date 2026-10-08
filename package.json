@@ -16,12 +16,14 @@
     "next": "^15.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "zipcodes": "^8.0.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/jsdom": "^30.0.0",
     "@types/node": "^20.19.43",
     "@types/react": "^19.0.0",
+    "@types/zipcodes": "^8.0.5",
     "jsdom": "^30.0.1",
     "tsx": "^4.23.12",
     "typescript": "5.5"

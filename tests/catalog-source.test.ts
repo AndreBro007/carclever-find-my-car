@@ -1,6 +1,6 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { buildCatalogQueries, normalizeCatalogItem, detectVin, searchCatalogListings, clearCatalogCacheForTests, diagnoseCatalog } from "../lib/catalog-source";
+import { buildCatalogQueries, normalizeCatalogItem, detectVin, searchCatalogListings, clearCatalogCacheForTests, diagnoseCatalog, parseMakeFromName, priceBands, dealerZip } from "../lib/catalog-source";
 import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, activeSource } from "../lib/listing-source";
 import { resetSourceModeStateForTests, noteAutoDevOutcome, autoDevLooksExhausted } from "../lib/source-mode";
 import { resolveLinks } from "../lib/link-resolution";
@@ -9,9 +9,9 @@ import { getAppOrigin } from "../lib/results-card";
 const VIN = "1HGCV1F34MA123456";
 const TRACK = "https://edmunds.sjv.io/c/7765200/3949600/52125?u=https%3A%2F%2Fwww.edmunds.com%2Fx";
 const item = (o: Record<string, unknown> = {}) => ({
-  Text1: "CR-V", Make: "Honda", Year: 2021, Text2: "EX", Category: "SUV", CurrentPrice: "24999",
-  Manufacturer: "Acme Honda", City: "Austin", State: "TX", Url: TRACK, ImageUrl: "https://img.edmunds.com/a.jpg",
-  CatalogItemId: "abc123", Mpn: VIN, ...o,
+  Name: "2021 Honda CR-V EX", Text1: "CR-V", Text2: "EX", Category: "SUV", CurrentPrice: "24999",
+  Numeric1: "2021", Numeric2: "41234", ShippingLabel: "78701", // Austin TX
+  Manufacturer: "Acme Honda", Url: TRACK, ImageUrl: "https://cdn.inventoryrsc.com/a.jpg", CatalogItemId: "abc123", Mpn: VIN, ...o,
 });
 
 const realFetch = globalThis.fetch;
@@ -37,13 +37,37 @@ beforeEach(() => {
 });
 afterEach(() => { globalThis.fetch = realFetch; });
 
-test("queries: model+price, multi-model, category, sanitising, unconstrained", () => {
-  assert.deepEqual(buildCatalogQueries({ model: "CR-V", priceMax: 30000 }), ["Text1 = 'CR-V' AND CurrentPrice <= 30000"]);
-  assert.equal(buildCatalogQueries({ model: "CR-V,RAV4,Camry" }).length, 3);
-  assert.deepEqual(buildCatalogQueries({ bodyType: "suv", priceMax: 25000 }), ["Category = 'SUV' AND CurrentPrice <= 25000"]);
+test("queries: banded by price, per model; only queryable fields; never unconstrained", () => {
+  const q = buildCatalogQueries({ model: "CR-V", priceMax: 30000 });
+  assert.equal(q.length, 3); // 3 price bands
+  assert.ok(q.every((e) => e.startsWith("Text1 = 'CR-V' AND CurrentPrice")));
+  assert.ok(q[0].endsWith("CurrentPrice <= 10000") && q[1].includes("CurrentPrice > 10000") && q[2].includes("CurrentPrice > 20000"));
+  assert.equal(buildCatalogQueries({ model: "CR-V,RAV4,Camry", priceMax: 30000 }).length, 9);
+  assert.deepEqual(buildCatalogQueries({ model: "CR-V", priceMax: 2500 }), ["Text1 = 'CR-V' AND CurrentPrice <= 2500"]); // narrow range: one band
+  assert.deepEqual(buildCatalogQueries({ model: "CR-V" }), ["Text1 = 'CR-V'"]);
+  assert.ok(buildCatalogQueries({ bodyType: "suv", priceMax: 25000 })[0].startsWith("Category = 'SUV' AND"));
   assert.deepEqual(buildCatalogQueries({ model: "x' OR 1=1 --" }), []);
   assert.deepEqual(buildCatalogQueries({}), []);
-  assert.deepEqual(buildCatalogQueries({ model: "CR-V", yearMin: 2020 }, { withYear: true }), ["Text1 = 'CR-V' AND Year >= 2020"]);
+  for (const e of buildCatalogQueries({ model: "CR-V", priceMax: 30000, yearMin: 2020, make: "Honda", zip: "78701" })) assert.ok(!/Year|Make|State|City|Condition/.test(e), e); // unqueryable fields never sent
+  assert.deepEqual(priceBands({ priceMin: 10000, priceMax: 30000 }).map((b) => b.join(" AND ")), ["CurrentPrice >= 10000 AND CurrentPrice <= 16700", "CurrentPrice > 16700 AND CurrentPrice <= 23300", "CurrentPrice > 23300 AND CurrentPrice <= 30000"]);
+});
+
+test("make is parsed from the item Name (feed has no Make field)", () => {
+  assert.equal(parseMakeFromName("2021 Honda CR-V EX"), "Honda");
+  assert.equal(parseMakeFromName("2019 Mercedes-Benz GLC 300"), "Mercedes-Benz");
+  assert.equal(parseMakeFromName("2018 Land Rover Discovery"), "Land Rover");
+  assert.equal(parseMakeFromName("2020 Ram 1500"), "RAM");
+  assert.equal(parseMakeFromName("2020 Mystery Car"), undefined);
+});
+
+test("feed mapping: Numeric1=year, Numeric2=miles, ShippingLabel=dealer ZIP (leading zero restored); implausible values dropped", () => {
+  const l = normalizeCatalogItem(item({ Name: "Honda CR-V EX", ShippingLabel: "2760", Numeric1: "2016", Numeric2: "98765" }))!;
+  assert.equal(l.vehicle?.year, 2016); assert.equal(l.vehicle?.make, "Honda"); assert.equal(l.retailListing?.miles, 98765);
+  assert.equal(l.retailListing?.zip, "02760"); assert.equal(l.retailListing?.state, "MA"); assert.equal(l.retailListing?.city, "North Attleboro");
+  const bad = normalizeCatalogItem(item({ Name: "Honda CR-V EX", Numeric1: "7", Numeric2: "99999999", ShippingLabel: "abc" }))!;
+  assert.equal(bad.vehicle?.year, undefined); assert.equal(bad.retailListing?.miles, undefined); assert.equal(bad.retailListing?.zip, undefined);
+  assert.equal(dealerZip({ ShippingLabel: "00000" }), undefined); // not a real ZIP
+  assert.equal(normalizeCatalogItem(item({ Name: "2019 Honda CR-V LX", Numeric1: "2021" }))!.vehicle?.year, 2019); // explicit year in Name wins
 });
 
 test("normalise: VIN only from a VIN-shaped identifier field; never an item id", () => {
@@ -55,14 +79,16 @@ test("normalise: VIN only from a VIN-shaped identifier field; never an item id",
   assert.equal(detectVin({ Url: TRACK }), ""); // link without a VIN
   const l = normalizeCatalogItem(item({ Mpn: "" }))!;
   assert.equal(l.catalog?.itemId, "abc123");
-  assert.equal(l.retailListing?.used, undefined); // condition never inferred
-  assert.equal(l.retailListing?.miles, undefined);
+  assert.equal(l.retailListing?.used, undefined); // condition never inferred (not from mileage or age)
+  assert.equal(l.retailListing?.cpo, undefined);
+  assert.equal(l.retailListing?.miles, 41234); // Numeric2, validated range
 });
 
 test("normalise: year falls back to the item Name when Year is missing; never invented", () => {
-  assert.equal(normalizeCatalogItem(item({ Year: "", Name: "2019 Honda CR-V LX" }))!.vehicle?.year, 2019);
-  assert.equal(normalizeCatalogItem(item({ Year: 2022, Name: "2019 Honda CR-V LX" }))!.vehicle?.year, 2022);
-  assert.equal(normalizeCatalogItem(item({ Year: "", Name: "Honda CR-V LX" }))!.vehicle?.year, undefined);
+  assert.equal(normalizeCatalogItem(item({ Numeric1: "", Name: "2019 Honda CR-V LX" }))!.vehicle?.year, 2019);
+  assert.equal(normalizeCatalogItem(item({ Numeric1: "2022", Name: "2019 Honda CR-V LX" }))!.vehicle?.year, 2019); // explicit text in Name wins
+  assert.equal(normalizeCatalogItem(item({ Numeric1: "2022", Name: "Honda CR-V LX" }))!.vehicle?.year, 2022); // else Numeric1
+  assert.equal(normalizeCatalogItem(item({ Numeric1: "", Name: "Honda CR-V LX" }))!.vehicle?.year, undefined); // never invented
 });
 
 test("normalise: bad tracking host / image host dropped, out-of-stock dropped, junk rejected", () => {
@@ -125,16 +151,41 @@ test("catalogue failure is an error, not 'no cars'; empty result is empty", asyn
   assert.equal(e.error, undefined); assert.equal(e.data.length, 0);
 });
 
-test("year filter unsupported (all 400) -> retried once without it", async () => {
-  let calls: string[] = [];
+test("page size: 100 rejected -> falls back to 20 once and still returns results", async () => {
+  const sizes: string[] = [];
   globalThis.fetch = (async (url: string | URL) => {
-    const u = decodeURIComponent(String(url)); calls.push(u);
-    if (u.includes("Year >=")) return new Response("Unknown search field name: Year", { status: 400 });
+    const u = new URL(String(url)); sizes.push(u.searchParams.get("PageSize") ?? "");
+    if (u.searchParams.get("PageSize") === "100") return new Response("too big", { status: 400 });
     return new Response(JSON.stringify({ Items: [item()], Total: 1 }), { status: 200 });
   }) as typeof fetch;
-  const r = await searchCatalogListings({ model: "CR-V", yearMin: 2020 });
-  assert.equal(r.data.length, 1);
-  assert.ok(calls.some((c) => !c.includes("Year >=")));
+  const r = await searchCatalogListings({ model: "CR-V", priceMax: 30000 });
+  assert.equal(r.data.length, 1); assert.ok(sizes.includes("100") && sizes.includes("20"));
+  sizes.length = 0; await searchCatalogListings({ model: "CR-V", priceMax: 30000 });
+  assert.ok(!sizes.includes("100")); // remembered
+});
+
+test("distance: nearest first, outside-radius dropped, dealers with unknown ZIP kept last; scope reported as local", async () => {
+  const rows = [
+    item({ CatalogItemId: "far", Mpn: "1HGCV1F34MA000001", ShippingLabel: "10001", Name: "2021 Honda CR-V EX" }),   // New York
+    item({ CatalogItemId: "near", Mpn: "1HGCV1F34MA000002", ShippingLabel: "78702", Name: "2021 Honda CR-V EX" }),  // Austin
+    item({ CatalogItemId: "mid", Mpn: "1HGCV1F34MA000003", ShippingLabel: "78660", Name: "2021 Honda CR-V EX" }),   // Pflugerville
+    item({ CatalogItemId: "mid2", Mpn: "1HGCV1F34MA000004", ShippingLabel: "78664", Name: "2021 Honda CR-V EX" }),  // Round Rock
+    item({ CatalogItemId: "nozip", Mpn: "1HGCV1F34MA000005", ShippingLabel: "", Name: "2021 Honda CR-V EX" }),
+  ];
+  stubFetch({ items: rows });
+  const r = await searchCatalogListings({ model: "CR-V", priceMax: 30000, zip: "78701", radius: 50 });
+  const ids = r.data.map((l) => l.catalog?.itemId);
+  assert.equal(r.localApplied, true);
+  assert.deepEqual(ids.slice(0, 3).sort(), ["mid", "mid2", "near"]); assert.equal(ids[0], "near");
+  assert.ok(!ids.includes("far")); assert.equal(ids[ids.length - 1], "nozip");
+  assert.ok((r.data[0].catalog?.distanceMiles ?? 99) <= 5);
+  // too few inside the radius -> show the nearest anyway instead of nothing
+  stubFetch({ items: [rows[0], rows[4]] });
+  const sparse = await searchCatalogListings({ model: "CR-V", zip: "78701", radius: 25 });
+  assert.equal(sparse.data[0].catalog?.itemId, "far");
+  // no ZIP -> no local ordering claimed
+  stubFetch({ items: rows });
+  assert.equal((await searchCatalogListings({ model: "CR-V", priceMax: 30000 })).localApplied, false);
 });
 
 test("links: catalogue tracking URL used exactly as supplied (not re-wrapped); VIN-less rows still get a link", () => {
@@ -167,13 +218,15 @@ test("widget origin: production unchanged; preview uses explicit override only w
 test("diagnostics: aggregates only (no VIN, URL, dealer or credential values), reports queryability", async () => {
   globalThis.fetch = (async (url: string | URL) => {
     const u = decodeURIComponent(String(url)).replace(/\+/g, " ");
-    if (u.includes("City =")) return new Response("Unknown search field name: City", { status: 400 });
+    if (u.includes("State =")) return new Response("Unknown search field name: State", { status: 400 });
+    if (u.includes("inventoryrsc")) return new Response("img", { status: 200, headers: { "content-type": "image/jpeg" } });
     return new Response(JSON.stringify({ Items: [item()], Total: 1 }), { status: 200 });
   }) as typeof fetch;
   const d = await diagnoseCatalog();
   assert.ok(!("error" in d));
   const out = JSON.stringify(d);
-  for (const secret of [VIN, TRACK, "Acme Honda", "tok", "abc123"]) assert.ok(!out.includes(secret), `leaked: ${secret}`);
-  assert.equal((d as { queryability: Record<string, string> }).queryability["City = 'Beverly Hills'"], "HTTP 400");
+  for (const secret of [VIN, TRACK, "Acme Honda", "tok", "abc123", "inventoryrsc.com/a.jpg"]) assert.ok(!out.includes(secret), `leaked: ${secret}`);
+  assert.equal((d as { queryability: Record<string, string> }).queryability["State = 'CA' (expected 400)"], "HTTP 400");
+  assert.ok((d as { mappingChecks: Record<string, string> }).mappingChecks["ShippingLabel is a real US ZIP"].startsWith("1/1"));
   assert.ok((d as { fields: Record<string, { vinShaped: number }> }).fields.Mpn.vinShaped === 1);
 });
