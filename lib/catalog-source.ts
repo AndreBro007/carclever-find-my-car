@@ -141,13 +141,13 @@ function allowedTrackingUrl(u: string | undefined): string | undefined {
 
 const seenImageHosts = new Set<string>();
 // Photos come from Edmunds' own partner feed (many dealer CDNs) and are only ever fetched through our
-// signed image proxy (HMAC over the exact URL, image content-types only, size/time caps). Accept plain
-// https URLs; refuse anything that could point inward. Each distinct host is logged once (name only).
+// signed image proxy (HMAC over the exact URL, image content-types only, size/time caps), which is HTTPS to the
+// user even when the upstream dealer CDN is plain http (3 of 18 sampled photos). Refuse anything that could point inward. Each distinct host is logged once (name only).
 function allowedImageUrl(u: string | undefined): string | undefined {
   if (!u) return undefined;
   try {
     const p = new URL(u);
-    if (p.protocol !== "https:" || p.username || p.password) return undefined;
+    if ((p.protocol !== "https:" && p.protocol !== "http:") || p.username || p.password) return undefined;
     const h = p.hostname.toLowerCase();
     const isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.includes(":") || h.startsWith("[");
     if (isIp || !h.includes(".") || h === "localhost" || /\.(local|internal|localhost|lan|home|corp)$/.test(h)) return undefined;
@@ -366,14 +366,16 @@ export interface CatalogDiagnostics {
   sampleSize: number;
   fields: Record<string, { populated: number; vinShaped: number; numericRange?: string }>;
   mappingChecks: Record<string, string>;
-  nameShapes: string[];
+  textShapes: Record<string, string[]>;
   categoryValues: Record<string, number>;
-  categoricalValues: Record<string, Record<string, number>>;
   imageSchemes: Record<string, number>;
-  imageHostFetchTests: Array<{ host: string; status: string; contentType: string }>;
-  queryability: Record<string, string>;
+  imageFetchByHost: Record<string, { ok: number; fail: number; statuses: Record<string, number>; contentTypes: Record<string, number>; maxKB: number }>;
+  probes: Record<string, string>;
   note: string;
 }
+
+const maskShape = (v: unknown, n: number): string =>
+  String(v ?? "").slice(0, n).replace(/[A-Z]/g, "A").replace(/[a-z]/g, "a").replace(/\d/g, "9").replace(/a{2,}/g, "a+").replace(/A{2,}/g, "A+");
 
 export async function diagnoseCatalog(): Promise<CatalogDiagnostics | { error: string }> {
   if (!catalogConfigured()) return { error: "catalogue credentials not configured" };
@@ -398,12 +400,10 @@ export async function diagnoseCatalog(): Promise<CatalogDiagnostics | { error: s
   const fields: CatalogDiagnostics["fields"] = {};
   const nums: Record<string, number[]> = {};
   const cats: Record<string, number> = {};
-  const categorical: Record<string, Record<string, number>> = { SubCategory: {}, Material: {}, Colors: {} };
   const schemes: Record<string, number> = { https: 0, http: 0, none: 0 };
-  const firstUrlByHost = new Map<string, string>();
   const SKIP = new Set(["id", "catalogid", "campaignid", "catalogitemid", "uri", "advertiserid", "mpn", "gtin", "asin"]);
-  let yearAgree = 0, yearBoth = 0, milesOk = 0, zipOk = 0, makeParsed = 0, text3WithDigits = 0, vinInMpn = 0;
-  const shapes: string[] = [];
+  let yearAgree = 0, yearBoth = 0, milesOk = 0, zipOk = 0, makeParsed = 0, vinInMpn = 0;
+  const imageUrls: string[] = [];
   for (const it of items) {
     for (const [k, v] of Object.entries(it)) {
       const f = (fields[k] ??= { populated: 0, vinShaped: 0 });
@@ -416,61 +416,71 @@ export async function diagnoseCatalog(): Promise<CatalogDiagnostics | { error: s
       } else if (typeof v === "number" && !SKIP.has(k.toLowerCase())) (nums[k] ??= []).push(v);
     }
     const c = str(it.Category); if (c) cats[c] = (cats[c] ?? 0) + 1;
-    for (const k of Object.keys(categorical)) {
-      const raw = it[k]; const val = Array.isArray(raw) ? raw.join("|") : str(raw);
-      if (val && Object.keys(categorical[k]).length < 10) categorical[k][val] = (categorical[k][val] ?? 0) + 1;
-    }
     const nm = str(it.Name); const ny = /^\s*((?:19[89]|20[0-3])\d)\b/.exec(nm ?? "")?.[1];
     const n1 = plausibleYear(num(it.Numeric1));
     if (ny && n1 != null) { yearBoth++; if (Number(ny) === n1) yearAgree++; }
     if (plausibleMiles(num(it.Numeric2)) != null) milesOk++;
     if (dealerZip(it)) zipOk++;
     if (parseMakeFromName(nm)) makeParsed++;
-    if (/\d/.test(str(it.Text3) ?? "")) text3WithDigits++;
     if (VIN_RE.test((str(it.Mpn) ?? "").toUpperCase())) vinInMpn++;
-    if (nm && shapes.length < 3) shapes.push(nm.replace(/\d/g, "9").slice(0, 60));
-    try { const u = new URL(str(it.ImageUrl) ?? ""); schemes[u.protocol === "https:" ? "https" : "http"]++; if (!firstUrlByHost.has(u.hostname)) firstUrlByHost.set(u.hostname, u.toString()); } catch { schemes.none++; }
+    try { const u = new URL(str(it.ImageUrl) ?? ""); schemes[u.protocol === "https:" ? "https" : "http"]++; imageUrls.push(u.toString()); } catch { schemes.none++; }
   }
   for (const [k, arr] of Object.entries(nums)) if (fields[k]) fields[k].numericRange = `${Math.min(...arr)}..${Math.max(...arr)}`;
   const N = items.length;
   const mappingChecks: Record<string, string> = {
     "Mpn is a VIN": `${vinInMpn}/${N}`,
-    "Numeric1 plausible year AND equals year in Name": `${yearAgree}/${yearBoth} (items where both exist)`,
-    "Numeric2 plausible mileage (0..600000)": `${milesOk}/${N}`,
+    "Numeric1 = year in Name": `${yearAgree}/${yearBoth}`,
+    "Numeric2 plausible mileage": `${milesOk}/${N}`,
     "ShippingLabel is a real US ZIP": `${zipOk}/${N}`,
     "make parsed from Name": `${makeParsed}/${N}`,
-    "Text3 contains digits (street-address-like)": `${text3WithDigits}/${N}`,
+  };
+  // Layout only (letters -> a/A, digits -> 9): shows whether these text fields carry a city/state/ZIP without printing any real value.
+  const textShapes: Record<string, string[]> = {
+    Text3: items.slice(0, 3).map((i) => maskShape(i.Text3, 70)),
+    Description: items.slice(0, 2).map((i) => maskShape(i.Description, 110)),
+    Name: items.slice(0, 2).map((i) => maskShape(i.Name, 50)),
   };
 
-  // Can each photo host actually be fetched server-side the way our image proxy does it?
-  const imageHostFetchTests: CatalogDiagnostics["imageHostFetchTests"] = [];
-  await Promise.all([...firstUrlByHost.entries()].slice(0, 12).map(async ([host, url]) => {
+  // Fetch EVERY sampled photo server-side exactly as our image proxy does, grouped by host.
+  const imageFetchByHost: CatalogDiagnostics["imageFetchByHost"] = {};
+  await Promise.all(imageUrls.map(async (url) => {
+    const host = new URL(url).hostname;
+    const h = (imageFetchByHost[host] ??= { ok: 0, fail: 0, statuses: {}, contentTypes: {}, maxKB: 0 });
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(8000), headers: { "User-Agent": "CarCleverFindMyCar-ImageProxy/1.0", Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8" } });
-      imageHostFetchTests.push({ host, status: String(r.status), contentType: (r.headers.get("content-type") ?? "").slice(0, 40) });
+      const r = await fetch(url, { signal: AbortSignal.timeout(9000), headers: { "User-Agent": "CarCleverFindMyCar-ImageProxy/1.0", Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8" } });
+      const ct = (r.headers.get("content-type") ?? "none").split(";")[0].slice(0, 30);
+      const kb = Math.round(Number(r.headers.get("content-length") ?? 0) / 1024);
+      h.statuses[String(r.status)] = (h.statuses[String(r.status)] ?? 0) + 1;
+      h.contentTypes[ct] = (h.contentTypes[ct] ?? 0) + 1;
+      h.maxKB = Math.max(h.maxKB, kb);
+      if (r.ok && ct.startsWith("image/")) h.ok++; else h.fail++;
       void r.body?.cancel();
     } catch (e) {
-      imageHostFetchTests.push({ host, status: "error", contentType: String((e as Error)?.name ?? "") });
+      h.fail++; const k = String((e as Error)?.name ?? "error"); h.statuses[k] = (h.statuses[k] ?? 0) + 1;
     }
   }));
 
-  const probes: Array<[string, string, number]> = [
-    ["ShippingLabel = '90210' (exact dealer ZIP)", "Text1 = 'CR-V' AND ShippingLabel = '90210'", 1],
-    ["ShippingLabel range 90000..91000", "Text1 = 'CR-V' AND ShippingLabel >= '90000' AND ShippingLabel <= '91000'", 1],
-    ["ShippingLabel ~ '902' (prefix/contains)", "Text1 = 'CR-V' AND ShippingLabel ~ '902'", 1],
-    ["Name ~ 'CR-V' (contains)", "Name ~ 'CR-V'", 1],
-    ["Numeric2 <= 60000 (mileage range)", "Text1 = 'CR-V' AND Numeric2 <= 60000", 1],
-    ["Colors = 'Black'", "Text1 = 'CR-V' AND Colors = 'Black'", 1],
-    ["Category = 'SUV'", "Text1 = 'CR-V' AND Category = 'SUV'", 1],
-    ["State = 'CA' (expected 400)", "Text1 = 'CR-V' AND State = 'CA'", 1],
+  const hist = (arr: string[]) => { const m: Record<string, number> = {}; for (const a of arr) m[a] = (m[a] ?? 0) + 1; return JSON.stringify(m); };
+  const probeDefs: Array<[string, string, (items: Record<string, unknown>[]) => string]> = [
+    ["Name ~ '2024' (contains: model year in Name)", "Text1 = 'CR-V' AND Name ~ '2024' AND CurrentPrice <= 30000", (it) => `names starting 2024: ${it.filter((i) => /^\s*2024\b/.test(str(i.Name) ?? "")).length}/${it.length}`],
+    ["Name ~ '2022'", "Text1 = 'CR-V' AND Name ~ '2022' AND CurrentPrice <= 30000", (it) => `names starting 2022: ${it.filter((i) => /^\s*2022\b/.test(str(i.Name) ?? "")).length}/${it.length}`],
+    ["Text3 ~ 'Beverly Hills' (dealer address contains city?)", "Text1 = 'CR-V' AND Text3 ~ 'Beverly Hills'", (it) => `dealer ZIP3 histogram: ${hist(it.map((i) => (dealerZip(i)?.zip ?? "????").slice(0, 3)))}`],
+    ["Text3 ~ 'CA' (dealer address contains state?)", "Text1 = 'CR-V' AND Text3 ~ 'CA'", (it) => `dealer state histogram: ${hist(it.map((i) => dealerZip(i)?.state ?? "?"))}`],
+    ["Text3 ~ '90210' (dealer address contains ZIP?)", "Text1 = 'CR-V' AND Text3 ~ '90210'", (it) => `dealer ZIP3 histogram: ${hist(it.map((i) => (dealerZip(i)?.zip ?? "????").slice(0, 3)))}`],
+    ["Description ~ 'Los Angeles'", "Text1 = 'CR-V' AND Description ~ 'Los Angeles'", (it) => `dealer state histogram: ${hist(it.map((i) => dealerZip(i)?.state ?? "?"))}`],
+    ["OR: Text1 = 'CR-V' OR Text1 = 'RAV4'", "Text1 = 'CR-V' OR Text1 = 'RAV4'", (it) => `models: ${hist(it.map((i) => str(i.Text1) ?? "?"))}`],
+    ["IN: Text1 IN ('CR-V','RAV4')", "Text1 IN ('CR-V','RAV4')", (it) => `models: ${hist(it.map((i) => str(i.Text1) ?? "?"))}`],
+    ["Manufacturer ~ 'Honda' (dealer name contains)", "Text1 = 'CR-V' AND Manufacturer ~ 'Honda'", (it) => `returned dealers containing Honda: ${it.filter((i) => /honda/i.test(str(i.Manufacturer) ?? "")).length}/${it.length}`],
+    ["ShippingLabel = '90210' (expected 400)", "Text1 = 'CR-V' AND ShippingLabel = '90210'", () => ""],
+    ["Numeric2 <= 60000 (expected 400)", "Text1 = 'CR-V' AND Numeric2 <= 60000", () => ""],
   ];
-  const queryability: Record<string, string> = {};
-  for (const [label, expr, size] of probes) {
-    const r = await get(expr, size);
-    queryability[label] = r.status === "200" ? `ok (total ${r.total ?? "none"})` : `HTTP ${r.status}`;
-  }
+  const results = await Promise.all(probeDefs.map(async ([label, expr, summarize]) => {
+    const r = await get(expr, 20);
+    return [label, r.status === "200" ? `ok: returned ${r.items.length}${r.total != null ? `, total ${r.total}` : ""}${r.items.length ? "; " + summarize(r.items) : ""}` : `HTTP ${r.status}`] as const;
+  }));
+  const probes: Record<string, string> = Object.fromEntries(results);
   const big = await get("Text1 = 'CR-V' AND CurrentPrice <= 30000", 100);
-  queryability["PageSize=100 accepted"] = big.status === "200" ? `yes (returned ${big.items.length})` : `HTTP ${big.status}`;
+  probes["PageSize=100"] = big.status === "200" ? `yes (returned ${big.items.length})` : `HTTP ${big.status}`;
 
-  return { sampleSize: N, fields, mappingChecks, nameShapes: shapes, categoryValues: cats, categoricalValues: categorical, imageSchemes: schemes, imageHostFetchTests, queryability, note: "aggregates only: no VINs, URLs, dealer names, street addresses or credentials" };
+  return { sampleSize: N, fields, mappingChecks, textShapes, categoryValues: cats, imageSchemes: schemes, imageFetchByHost, probes, note: "aggregates and layouts only: no VINs, URLs, dealer names, street addresses or credentials" };
 }

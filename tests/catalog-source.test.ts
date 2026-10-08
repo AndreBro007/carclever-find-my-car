@@ -95,7 +95,8 @@ test("normalise: bad tracking host / image host dropped, out-of-stock dropped, j
   assert.equal(normalizeCatalogItem(item({ Url: "https://evil.example/x" }))!.catalog?.trackingUrl, undefined);
   const img = (u: string) => normalizeCatalogItem(item({ ImageUrl: u }))!.retailListing?.primaryImage;
   assert.equal(img("https://media.ed.edmunds-media.com/a.jpg"), "https://media.ed.edmunds-media.com/a.jpg"); // any normal https host is fine
-  for (const bad of ["http://img.edmunds.com/a.jpg", "https://127.0.0.1/a.jpg", "https://10.0.0.5/a.jpg", "https://[::1]/a.jpg", "https://localhost/a.jpg", "https://db.internal/a.jpg", "https://user:pw@img.edmunds.com/a.jpg", "https://nodots/a.jpg"]) {
+  assert.equal(img("http://dealer-cdn.example.com/a.jpg"), "http://dealer-cdn.example.com/a.jpg"); // plain-http dealer CDNs are fetched via our HTTPS proxy
+  for (const bad of ["ftp://img.edmunds.com/a.jpg", "https://127.0.0.1/a.jpg", "https://10.0.0.5/a.jpg", "https://[::1]/a.jpg", "https://localhost/a.jpg", "https://db.internal/a.jpg", "https://user:pw@img.edmunds.com/a.jpg", "https://nodots/a.jpg"]) {
     assert.equal(img(bad), undefined, bad); // refuse anything that could point inward or leak credentials
   }
   assert.equal(normalizeCatalogItem(item({ StockAvailability: "OutOfStock" })), null);
@@ -218,7 +219,7 @@ test("widget origin: production unchanged; preview uses explicit override only w
 test("diagnostics: aggregates only (no VIN, URL, dealer or credential values), reports queryability", async () => {
   globalThis.fetch = (async (url: string | URL) => {
     const u = decodeURIComponent(String(url)).replace(/\+/g, " ");
-    if (u.includes("State =")) return new Response("Unknown search field name: State", { status: 400 });
+    if (u.includes("ShippingLabel =") || u.includes("Numeric2")) return new Response("Unknown search field name", { status: 400 });
     if (u.includes("inventoryrsc")) return new Response("img", { status: 200, headers: { "content-type": "image/jpeg" } });
     return new Response(JSON.stringify({ Items: [item()], Total: 1 }), { status: 200 });
   }) as typeof fetch;
@@ -226,7 +227,8 @@ test("diagnostics: aggregates only (no VIN, URL, dealer or credential values), r
   assert.ok(!("error" in d));
   const out = JSON.stringify(d);
   for (const secret of [VIN, TRACK, "Acme Honda", "tok", "abc123", "inventoryrsc.com/a.jpg"]) assert.ok(!out.includes(secret), `leaked: ${secret}`);
-  assert.equal((d as { queryability: Record<string, string> }).queryability["State = 'CA' (expected 400)"], "HTTP 400");
+  assert.equal((d as { probes: Record<string, string> }).probes["ShippingLabel = '90210' (expected 400)"], "HTTP 400");
   assert.ok((d as { mappingChecks: Record<string, string> }).mappingChecks["ShippingLabel is a real US ZIP"].startsWith("1/1"));
+  const textLayout = JSON.stringify((d as { textShapes: unknown }).textShapes); assert.ok(!/Acme|Honda|Austin|78701/.test(textLayout), "layouts must not echo real values");
   assert.ok((d as { fields: Record<string, { vinShaped: number }> }).fields.Mpn.vinShaped === 1);
 });
