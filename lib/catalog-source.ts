@@ -586,3 +586,66 @@ export async function diagnoseCatalog(): Promise<CatalogDiagnostics | { error: s
 
   return { sampleSize: N, fields, mappingChecks, textShapes, categoryValues: cats, imageSchemes: schemes, imageFetchByHost, probes, carmaxBrowserHeadersRetry, note: "aggregates and layouts only: no VINs, URLs, dealer names, street addresses or credentials" };
 }
+
+// ---------- catalogue FILES endpoint diagnostics (read-only: lists files, downloads nothing) ----------
+
+export interface CatalogFilesDiagnostics {
+  httpStatus: string;
+  topLevelKeys: string[];
+  fileCount: number | null;
+  perFileKeys: string[];
+  files: Array<Record<string, string | number | boolean | null>>;
+  summary: Record<string, string>;
+  note: string;
+}
+
+/** Only short, plain values pass through. URLs are reduced to scheme + host (no path, query or credentials). */
+function safeValue(v: unknown): string | number | boolean | null {
+  if (v == null) return null;
+  if (typeof v === "number" || typeof v === "boolean") return v;
+  if (typeof v !== "string") return `<${Array.isArray(v) ? "list" : "object"}>`;
+  const t = v.trim();
+  if (/^(https?|ftp|sftp|ftps):\/\//i.test(t)) {
+    try { const u = new URL(t); return `<${u.protocol.replace(":", "")} link to ${u.hostname}, ${t.length} chars, path hidden>`; } catch { return `<link, ${t.length} chars, hidden>`; }
+  }
+  if (t.includes("@") || t.length > 60) return `<hidden: ${t.length} chars>`;
+  return t;
+}
+
+export async function diagnoseCatalogFiles(): Promise<CatalogFilesDiagnostics | { error: string }> {
+  if (!catalogConfigured()) return { error: "catalogue credentials not configured" };
+  const sid = process.env.IMPACT_ACCOUNT_SID!, token = process.env.IMPACT_AUTH_TOKEN!, catalog = process.env.IMPACT_CATALOG_ID!;
+  let res: Response;
+  try {
+    res = await fetch(`${IMPACT_BASE}/Mediapartners/${sid}/Catalogs/${catalog}/Files`, {
+      headers: { Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}`, Accept: "application/json" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (e) {
+    return { error: `request failed: ${String((e as Error)?.name ?? "error")}` };
+  }
+  if (!res.ok) return { httpStatus: String(res.status), topLevelKeys: [], fileCount: null, perFileKeys: [], files: [], summary: {}, note: "the Files endpoint returned an error (token scope or path); nothing else is known" };
+  let body: Record<string, unknown> = {};
+  try { body = (await res.json()) as Record<string, unknown>; } catch { return { httpStatus: "200", topLevelKeys: [], fileCount: null, perFileKeys: [], files: [], summary: {}, note: "response was not JSON" }; }
+  const arrays = Object.entries(body).filter(([, v]) => Array.isArray(v)) as Array<[string, unknown[]]>;
+  const list = (arrays.sort((a, b) => b[1].length - a[1].length)[0]?.[1] ?? []) as Array<Record<string, unknown>>;
+  const perFileKeys = [...new Set(list.flatMap((o) => (o && typeof o === "object" ? Object.keys(o) : [])))];
+  const files = list.slice(0, 40).map((o) => Object.fromEntries(Object.entries(o ?? {}).map(([k, v]) => [k, safeValue(v)])));
+  const summary: Record<string, string> = {};
+  const sizeKey = perFileKeys.find((k) => /size|bytes|length/i.test(k));
+  if (sizeKey) {
+    const nums = list.map((o) => Number(o?.[sizeKey])).filter((n) => Number.isFinite(n));
+    if (nums.length) summary[`${sizeKey}: total / largest (as returned, unit not assumed)`] = `${nums.reduce((a, b) => a + b, 0)} / ${Math.max(...nums)}`;
+  }
+  for (const k of perFileKeys.filter((k) => /format|type|extension|compress|delimiter|schedule|frequency|interval/i.test(k))) {
+    const m: Record<string, number> = {};
+    for (const o of list) { const v = safeValue(o?.[k]); const key = String(v); m[key] = (m[key] ?? 0) + 1; }
+    summary[`${k} values`] = JSON.stringify(m);
+  }
+  for (const k of perFileKeys.filter((k) => /date|time|updated|created|modified/i.test(k))) {
+    const vals = list.map((o) => safeValue(o?.[k])).filter((v) => typeof v === "string").sort() as string[];
+    if (vals.length) summary[`${k}: oldest / newest`] = `${vals[0]} / ${vals[vals.length - 1]}`;
+  }
+  return { httpStatus: "200", topLevelKeys: Object.keys(body), fileCount: list.length, perFileKeys, files, summary, note: "read-only listing: nothing downloaded; links reduced to host name; no credentials" };
+}

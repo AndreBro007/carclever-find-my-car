@@ -1,7 +1,7 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { inferClassHint, classModels } from "../lib/vehicle-class";
-import { buildCatalogQueries, normalizeCatalogItem, detectVin, searchCatalogListings, clearCatalogCacheForTests, diagnoseCatalog, parseMakeFromName, priceBands, dealerZip, yearsToQuery, nearbyCities } from "../lib/catalog-source";
+import { buildCatalogQueries, normalizeCatalogItem, detectVin, searchCatalogListings, clearCatalogCacheForTests, diagnoseCatalog, diagnoseCatalogFiles, parseMakeFromName, priceBands, dealerZip, yearsToQuery, nearbyCities } from "../lib/catalog-source";
 import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, activeSource } from "../lib/listing-source";
 import { resetSourceModeStateForTests, noteAutoDevOutcome, autoDevLooksExhausted } from "../lib/source-mode";
 import { resolveLinks } from "../lib/link-resolution";
@@ -276,4 +276,21 @@ test("class safety net: large 3-row SUV without models expands to a curated mode
   assert.ok(q.slice(0, 9).every((e) => /^Text1 IN \(/.test(e)));
   assert.equal(buildCatalogQueries({ bodyType: "SUV", priceMax: 60000, classHint: "large_suv_3row" }).length, 3 * 6); // 3 chunks x 6 years, no ZIP
   assert.ok(buildCatalogQueries({ bodyType: "SUV", priceMax: 60000 })[0].startsWith("Category = 'SUV'")); // no hint: unchanged
+});
+
+test("files diagnostics: lists metadata only; links reduced to host; no credentials; handles errors", async () => {
+  globalThis.fetch = (async (u: string | URL) => {
+    assert.ok(String(u).endsWith("/Files"), "only the Files listing is called, nothing is downloaded");
+    return new Response(JSON.stringify({ "@page": "1", Files: [
+      { Id: "f1", Name: "edmunds_full.csv", Size: 750000000, Format: "CSV", LastUpdated: "2026-10-08T22:00:00Z", Uri: "https://feeds.example.net/secret/path/f1.csv?token=ABC123" },
+      { Id: "f2", Name: "edmunds_delta.csv", Size: 5000000, Format: "CSV", LastUpdated: "2026-10-09T01:00:00Z", Uri: "ftp://user:pw@ftp.example.net/f2.csv" },
+    ] }), { status: 200 });
+  }) as typeof fetch;
+  const d = await diagnoseCatalogFiles();
+  assert.ok(!("error" in d)); const out = JSON.stringify(d);
+  for (const secret of ["ABC123", "secret/path", "user:pw", "tok", "f1.csv"]) assert.ok(!out.includes(secret), `leaked ${secret}`);
+  const r = d as { fileCount: number; files: Array<Record<string, unknown>> };
+  assert.equal(r.fileCount, 2); assert.match(String(r.files[0].Uri), /link to feeds\.example\.net/); assert.equal(r.files[0].Size, 750000000);
+  globalThis.fetch = (async () => new Response("denied", { status: 403 })) as typeof fetch;
+  assert.equal(((await diagnoseCatalogFiles()) as { httpStatus: string }).httpStatus, "403");
 });
