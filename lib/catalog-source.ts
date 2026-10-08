@@ -279,3 +279,72 @@ export async function searchCatalogListings(q: ListingsQuery): Promise<ListingsR
   const total = totals.every((t) => t != null) ? (totals as number[]).reduce((a, b) => a + b, 0) / MAX_PAGES : null;
   return { data, total: total != null && total >= data.length ? Math.round(total) : null, source: "edmunds_catalog" };
 }
+
+// ---------- diagnostics (aggregate-only; used by the key-protected /api/catalog-diag route) ----------
+
+export interface CatalogDiagnostics {
+  sampleSize: number;
+  fields: Record<string, { populated: number; vinShaped: number; numericRange?: string }>;
+  categoryValues: Record<string, number>;
+  stateValues: Record<string, number>;
+  imageHosts: string[];
+  queryability: Record<string, string>;
+  note: string;
+}
+
+export async function diagnoseCatalog(): Promise<CatalogDiagnostics | { error: string }> {
+  if (!catalogConfigured()) return { error: "catalogue credentials not configured" };
+  const sid = process.env.IMPACT_ACCOUNT_SID!, token = process.env.IMPACT_AUTH_TOKEN!, catalog = process.env.IMPACT_CATALOG_ID!;
+  const get = async (expr: string, size: number) => {
+    const qs = new URLSearchParams({ Query: expr, PageSize: String(size) });
+    try {
+      const res = await fetch(`${IMPACT_BASE}/Mediapartners/${sid}/Catalogs/${catalog}/Items?${qs.toString()}`, {
+        headers: { Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}`, Accept: "application/json" },
+        cache: "no-store",
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      if (!res.ok) return { status: String(res.status), items: [] as Record<string, unknown>[], total: null as number | null };
+      const b = (await res.json()) as { Items?: Record<string, unknown>[]; Total?: unknown };
+      return { status: "200", items: b.Items ?? [], total: typeof b.Total === "number" ? b.Total : null };
+    } catch {
+      return { status: "network/timeout", items: [] as Record<string, unknown>[], total: null as number | null };
+    }
+  };
+  const base = await get("Text1 = 'CR-V' AND CurrentPrice <= 30000", 20);
+  const items = base.items;
+  const fields: CatalogDiagnostics["fields"] = {};
+  const nums: Record<string, number[]> = {};
+  const cats: Record<string, number> = {}, states: Record<string, number> = {};
+  const hosts = new Set<string>();
+  const SKIP = new Set(["id", "catalogid", "campaignid", "catalogitemid", "uri", "advertiserid", "mpn", "gtin", "asin"]);
+  for (const it of items) {
+    for (const [k, v] of Object.entries(it)) {
+      const f = (fields[k] ??= { populated: 0, vinShaped: 0 });
+      const filled = !(v === "" || v == null || (Array.isArray(v) && v.length === 0));
+      if (filled) f.populated++;
+      if (typeof v === "string") {
+        if (VIN_RE.test(v.trim().toUpperCase())) f.vinShaped++;
+        const n = Number(v);
+        if (v.trim() !== "" && Number.isFinite(n) && !SKIP.has(k.toLowerCase())) (nums[k] ??= []).push(n);
+      } else if (typeof v === "number" && !SKIP.has(k.toLowerCase())) (nums[k] ??= []).push(v);
+    }
+    const c = str(it.Category); if (c) cats[c] = (cats[c] ?? 0) + 1;
+    const st = str(it.State); if (st) states[st] = (states[st] ?? 0) + 1;
+    try { const u = new URL(str(it.ImageUrl) ?? ""); hosts.add(u.hostname); } catch { /* none */ }
+  }
+  for (const [k, arr] of Object.entries(nums)) if (fields[k]) fields[k].numericRange = `${Math.min(...arr)}..${Math.max(...arr)}`;
+  const probes: Array<[string, string]> = [
+    ["State = 'CA'", "Text1 = 'CR-V' AND State = 'CA'"],
+    ["City = 'Beverly Hills'", "Text1 = 'CR-V' AND City = 'Beverly Hills'"],
+    ["Year >= 2020", "Text1 = 'CR-V' AND Year >= 2020"],
+    ["Make = 'Honda'", "Make = 'Honda' AND CurrentPrice <= 30000"],
+    ["Category = 'Sedan'", "Category = 'Sedan' AND CurrentPrice <= 30000"],
+    ["Text1 = 'CR-V' AND Category = 'SUV'", "Text1 = 'CR-V' AND Category = 'SUV'"],
+  ];
+  const queryability: Record<string, string> = {};
+  for (const [label, expr] of probes) {
+    const r = await get(expr, 1);
+    queryability[label] = r.status === "200" ? `ok (total ${r.total ?? "none"})` : `HTTP ${r.status}`;
+  }
+  return { sampleSize: items.length, fields, categoryValues: cats, stateValues: states, imageHosts: [...hosts], queryability, note: "aggregates only: no VINs, URLs, dealer names or credentials" };
+}

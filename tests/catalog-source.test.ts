@@ -1,6 +1,6 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { buildCatalogQueries, normalizeCatalogItem, detectVin, searchCatalogListings, clearCatalogCacheForTests } from "../lib/catalog-source";
+import { buildCatalogQueries, normalizeCatalogItem, detectVin, searchCatalogListings, clearCatalogCacheForTests, diagnoseCatalog } from "../lib/catalog-source";
 import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, activeSource } from "../lib/listing-source";
 import { resetSourceModeStateForTests, noteAutoDevOutcome, autoDevLooksExhausted } from "../lib/source-mode";
 import { resolveLinks } from "../lib/link-resolution";
@@ -162,4 +162,18 @@ test("widget origin: production unchanged; preview uses explicit override only w
       if (v === undefined) delete process.env[k]; else process.env[k] = v;
     }
   }
+});
+
+test("diagnostics: aggregates only (no VIN, URL, dealer or credential values), reports queryability", async () => {
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = decodeURIComponent(String(url)).replace(/\+/g, " ");
+    if (u.includes("City =")) return new Response("Unknown search field name: City", { status: 400 });
+    return new Response(JSON.stringify({ Items: [item()], Total: 1 }), { status: 200 });
+  }) as typeof fetch;
+  const d = await diagnoseCatalog();
+  assert.ok(!("error" in d));
+  const out = JSON.stringify(d);
+  for (const secret of [VIN, TRACK, "Acme Honda", "tok", "abc123"]) assert.ok(!out.includes(secret), `leaked: ${secret}`);
+  assert.equal((d as { queryability: Record<string, string> }).queryability["City = 'Beverly Hills'"], "HTTP 400");
+  assert.ok((d as { fields: Record<string, { vinShaped: number }> }).fields.Mpn.vinShaped === 1);
 });
