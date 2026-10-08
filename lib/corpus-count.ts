@@ -11,6 +11,9 @@
  * — see DECISIONS.md SYS-20260812-021.
  */
 
+import { configuredMode } from "./source-mode";
+import { catalogConfigured } from "./catalog-source";
+
 let corpusCountCache: { count: number; timestamp: number } | null = null;
 const CORPUS_CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
 
@@ -19,6 +22,8 @@ const CORPUS_CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
 let corpusCountForDescription = "several million"; // deliberately vaguer than the flagship's "4.4 million" until the discrepancy above is resolved
 
 export function getCorpusCountForDescription(): string {
+  // spike/edmunds-catalog-mode: when the catalogue is the source, describe the catalogue (1.35M items at last check).
+  if (configuredMode() === "edmunds_catalog" && catalogConfigured()) return "about 1.3 million";
   return corpusCountForDescription;
 }
 
@@ -47,6 +52,9 @@ async function refreshCorpusCount() {
 }
 
 export function initCorpusCount() {
+  // spike/edmunds-catalog-mode: this refresh spends one Auto.dev call per cold start purely for a
+  // cosmetic header number. Off unless CORPUS_COUNT_REFRESH=true, so no allowance is spent on it.
+  if (process.env.CORPUS_COUNT_REFRESH !== "true") return;
   if (!corpusCountCache || Date.now() - corpusCountCache.timestamp > CORPUS_CACHE_TTL) {
     void refreshCorpusCount();
   }

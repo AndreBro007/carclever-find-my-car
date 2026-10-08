@@ -130,6 +130,22 @@ export function resolveLinks(listing: AutoDevListing): LinkResolution {
     }
   }
 
+  // Edmunds catalogue rows (spike/edmunds-catalog-mode) carry their own partner-tracked
+  // item link. Use it exactly as supplied (never re-wrapped); it supersedes the
+  // constructed link above because it comes straight from the feed.
+  const catalogUrl = listing.catalog?.trackingUrl;
+  if (catalogUrl) {
+    try {
+      const u = new URL(catalogUrl);
+      if (u.protocol === "https:" && u.host === "edmunds.sjv.io") {
+        affiliateUrl = catalogUrl;
+        checkAvailSource = "exact";
+      }
+    } catch {
+      /* ignore: keep the constructed link */
+    }
+  }
+
   // View similar (affiliateFallbackUrl): close (trim-specific) for Used —
   // a genuine upgrade from the always-loose category link this used to be.
   // Loose (bare make/model) for New/Carvana, since Check avail. on that

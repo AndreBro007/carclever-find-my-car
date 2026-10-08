@@ -6,6 +6,8 @@
  * ported with the bug (SYS-20260812-002/003).
  */
 
+import { noteAutoDevOutcome } from "./source-mode";
+
 const AUTO_DEV_BASE_URL = "https://api.auto.dev";
 const DEFAULT_TIMEOUT_MS = 25_000; // was 10s — real logs show fetch failing with [Error [Timeout...
   // for plain make+model queries; 10s was too short, not a param/query bug.
@@ -39,8 +41,10 @@ async function autoDevFetch<T>(path: string, timeoutMs = DEFAULT_TIMEOUT_MS): Pr
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       console.error(`[auto-dev-client] ${path} returned ${res.status}: ${body.slice(0, 300)}`);
+      noteAutoDevOutcome({ ok: false, reason: "http", status: res.status }); // spike: feeds the exhaustion breaker
       return { ok: false, reason: "http", status: res.status };
     }
+    noteAutoDevOutcome({ ok: true });
     return { ok: true, data: (await res.json()) as T };
   } catch (err) {
     const isTimeout = err instanceof Error && /timeout|abort/i.test(err.name + err.message);
@@ -70,6 +74,8 @@ export interface AutoDevListing {
   vin: string;
   "@id"?: string;
   createdAt?: string;
+  /** Set only for rows that came from the Edmunds/Impact catalogue (spike/edmunds-catalog-mode). */
+  catalog?: { itemId?: string; trackingUrl?: string };
   vehicle?: {
     make?: string;
     model?: string;
@@ -284,6 +290,8 @@ export interface ListingsResponse {
   error?: string;
   /** Set when results came back but via a reduced fallback request. */
   degraded?: string;
+  /** Which source produced these rows (spike/edmunds-catalog-mode). Absent = Auto.dev. */
+  source?: "auto_dev" | "edmunds_catalog";
 }
 
 /**

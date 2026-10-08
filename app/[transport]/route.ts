@@ -1,7 +1,9 @@
 import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
 import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
-import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets } from "@/lib/auto-dev-client";
+// spike/edmunds-catalog-mode: same four functions, now routed through the source facade
+// (Auto.dev unchanged unless mode/breaker selects the Edmunds catalogue).
+import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, activeSource } from "@/lib/listing-source";
 // Widening ladder re-enabled 2026-08-16 (SYS-20260816-008). It was bypassed on
 // Aug 13 per André's request — "search itself needs to work correctly before any
 // widening logic runs on top of it." That precondition is now met: the stage-2
@@ -397,7 +399,8 @@ async function buildResultCard(
   }
 
   const cardShape = {
-    canonicalVehicleId: listing.vin,
+    // Catalogue rows without a readable VIN get a stable catalogue key (never presented as a VIN).
+    canonicalVehicleId: listing.vin || (listing.catalog?.itemId ? `catalog:${listing.catalog.itemId}` : listing.vin),
     // Ordinary-search-card risk badge input (feature/lower-risk-mvp):
     // amber/red only ever get displayed on an ordinary card (see
     // cardHtml() in lib/results-card.ts) — "positive"/"unknown" are
@@ -707,7 +710,9 @@ const handler = createMcpHandler((server) => {
             content: [
               {
                 type: "text" as const,
-                text: `No listing found for VIN ${rawVin} in current live inventory — this exact vehicle isn't currently available (or was already sold/delisted). Not substituting a similar vehicle since a specific VIN was requested.`,
+                text: activeSource() === "edmunds_catalog"
+                  ? `Couldn't find a listing for VIN ${rawVin} in the current listing data — that doesn't mean it isn't for sale elsewhere. Not substituting a similar vehicle since a specific VIN was requested.`
+                  : `No listing found for VIN ${rawVin} in current live inventory — this exact vehicle isn't currently available (or was already sold/delisted). Not substituting a similar vehicle since a specific VIN was requested.`,
               },
             ],
             structuredContent: {
@@ -1030,8 +1035,9 @@ const handler = createMcpHandler((server) => {
       // diversity, Match Score, hard filters, and UI are untouched.
       const useFairPool =
         baseQuery.used == null &&
+        activeSource() !== "edmunds_catalog" && // catalogue cannot split new/used: one query, no duplicate pool
         (input.priorityAxis === "best_for_budget" || input.priorityAxis == null);
-      let rawResult: { data: AutoDevListing[]; total: number | null; error?: string; degraded?: string };
+      let rawResult: { data: AutoDevListing[]; total: number | null; error?: string; degraded?: string; source?: "auto_dev" | "edmunds_catalog" };
       if (useFairPool) {
         const [newResult, usedResult] = await Promise.all([
           searchListingsLean({ ...baseQuery, used: false }),
@@ -1089,8 +1095,11 @@ const handler = createMcpHandler((server) => {
       // reason the user got an honest caveat was the host model choosing to
       // add one unprompted, not this tool. Same "don't rely on the caller's
       // good behavior" principle as the invalid-ZIP fix.
+      const servedByCatalog = rawResult.source === "edmunds_catalog";
       const scopeNote: "local" | "statewide" | "nationwide" =
-        rawZip != null && !zipIsValid
+        servedByCatalog && (rawZip != null || baseQuery.state)
+        ? "nationwide" // catalogue has no ZIP/radius search: never claim local
+        : rawZip != null && !zipIsValid
           ? "nationwide"
           : rawZip == null && baseQuery.state
           ? "statewide"
@@ -1935,7 +1944,7 @@ const handler = createMcpHandler((server) => {
       }
 
       const dataNotes: string[] = [];
-      if (lowestMileageDefaultedToUsed) {
+      if (lowestMileageDefaultedToUsed && !servedByCatalog) {
         dataNotes.push(
           "Searched used vehicles only — \"lowest mileage\" defaults to used, not new or dealer-demo inventory, since a new car's low mileage isn't a meaningful comparison. Ask for new vehicles specifically if that's what you want.",
         );
@@ -1990,7 +1999,9 @@ const handler = createMcpHandler((server) => {
           )} — showing the best matches by other criteria instead.`,
         );
       }
-      if (scopeNote === "nationwide" && rawZip != null) {
+      if (servedByCatalog && (rawZip != null || baseQuery.state)) {
+        dataNotes.push("This listing source can't search by distance, so results may include vehicles outside the requested area.");
+      } else if (scopeNote === "nationwide" && rawZip != null) {
         dataNotes.push("The requested location wasn't recognized, so this search was widened to nationwide.");
       } else if (scopeNote === "nationwide") {
         dataNotes.push("No location was specified, so this search covers listings nationwide rather than a specific area.");
@@ -2182,7 +2193,7 @@ const handler = createMcpHandler((server) => {
                 );
                 const confirmedLine = confirmedItems.length > 0 ? `\n   Confirmed: ${confirmedItems.join(", ")}` : "";
                 const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
-                return `${i + 1}. ${formatVehicleTitle(id)} — VIN ${id.vin} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}\n   Link: ${linkStr}`;
+                return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}\n   Link: ${linkStr}`;
               })
               .join("\n\n");
 
