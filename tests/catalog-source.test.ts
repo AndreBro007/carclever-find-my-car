@@ -4,6 +4,7 @@ import { buildCatalogQueries, normalizeCatalogItem, detectVin, searchCatalogList
 import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, activeSource } from "../lib/listing-source";
 import { resetSourceModeStateForTests, noteAutoDevOutcome, autoDevLooksExhausted } from "../lib/source-mode";
 import { resolveLinks } from "../lib/link-resolution";
+import { getAppOrigin } from "../lib/results-card";
 
 const VIN = "1HGCV1F34MA123456";
 const TRACK = "https://edmunds.sjv.io/c/7765200/3949600/52125?u=https%3A%2F%2Fwww.edmunds.com%2Fx";
@@ -134,4 +135,21 @@ test("links: catalogue tracking URL used exactly as supplied (not re-wrapped); V
   assert.equal(noVin.affiliateUrl, TRACK); assert.notEqual(noVin.linkStatus, "none-available");
   const noTrack = resolveLinks(normalizeCatalogItem(item({ Mpn: "", Url: "" }))!);
   assert.equal(noTrack.affiliateUrl, null); assert.equal(noTrack.linkStatus, "fallback-only"); // silent degrade, still has a "similar" link
+});
+
+test("widget origin: production unchanged; preview uses explicit override only when set", () => {
+  const saved = { e: process.env.VERCEL_ENV, o: process.env.NEXT_PUBLIC_WIDGET_ORIGIN, b: process.env.VERCEL_BRANCH_URL };
+  try {
+    process.env.VERCEL_ENV = "preview"; process.env.VERCEL_BRANCH_URL = "branch.example.vercel.app";
+    delete process.env.NEXT_PUBLIC_WIDGET_ORIGIN;
+    assert.equal(getAppOrigin(), "https://branch.example.vercel.app");
+    process.env.NEXT_PUBLIC_WIDGET_ORIGIN = "https://test.example.app";
+    assert.equal(getAppOrigin(), "https://test.example.app");
+    process.env.VERCEL_ENV = "production";
+    assert.equal(getAppOrigin(), "https://test.example.app"); // production still honours its own explicit origin as before
+  } finally {
+    for (const [k, v] of [["VERCEL_ENV", saved.e], ["NEXT_PUBLIC_WIDGET_ORIGIN", saved.o], ["VERCEL_BRANCH_URL", saved.b]] as const) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
 });

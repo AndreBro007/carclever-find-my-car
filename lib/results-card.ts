@@ -80,6 +80,11 @@ export function getAppOrigin(): string {
     // Fall back to Vercel project domain, then hardcoded default
     return `https://${process.env.NEXT_PUBLIC_WIDGET_ORIGIN?.replace(/^https?:\/\//, "") ?? process.env.VERCEL_PROJECT_PRODUCTION_URL ?? "carclever-find-my-car.vercel.app"}`;
   }
+  // Non-production only, and only when explicitly set: a branch-bound TEST domain (e.g. the
+  // staging connector host) can declare its own origin so the screen's declared domain matches the
+  // host the connector actually reaches. Unset = previous behaviour. Production is unaffected.
+  const explicitPreviewOrigin = process.env.NEXT_PUBLIC_WIDGET_ORIGIN?.replace(/^https?:\/\//, "");
+  if (explicitPreviewOrigin) return `https://${explicitPreviewOrigin}`;
   // Preview (or any other non-production env): prefer the stable branch
   // alias -- the domain any connector/browser actually reaches this
   // deployment through -- and only fall back to the per-deployment hash
