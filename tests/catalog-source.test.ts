@@ -1,6 +1,6 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { buildCatalogQueries, normalizeCatalogItem, detectVin, searchCatalogListings, clearCatalogCacheForTests, diagnoseCatalog, parseMakeFromName, priceBands, dealerZip } from "../lib/catalog-source";
+import { buildCatalogQueries, normalizeCatalogItem, detectVin, searchCatalogListings, clearCatalogCacheForTests, diagnoseCatalog, parseMakeFromName, priceBands, dealerZip, yearsToQuery } from "../lib/catalog-source";
 import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, activeSource } from "../lib/listing-source";
 import { resetSourceModeStateForTests, noteAutoDevOutcome, autoDevLooksExhausted } from "../lib/source-mode";
 import { resolveLinks } from "../lib/link-resolution";
@@ -37,19 +37,21 @@ beforeEach(() => {
 });
 afterEach(() => { globalThis.fetch = realFetch; });
 
-test("queries: banded by price, per model; only queryable fields; never unconstrained", () => {
-  const q = buildCatalogQueries({ model: "CR-V", priceMax: 30000 });
-  assert.equal(q.length, 3); // 3 price bands
-  assert.ok(q.every((e) => e.startsWith("Text1 = 'CR-V' AND CurrentPrice")));
-  assert.ok(q[0].endsWith("CurrentPrice <= 10000") && q[1].includes("CurrentPrice > 10000") && q[2].includes("CurrentPrice > 20000"));
-  assert.equal(buildCatalogQueries({ model: "CR-V,RAV4,Camry", priceMax: 30000 }).length, 9);
-  assert.deepEqual(buildCatalogQueries({ model: "CR-V", priceMax: 2500 }), ["Text1 = 'CR-V' AND CurrentPrice <= 2500"]); // narrow range: one band
-  assert.deepEqual(buildCatalogQueries({ model: "CR-V" }), ["Text1 = 'CR-V'"]);
-  assert.ok(buildCatalogQueries({ bodyType: "suv", priceMax: 25000 })[0].startsWith("Category = 'SUV' AND"));
+test("queries: one per model year (newest first) per model; only queryable fields; never unconstrained", () => {
+  const q = buildCatalogQueries({ model: "CR-V", priceMax: 30000 }, );
+  assert.equal(q.length, 10);
+  assert.equal(q[0], `Text1 = 'CR-V' AND Name ~ '${new Date().getFullYear() + 1}' AND CurrentPrice <= 30000`);
+  assert.ok(q.every((e) => e.startsWith("Text1 = 'CR-V' AND Name ~ '") && e.endsWith("CurrentPrice <= 30000")));
+  assert.equal(buildCatalogQueries({ model: "CR-V,RAV4,Camry,Accord", priceMax: 30000 }).length, 30); // capped at 3 models
+  assert.deepEqual(yearsToQuery({ yearMin: 2020, yearMax: 2022 }), [2022, 2021, 2020]); // explicit range honoured
+  assert.equal(yearsToQuery({ yearMin: 1950 }).length, 12); // bounded
+  assert.ok(buildCatalogQueries({ bodyType: "suv", priceMax: 25000 })[0].startsWith("Category = 'SUV' AND Name ~ '"));
   assert.deepEqual(buildCatalogQueries({ model: "x' OR 1=1 --" }), []);
   assert.deepEqual(buildCatalogQueries({}), []);
-  for (const e of buildCatalogQueries({ model: "CR-V", priceMax: 30000, yearMin: 2020, make: "Honda", zip: "78701" })) assert.ok(!/Year|Make|State|City|Condition/.test(e), e); // unqueryable fields never sent
+  for (const e of buildCatalogQueries({ model: "CR-V", priceMax: 30000, make: "Honda", zip: "78701" })) assert.ok(!/Make|State|City|Condition|Numeric|ShippingLabel/.test(e), e); // unqueryable fields never sent
+  // price-only (no model/body style): price bands, since no head to anchor year queries
   assert.deepEqual(priceBands({ priceMin: 10000, priceMax: 30000 }).map((b) => b.join(" AND ")), ["CurrentPrice >= 10000 AND CurrentPrice <= 16700", "CurrentPrice > 16700 AND CurrentPrice <= 23300", "CurrentPrice > 23300 AND CurrentPrice <= 30000"]);
+  assert.equal(buildCatalogQueries({ priceMax: 30000 }).length, 3);
 });
 
 test("make is parsed from the item Name (feed has no Make field)", () => {
@@ -159,9 +161,9 @@ test("page size: 100 rejected -> falls back to 20 once and still returns results
     if (u.searchParams.get("PageSize") === "100") return new Response("too big", { status: 400 });
     return new Response(JSON.stringify({ Items: [item()], Total: 1 }), { status: 200 });
   }) as typeof fetch;
-  const r = await searchCatalogListings({ model: "CR-V", priceMax: 30000 });
+  const r = await searchCatalogListings({ priceMax: 30000 }); // price-only plan uses the 100-size bands
   assert.equal(r.data.length, 1); assert.ok(sizes.includes("100") && sizes.includes("20"));
-  sizes.length = 0; await searchCatalogListings({ model: "CR-V", priceMax: 30000 });
+  sizes.length = 0; await searchCatalogListings({ priceMax: 30000 });
   assert.ok(!sizes.includes("100")); // remembered
 });
 

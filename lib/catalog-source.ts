@@ -79,24 +79,49 @@ export function priceBands(q: ListingsQuery): string[][] {
   });
 }
 
-export function buildCatalogQueries(q: ListingsQuery): string[] {
-  const bands = priceBands(q);
-  const models = (q.model ?? "")
+export interface CatalogRequest { expr: string; size: number }
+
+const YEAR_PAGE_SIZE = 40;
+const MAX_MODELS_WITH_YEARS = 3;
+const YEARS_BACK = 9; // default window: this model year (+1) back nine more
+const OLDEST_YEAR = 1990;
+
+/** Model years to ask for. Name starts with the model year and `Name ~ 'YYYY'` is a proven server-side filter. */
+export function yearsToQuery(q: ListingsQuery, now: number = new Date().getFullYear()): number[] {
+  const newest = Math.min(q.yearMax != null ? Math.floor(q.yearMax) : now + 1, now + 1);
+  const oldest = Math.max(q.yearMin != null ? Math.floor(q.yearMin) : newest - YEARS_BACK, OLDEST_YEAR);
+  const out: number[] = [];
+  for (let y = newest; y >= oldest && out.length < 12; y--) out.push(y);
+  return out;
+}
+
+export function planCatalogRequests(q: ListingsQuery): CatalogRequest[] {
+  const priceParts = (() => {
+    const parts: string[] = [];
+    if (q.priceMax != null && Number.isFinite(q.priceMax)) parts.push(`CurrentPrice <= ${Math.floor(q.priceMax)}`);
+    if (q.priceMin != null && Number.isFinite(q.priceMin) && q.priceMin > 0) parts.push(`CurrentPrice >= ${Math.floor(q.priceMin)}`);
+    return parts;
+  })();
+  const allModels = (q.model ?? "")
     .split(",")
     .map(safeToken)
-    .filter((m): m is string => !!m)
-    .slice(0, MAX_MODELS);
+    .filter((m): m is string => !!m);
   const heads: string[] = [];
-  if (models.length > 0) models.forEach((m) => heads.push(`Text1 = '${m}'`));
+  if (allModels.length > 0) allModels.slice(0, MAX_MODELS_WITH_YEARS).forEach((m) => heads.push(`Text1 = '${m}'`));
   else {
     const category = categoryFor(q.bodyType);
     if (category) heads.push(`Category = '${category}'`);
   }
   if (heads.length === 0) {
-    // Make / Year / State are not queryable. Only a price-bounded query is possible; make/year are verified locally.
-    return q.priceMax != null || (q.priceMin ?? 0) > 0 ? bands.map((b) => b.join(" AND ")).filter(Boolean) : [];
+    // Make / Year-field / State are not queryable. Only a price-bounded query is possible; make/year are verified locally.
+    return q.priceMax != null || (q.priceMin ?? 0) > 0 ? priceBands(q).map((b) => ({ expr: b.join(" AND "), size: PREFERRED_PAGE_SIZE })).filter((r) => r.expr) : [];
   }
-  return heads.flatMap((h) => bands.map((b) => [h, ...b].join(" AND ")));
+  // One query per model year (newest first): a single national slice would be dominated by old, cheap cars.
+  return heads.flatMap((h) => yearsToQuery(q).map((y) => ({ expr: [h, `Name ~ '${y}'`, ...priceParts].join(" AND "), size: YEAR_PAGE_SIZE })));
+}
+
+export function buildCatalogQueries(q: ListingsQuery): string[] {
+  return planCatalogRequests(q).map((r) => r.expr);
 }
 
 // ---------- normalisation ----------
@@ -280,8 +305,8 @@ async function fetchPage(expression: string, page: number, size: number): Promis
   }
 }
 
-async function runExpressions(exprs: string[], size: number): Promise<PageResult[]> {
-  return Promise.all(exprs.map((e) => fetchPage(e, 1, size)));
+async function runPlan(plan: CatalogRequest[], capSize: number): Promise<PageResult[]> {
+  return Promise.all(plan.map((r) => fetchPage(r.expr, 1, Math.min(r.size, capSize))));
 }
 
 export function distanceMilesBetween(zipA: string, zipB: string): number | null {
@@ -293,13 +318,13 @@ export async function searchCatalogListings(q: ListingsQuery): Promise<ListingsR
   const empty: ListingsResponse = { data: [], total: 0, source: "edmunds_catalog" };
   if (!catalogConfigured()) return empty; // silent: facade decides what to do next
 
-  const exprs = buildCatalogQueries(q);
-  if (exprs.length === 0) return empty;
+  const plan = planCatalogRequests(q);
+  if (plan.length === 0) return empty;
 
-  let results = await runExpressions(exprs, pageSize);
+  let results = await runPlan(plan, pageSize);
   if (pageSize !== FALLBACK_PAGE_SIZE && results.every((r) => !r.ok && r.status === 400)) {
     pageSize = FALLBACK_PAGE_SIZE; // larger page size rejected: fall back once, permanently for this instance
-    results = await runExpressions(exprs, pageSize);
+    results = await runPlan(plan, pageSize);
   }
 
   const seen = new Set<string>();
@@ -371,6 +396,7 @@ export interface CatalogDiagnostics {
   imageSchemes: Record<string, number>;
   imageFetchByHost: Record<string, { ok: number; fail: number; statuses: Record<string, number>; contentTypes: Record<string, number>; maxKB: number }>;
   probes: Record<string, string>;
+  carmaxBrowserHeadersRetry: string;
   note: string;
 }
 
@@ -437,7 +463,7 @@ export async function diagnoseCatalog(): Promise<CatalogDiagnostics | { error: s
   // Layout only (letters -> a/A, digits -> 9): shows whether these text fields carry a city/state/ZIP without printing any real value.
   const textShapes: Record<string, string[]> = {
     Text3: items.slice(0, 3).map((i) => maskShape(i.Text3, 70)),
-    Description: items.slice(0, 2).map((i) => maskShape(i.Description, 110)),
+    Description: items.slice(0, 2).map((i) => maskShape(i.Description, 320)),
     Name: items.slice(0, 2).map((i) => maskShape(i.Name, 50)),
   };
 
@@ -461,7 +487,26 @@ export async function diagnoseCatalog(): Promise<CatalogDiagnostics | { error: s
   }));
 
   const hist = (arr: string[]) => { const m: Record<string, number> = {}; for (const a of arr) m[a] = (m[a] ?? 0) + 1; return JSON.stringify(m); };
+  const nearBuckets = (it: Record<string, unknown>[], city: string, state: string) => {
+    const ref = zipcodes.lookupByName(city, state)?.[0]?.zip;
+    const b: Record<string, number> = { "<=15mi": 0, "<=30mi": 0, "<=60mi": 0, ">60mi": 0, "no dealer zip": 0 };
+    for (const i of it) {
+      const dz = dealerZip(i)?.zip; const d = ref && dz ? distanceMilesBetween(ref, dz) : null;
+      if (d == null) b["no dealer zip"]++; else if (d <= 15) b["<=15mi"]++; else if (d <= 30) b["<=30mi"]++; else if (d <= 60) b["<=60mi"]++; else b[">60mi"]++;
+    }
+    return JSON.stringify(b);
+  };
   const probeDefs: Array<[string, string, (items: Record<string, unknown>[]) => string]> = [
+    ...([["Beverly Hills", "CA"], ["Santa Monica", "CA"], ["Pasadena", "CA"], ["San Diego", "CA"], ["Austin", "TX"]] as const).map(
+      ([city, st]): [string, string, (items: Record<string, unknown>[]) => string] => [
+        `Description ~ '${city}' (distance of returned dealers from ${city})`,
+        `Text1 = 'CR-V' AND Description ~ '${city}'`,
+        (it) => nearBuckets(it, city, st),
+      ],
+    ),
+    ["Description ~ 'California' (states)", "Text1 = 'CR-V' AND Description ~ 'California'", (it) => `dealer states: ${hist(it.map((i) => dealerZip(i)?.state ?? "?"))}`],
+    ["Description ~ 'Texas' (states)", "Text1 = 'CR-V' AND Description ~ 'Texas'", (it) => `dealer states: ${hist(it.map((i) => dealerZip(i)?.state ?? "?"))}`],
+    ["COMBINED: Name ~ '2023' AND Description ~ 'Los Angeles'", "Text1 = 'CR-V' AND Name ~ '2023' AND Description ~ 'Los Angeles'", (it) => `names starting 2023: ${it.filter((i) => /^\s*2023\b/.test(str(i.Name) ?? "")).length}/${it.length}; states: ${hist(it.map((i) => dealerZip(i)?.state ?? "?"))}`],
     ["Name ~ '2024' (contains: model year in Name)", "Text1 = 'CR-V' AND Name ~ '2024' AND CurrentPrice <= 30000", (it) => `names starting 2024: ${it.filter((i) => /^\s*2024\b/.test(str(i.Name) ?? "")).length}/${it.length}`],
     ["Name ~ '2022'", "Text1 = 'CR-V' AND Name ~ '2022' AND CurrentPrice <= 30000", (it) => `names starting 2022: ${it.filter((i) => /^\s*2022\b/.test(str(i.Name) ?? "")).length}/${it.length}`],
     ["Text3 ~ 'Beverly Hills' (dealer address contains city?)", "Text1 = 'CR-V' AND Text3 ~ 'Beverly Hills'", (it) => `dealer ZIP3 histogram: ${hist(it.map((i) => (dealerZip(i)?.zip ?? "????").slice(0, 3)))}`],
@@ -479,8 +524,17 @@ export async function diagnoseCatalog(): Promise<CatalogDiagnostics | { error: s
     return [label, r.status === "200" ? `ok: returned ${r.items.length}${r.total != null ? `, total ${r.total}` : ""}${r.items.length ? "; " + summarize(r.items) : ""}` : `HTTP ${r.status}`] as const;
   }));
   const probes: Record<string, string> = Object.fromEntries(results);
+  let carmaxBrowserHeadersRetry = "no carmax photo in sample";
+  const carmaxUrl = imageUrls.find((u) => new URL(u).hostname.endsWith("carmax.com"));
+  if (carmaxUrl) {
+    try {
+      const r = await fetch(carmaxUrl, { signal: AbortSignal.timeout(9000), headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36", Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8", Referer: "https://www.carmax.com/" } });
+      carmaxBrowserHeadersRetry = `status ${r.status}, ${(r.headers.get("content-type") ?? "none").split(";")[0]}`;
+      void r.body?.cancel();
+    } catch (e) { carmaxBrowserHeadersRetry = `error ${String((e as Error)?.name ?? "")}`; }
+  }
   const big = await get("Text1 = 'CR-V' AND CurrentPrice <= 30000", 100);
   probes["PageSize=100"] = big.status === "200" ? `yes (returned ${big.items.length})` : `HTTP ${big.status}`;
 
-  return { sampleSize: N, fields, mappingChecks, textShapes, categoryValues: cats, imageSchemes: schemes, imageFetchByHost, probes, note: "aggregates and layouts only: no VINs, URLs, dealer names, street addresses or credentials" };
+  return { sampleSize: N, fields, mappingChecks, textShapes, categoryValues: cats, imageSchemes: schemes, imageFetchByHost, probes, carmaxBrowserHeadersRetry, note: "aggregates and layouts only: no VINs, URLs, dealer names, street addresses or credentials" };
 }
