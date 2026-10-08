@@ -75,3 +75,24 @@ test("route with the REAL feed shape (no Make/Year/City/State): make from Name, 
   assert.ok(!sc.results.some((c: { identity: { year: number } }) => c.identity.year === 2019), "New York dealer is outside the 50-mile radius");
   assert.equal(autoDev, 0);
 });
+
+test("card: no condition label when condition is unknown; known conditions still labelled", async () => {
+  const { buildResultsCardHtml } = await import("../lib/results-card");
+  const { JSDOM } = await import("jsdom");
+  const render = async (condition: unknown) => {
+    const dom = new JSDOM(buildResultsCardHtml(), { runScripts: "dangerously", url: "https://carclever-oai-test.getcarwise.app/" });
+    await new Promise((r) => setTimeout(r, 150));
+    const card = { identity: { vin: "", year: 2024, make: "Honda", model: "CR-V", trim: "EX" }, condition, powertrain: {}, listing: { price: 20000, mileage: null, dealer: "D", city: "Austin", state: "TX" },
+      media: { cardImageUrl: null }, detail: {}, ranking: { matchScore: 90 }, links: { affiliateUrl: "https://edmunds.sjv.io/x", affiliateFallbackUrl: "https://edmunds.sjv.io/y", dealerListingUrl: null, linkStatus: "both-available" }, badges: [], intentConfirmations: [], risk: { tier: "unknown" } };
+    dom.window.postMessage({ method: "ui/notifications/tool-result", params: { structuredContent: { meta: { corpusSizeApprox: "1.3 million", totalMatches: 1 }, results: [card] } } }, "*");
+    await new Promise((r) => setTimeout(r, 200));
+    return dom.window.document;
+  };
+  const unknown = await render({ inventoryType: "unknown", used: null, cpo: null });
+  assert.equal(unknown.querySelector(".cc-type"), null, "no pill at all for unknown");
+  assert.ok(unknown.querySelector(".cc-title-link"), "card still renders");
+  const used = await render({ inventoryType: "used", used: true, cpo: false });
+  assert.equal(used.querySelector(".cc-type")?.textContent?.trim(), "USED");
+  const cpo = await render({ inventoryType: "used", used: true, cpo: true });
+  assert.equal(cpo.querySelector(".cc-type")?.textContent?.trim(), "CPO");
+});

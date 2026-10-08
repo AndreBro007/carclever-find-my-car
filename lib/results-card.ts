@@ -387,7 +387,8 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     var badges = c.badges || [];
     var title = [id.year, id.make, id.model, id.trim].filter(Boolean).join(" ");
     var location = [listing.city, listing.state].filter(Boolean).join(", ");
-    var listingType = c.condition && c.condition.cpo ? "CPO" : (c.condition && c.condition.inventoryType ? c.condition.inventoryType.toUpperCase() : "LISTING");
+    // Show a condition label only when it is actually known; "unknown" shows nothing (never a confusing UNKNOWN pill).
+    var listingType = c.condition && c.condition.cpo ? "CPO" : (c.condition && c.condition.inventoryType && c.condition.inventoryType !== "unknown" ? c.condition.inventoryType.toUpperCase() : "");
     var drivetrain = c.powertrain && c.powertrain.drivetrain;
     var vinVerified = badges.indexOf("vin-verified") !== -1;
     var exteriorColor = c.detail && c.detail.exteriorColor;
@@ -524,7 +525,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 
     return '<article class="cc-card">' +
       '<div class="cc-photo-wrap">' + photoBlock + exactVinBadge +
-        '<div class="cc-badges"><span class="cc-type">' + esc(listingType) + "</span>" + riskPill + "</div>" +
+        '<div class="cc-badges">' + (listingType ? '<span class="cc-type">' + esc(listingType) + "</span>" : "") + riskPill + "</div>" +
       "</div>" +
       '<div class="cc-body">' +
         (primaryUrl

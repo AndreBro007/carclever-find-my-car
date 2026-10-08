@@ -1,6 +1,6 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { buildCatalogQueries, normalizeCatalogItem, detectVin, searchCatalogListings, clearCatalogCacheForTests, diagnoseCatalog, parseMakeFromName, priceBands, dealerZip, yearsToQuery } from "../lib/catalog-source";
+import { buildCatalogQueries, normalizeCatalogItem, detectVin, searchCatalogListings, clearCatalogCacheForTests, diagnoseCatalog, parseMakeFromName, priceBands, dealerZip, yearsToQuery, nearbyCities } from "../lib/catalog-source";
 import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, activeSource } from "../lib/listing-source";
 import { resetSourceModeStateForTests, noteAutoDevOutcome, autoDevLooksExhausted } from "../lib/source-mode";
 import { resolveLinks } from "../lib/link-resolution";
@@ -233,4 +233,18 @@ test("diagnostics: aggregates only (no VIN, URL, dealer or credential values), r
   assert.ok((d as { mappingChecks: Record<string, string> }).mappingChecks["ShippingLabel is a real US ZIP"].startsWith("1/1"));
   const textLayout = JSON.stringify((d as { textShapes: unknown }).textShapes); assert.ok(!/Acme|Honda|Austin|78701/.test(textLayout), "layouts must not echo real values");
   assert.ok((d as { fields: Record<string, { vinShaped: number }> }).fields.Mpn.vinShaped === 1);
+});
+
+test("local plan: nearest big cities' dealers (Description ~ city) plus a few newest national years; unchanged without a ZIP", () => {
+  const cities = nearbyCities("90210", 5);
+  assert.equal(cities.length, 5); assert.ok(cities.includes("Los Angeles"), cities.join(","));
+  const plan = buildCatalogQueries({ model: "CR-V", priceMax: 30000, zip: "90210", radius: 100 });
+  assert.equal(plan.length, 5 + 4);
+  assert.ok(plan.slice(0, 5).every((e) => /^Text1 = 'CR-V' AND Description ~ '[A-Za-z .\-]+' AND CurrentPrice <= 30000$/.test(e)), plan[0]);
+  assert.ok(plan.slice(5).every((e) => /Name ~ '20\d\d'/.test(e)));
+  assert.equal(buildCatalogQueries({ model: "CR-V,RAV4", priceMax: 30000, zip: "90210" }).length, 2 * 3 + 2 * 4); // fewer cities when several models
+  assert.equal(buildCatalogQueries({ model: "CR-V", priceMax: 30000, zip: "00000" }).length, 10); // unknown ZIP: national years as before
+  assert.equal(buildCatalogQueries({ model: "CR-V", priceMax: 30000, zip: "90210", radius: 500 }).length, 10); // very wide radius: national
+  assert.equal(buildCatalogQueries({ model: "CR-V", priceMax: 30000 }).length, 10);
+  assert.deepEqual(nearbyCities("abcde", 5), []);
 });

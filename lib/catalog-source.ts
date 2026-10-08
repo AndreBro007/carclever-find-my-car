@@ -95,6 +95,35 @@ export function yearsToQuery(q: ListingsQuery, now: number = new Date().getFullY
   return out;
 }
 
+const LOCAL_CITY_RADIUS_MILES = 40;
+const MAX_LOCAL_CITIES = 5;
+const MAX_LOCAL_CITIES_MULTI_MODEL = 3;
+const LOCAL_YEARS_BACKUP = 4;
+
+/**
+ * Cities around a ZIP, biggest first (more ZIP codes ~ more dealers). Evidence (diagnostic round 3):
+ * `Description ~ '<city>'` returns cars whose dealers are in/near that city (Santa Monica, Pasadena, Austin:
+ * 20/20 within 15 miles; San Diego 7/7 within 30), because the text carries the dealer name. It is incomplete
+ * (dealers without the city in their name are missed; Beverly Hills returned 2 far-away cars), so it only ADDS
+ * candidates: every row is still ordered/filtered by its real dealer-ZIP distance afterwards.
+ */
+export function nearbyCities(zip: string | undefined, max: number): string[] {
+  if (!zip || !/^\d{5}$/.test(zip) || !zipcodes.lookup(zip)) return [];
+  const byCity = new Map<string, { n: number; best: number; name: string }>();
+  for (const z of zipcodes.radius(zip, LOCAL_CITY_RADIUS_MILES) as string[]) {
+    const info = zipcodes.lookup(z);
+    if (!info) continue;
+    const name = safeToken(info.city);
+    if (!name) continue; // skips names with apostrophes etc.
+    const d = zipcodes.distance(zip, z);
+    const key = `${name}|${info.state}`;
+    const cur = byCity.get(key) ?? { n: 0, best: 1e9, name };
+    cur.n++; cur.best = Math.min(cur.best, typeof d === "number" ? d : 1e9);
+    byCity.set(key, cur);
+  }
+  return [...byCity.values()].sort((a, b) => b.n - a.n || a.best - b.best).slice(0, max).map((c) => c.name);
+}
+
 export function planCatalogRequests(q: ListingsQuery): CatalogRequest[] {
   const priceParts = (() => {
     const parts: string[] = [];
@@ -115,6 +144,14 @@ export function planCatalogRequests(q: ListingsQuery): CatalogRequest[] {
   if (heads.length === 0) {
     // Make / Year-field / State are not queryable. Only a price-bounded query is possible; make/year are verified locally.
     return q.priceMax != null || (q.priceMin ?? 0) > 0 ? priceBands(q).map((b) => ({ expr: b.join(" AND "), size: PREFERRED_PAGE_SIZE })).filter((r) => r.expr) : [];
+  }
+  const radiusOk = q.radius == null || q.radius <= 150;
+  const cities = radiusOk ? nearbyCities(q.zip, heads.length > 1 ? MAX_LOCAL_CITIES_MULTI_MODEL : MAX_LOCAL_CITIES) : [];
+  if (cities.length > 0) {
+    // Local search: the biggest nearby cities' dealers first, plus a few newest national model years as a backup.
+    const local = heads.flatMap((h) => cities.map((c) => ({ expr: [h, `Description ~ '${c}'`, ...priceParts].join(" AND "), size: PREFERRED_PAGE_SIZE })));
+    const backup = heads.flatMap((h) => yearsToQuery(q).slice(0, LOCAL_YEARS_BACKUP).map((y) => ({ expr: [h, `Name ~ '${y}'`, ...priceParts].join(" AND "), size: YEAR_PAGE_SIZE })));
+    return [...local, ...backup];
   }
   // One query per model year (newest first): a single national slice would be dominated by old, cheap cars.
   return heads.flatMap((h) => yearsToQuery(q).map((y) => ({ expr: [h, `Name ~ '${y}'`, ...priceParts].join(" AND "), size: YEAR_PAGE_SIZE })));
