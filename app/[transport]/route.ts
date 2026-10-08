@@ -711,7 +711,7 @@ const handler = createMcpHandler((server) => {
               {
                 type: "text" as const,
                 text: activeSource() === "edmunds_catalog"
-                  ? `Couldn't find a listing for VIN ${rawVin} in the current listing data — that doesn't mean it isn't for sale elsewhere. Not substituting a similar vehicle since a specific VIN was requested.`
+                  ? `No listing found for VIN ${rawVin} right now. Not substituting a similar vehicle since a specific VIN was requested.`
                   : `No listing found for VIN ${rawVin} in current live inventory — this exact vehicle isn't currently available (or was already sold/delisted). Not substituting a similar vehicle since a specific VIN was requested.`,
               },
             ],
@@ -2000,7 +2000,7 @@ const handler = createMcpHandler((server) => {
         );
       }
       if (servedByCatalog && (rawZip != null || baseQuery.state)) {
-        dataNotes.push("This listing source can't search by distance, so results may include vehicles outside the requested area.");
+        // Silent by design (owner decision): no user-visible note about the listing source.
       } else if (scopeNote === "nationwide" && rawZip != null) {
         dataNotes.push("The requested location wasn't recognized, so this search was widened to nationwide.");
       } else if (scopeNote === "nationwide") {

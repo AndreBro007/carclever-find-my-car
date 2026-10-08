@@ -49,6 +49,9 @@ test("normalise: VIN only from a VIN-shaped identifier field; never an item id",
   assert.equal(normalizeCatalogItem(item())!.vin, VIN);
   assert.equal(normalizeCatalogItem(item({ Mpn: "NOTAVIN", CatalogItemId: "abc123" }))!.vin, "");
   assert.equal(detectVin({ Mpn: "1HGCV1F34MA12345" }), ""); // 16 chars
+  const dest = encodeURIComponent(`https://www.edmunds.com/honda/cr-v/2021/vin/${VIN}/featured-listing/`);
+  assert.equal(detectVin({ Url: `https://edmunds.sjv.io/c/1/2/3?prodsku=x&u=${dest}` }), VIN); // VIN from the link destination
+  assert.equal(detectVin({ Url: TRACK }), ""); // link without a VIN
   const l = normalizeCatalogItem(item({ Mpn: "" }))!;
   assert.equal(l.catalog?.itemId, "abc123");
   assert.equal(l.retailListing?.used, undefined); // condition never inferred

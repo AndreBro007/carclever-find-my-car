@@ -36,6 +36,7 @@ test("route in catalogue mode: schema-valid cards, silent degradation, zero Auto
   assert.equal(sc.meta.resultsShown, 3);
   assert.equal(sc.meta.serviceError, null);
   assert.equal(sc.meta.scopeNote, "nationwide"); // never claims local when distance can't be applied
+  assert.equal(sc.meta.dataNotes.filter((n: string) => /distance|outside the requested/i.test(n)).length, 0); // silent by design
   const ids = sc.results.map((c: { canonicalVehicleId: string }) => c.canonicalVehicleId);
   assert.ok(ids.includes(VIN) && ids.includes("catalog:id2"));
   const noLink = sc.results.find((c: { canonicalVehicleId: string }) => c.canonicalVehicleId === "catalog:id3");

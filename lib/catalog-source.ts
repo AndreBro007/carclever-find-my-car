@@ -118,6 +118,15 @@ export function detectVin(raw: Record<string, unknown>): string {
     const v = str(raw[f])?.toUpperCase();
     if (v && VIN_RE.test(v)) return v;
   }
+  // Second source: the Edmunds vehicle page inside the tracking link's `u=` destination
+  // (".../vin/<VIN>/featured-listing/"). Read from the link only; the link itself is never altered.
+  try {
+    const dest = new URL(str(raw.Url) ?? "").searchParams.get("u");
+    const m = dest ? decodeURIComponent(dest).match(/\/vin\/([A-HJ-NPR-Z0-9]{17})(?:[\/?#]|$)/i) : null;
+    if (m) return m[1].toUpperCase();
+  } catch {
+    /* no usable link: fall through */
+  }
   return ""; // genuinely unknown: never substituted with an item id
 }
 
