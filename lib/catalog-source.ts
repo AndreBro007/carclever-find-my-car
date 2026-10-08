@@ -135,7 +135,10 @@ export function normalizeCatalogItem(rawIn: unknown): AutoDevListing | null {
   const raw = rawIn as Record<string, unknown>;
   if (/out\s*of\s*stock/i.test(str(raw.StockAvailability) ?? "")) return null;
 
-  const year = num(raw.Year);
+  // Year: the Year field when present, else a leading 4-digit model year in the item Name
+  // (e.g. "2021 Honda CR-V EX"), the same fallback the earlier prototype adapter used.
+  const nameYear = /^\s*((?:19[89]|20[0-3])\d)\b/.exec(str(raw.Name) ?? "")?.[1];
+  const year = num(raw.Year) ?? (nameYear ? Number(nameYear) : undefined);
   const make = str(raw.Make);
   const model = str(raw.Text1);
   if (!model && !make) return null; // nothing identifiable to show

@@ -59,6 +59,12 @@ test("normalise: VIN only from a VIN-shaped identifier field; never an item id",
   assert.equal(l.retailListing?.miles, undefined);
 });
 
+test("normalise: year falls back to the item Name when Year is missing; never invented", () => {
+  assert.equal(normalizeCatalogItem(item({ Year: "", Name: "2019 Honda CR-V LX" }))!.vehicle?.year, 2019);
+  assert.equal(normalizeCatalogItem(item({ Year: 2022, Name: "2019 Honda CR-V LX" }))!.vehicle?.year, 2022);
+  assert.equal(normalizeCatalogItem(item({ Year: "", Name: "Honda CR-V LX" }))!.vehicle?.year, undefined);
+});
+
 test("normalise: bad tracking host / image host dropped, out-of-stock dropped, junk rejected", () => {
   assert.equal(normalizeCatalogItem(item({ Url: "https://evil.example/x" }))!.catalog?.trackingUrl, undefined);
   assert.equal(normalizeCatalogItem(item({ ImageUrl: "https://evil.example/a.jpg" }))!.retailListing?.primaryImage, undefined);
