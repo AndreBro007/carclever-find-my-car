@@ -15,6 +15,8 @@ export interface LoadOptions {
   minRows?: number;
   /** Abort if the feed has fewer rows than this fraction of what is already stored (default 0.9). */
   keepRatio?: number;
+  /** Test mode for a small database: load only every Nth car (for example 5 loads a fifth of the feed). */
+  sampleEvery?: number;
   log?: (msg: string) => void;
 }
 export interface LoadReport {
@@ -59,10 +61,14 @@ export async function loadFeed(pool: Pool, lines: AsyncIterable<string>, opts: L
     copy = stream;
     stream.on("error", (e: Error) => { copyError = e; });
     let idx: Record<string, number> | null = null;
+    let dataRow = 0;
+    const every = opts.sampleEvery && opts.sampleEvery > 1 ? Math.floor(opts.sampleEvery) : 0;
     for await (const line of lines) {
       if (line === "") continue;
       report.linesRead++;
       if (!idx) { idx = headerIndex(line); continue; }
+      dataRow++;
+      if (every && dataRow % every !== 0) { report.skipped["not in sample"] = (report.skipped["not in sample"] ?? 0) + 1; continue; }
       const res = parseRow(line.split("\t"), idx);
       if ("skip" in res) { report.skipped[res.skip] = (report.skipped[res.skip] ?? 0) + 1; continue; }
       report.parsed++;

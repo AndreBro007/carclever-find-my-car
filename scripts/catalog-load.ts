@@ -1,6 +1,6 @@
 /**
  * Load the Edmunds rich feed into the catalogue database.
- *   npx tsx scripts/catalog-load.ts <feed.txt.gz | feed.txt> [--expect-rows N]
+ *   npx tsx scripts/catalog-load.ts <feed.txt.gz | feed.txt> [--expect-rows N] [--sample-every N]
  * Env: DATABASE_URL_DIRECT (preferred: a direct, non-pooled connection) or DATABASE_URL.
  * Aborts (changing nothing) when the feed is empty, truncated (below 90% of what is stored) or below 97% of --expect-rows.
  */
@@ -15,6 +15,8 @@ async function main(): Promise<void> {
   if (!file) throw new Error("usage: catalog-load.ts <feed.txt.gz> [--expect-rows N]");
   const i = process.argv.indexOf("--expect-rows");
   const expect = i > 0 ? Number(process.argv[i + 1]) : 0;
+  const j = process.argv.indexOf("--sample-every");
+  const sampleEvery = j > 0 ? Number(process.argv[j + 1]) : 0; // test mode: load only every Nth car
   const url = process.env.DATABASE_URL_DIRECT || process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL_DIRECT or DATABASE_URL is required");
   const raw = createReadStream(file);
@@ -22,7 +24,7 @@ async function main(): Promise<void> {
   const pool = new Pool({ connectionString: url, max: 1 });
   try {
     const rl = readline.createInterface({ input, crlfDelay: Infinity });
-    const report = await loadFeed(pool, rl, { minRows: expect > 0 ? Math.floor(expect * 0.97) : 1, log: (m) => console.log(m) });
+    const report = await loadFeed(pool, rl, { minRows: expect > 0 && !sampleEvery ? Math.floor(expect * 0.97) : 1, sampleEvery, log: (m) => console.log(m) });
     console.log(JSON.stringify(report));
   } finally {
     await pool.end();

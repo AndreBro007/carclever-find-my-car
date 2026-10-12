@@ -209,6 +209,14 @@ describe("catalogue db: load and search (real PostgreSQL)", { skip: DB ? false :
     assert.equal(Number((await pool.query("SELECT count(*) FROM listing")).rows[0].count), before);
   });
 
+  test("test mode: loading every 2nd car keeps a half-size set and says what it left out", async () => {
+    const rep = await loadFeed(pool, asLines(fullFeed()), { sampleEvery: 2, keepRatio: 0 });
+    assert.equal(rep.skipped["not in sample"], 8);
+    assert.equal(rep.parsed, 6);
+    assert.equal(Number((await pool.query("SELECT count(*) FROM listing")).rows[0].count), 6);
+    await assert.rejects(() => loadFeed(pool, asLines(fullFeed()), { sampleEvery: 5 }), /refusing to merge/); // a sample can never replace a bigger stored set
+  });
+
   test("a database error becomes the same quiet service error as the other sources", async () => {
     const broken = new Pool({ connectionString: "postgres://nobody:none@127.0.0.1:1/none", max: 1, connectionTimeoutMillis: 500 });
     setCatalogDbPoolForTests(broken);
