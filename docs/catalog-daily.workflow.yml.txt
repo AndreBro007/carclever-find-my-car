@@ -1,5 +1,6 @@
 # NOT ACTIVE HERE. GitHub would not let the automation token create files under .github/workflows.
-# To activate: copy everything below this line into a new file named .github/workflows/catalog-daily.yml (GitHub website: Add file > Create new file).
+# To activate: copy everything below this line into a new file named .github/workflows/catalog-daily.yml on the DEFAULT branch (main).
+# GitHub only runs scheduled and manually started workflows from the default branch. GitHub website: Add file > Create new file.
 # ---------------------------------------------------------------------------------------------------
 name: catalog-daily
 # Fetches Edmunds' rich product feed from Impact once a day and refreshes the catalogue database.
@@ -17,6 +18,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: catalog-db/v1 # scheduled workflows run from the DEFAULT branch (main), so the loader code is checked out explicitly
       - uses: actions/setup-node@v4
         with:
           node-version: 22
