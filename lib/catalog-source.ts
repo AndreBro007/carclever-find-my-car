@@ -649,3 +649,75 @@ export async function diagnoseCatalogFiles(): Promise<CatalogFilesDiagnostics | 
   }
   return { httpStatus: "200", topLevelKeys: Object.keys(body), fileCount: list.length, perFileKeys, files, summary, note: "read-only listing: nothing downloaded; links reduced to host name; no credentials" };
 }
+
+/* ------------------------------------------------------------------------------------------------
+ * Catalogue DETAILS view (temporary, read-only, spike branch only; remove with the rest of the diagnostics).
+ * Shows which files Impact lists for the catalogue (names only) so we can tell whether the original-format
+ * ("CUSTOM") file is offered for automatic download. FTP locations contain a user name and PASSWORD, so they are
+ * reduced to host name + file name only; nothing else from them is ever returned.
+ * ---------------------------------------------------------------------------------------------- */
+
+/** Reduce an FTP/HTTP location (which may contain credentials) to "host / file name" only. */
+export function safeFtpName(raw: string): string {
+  const afterScheme = String(raw).trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
+  const at = afterScheme.lastIndexOf("@"); // credentials end at the LAST "@", even if the password itself contains "@" or "/"
+  const hostAndPath = (at >= 0 ? afterScheme.slice(at + 1) : afterScheme).split("?")[0];
+  const parts = hostAndPath.split("/").filter(Boolean);
+  const host = parts[0] ?? "";
+  const file = parts.length > 1 ? parts[parts.length - 1] : "";
+  const hostOk = /^[A-Za-z0-9.-]{3,80}$/.test(host);
+  const fileOk = /^[A-Za-z0-9._ -]{3,120}$/.test(file);
+  return `${hostOk ? host : "<host hidden>"} / ${fileOk ? file : "<name hidden>"}`;
+}
+
+/** Reduce a relative download path to its last two plain segments (folder / file); anything odd is hidden. */
+export function safePath(raw: string): string {
+  const parts = String(raw).trim().split("?")[0].split("/").filter(Boolean).slice(-2);
+  const ok = (x: string) => /^[A-Za-z0-9._ -]{1,120}$/.test(x) && !x.includes("@");
+  return parts.map((x) => (ok(x) ? x : "<hidden>")).join(" / ") || "<empty>";
+}
+
+export interface CatalogDetailsDiagnostics {
+  httpStatus: string;
+  topLevelKeys: string[];
+  scalars: Record<string, string | number | boolean | null>;
+  locations: string[];
+  ftpLocationCount: number;
+  ftpLocations: string[];
+  note: string;
+}
+
+export async function diagnoseCatalogDetails(): Promise<CatalogDetailsDiagnostics | { error: string }> {
+  if (!catalogConfigured()) return { error: "catalogue credentials not configured" };
+  const sid = process.env.IMPACT_ACCOUNT_SID!, token = process.env.IMPACT_AUTH_TOKEN!, catalog = process.env.IMPACT_CATALOG_ID!;
+  let res: Response;
+  try {
+    res = await fetch(`${IMPACT_BASE}/Mediapartners/${sid}/Catalogs/${catalog}`, {
+      headers: { Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}`, Accept: "application/json" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (e) {
+    return { error: `request failed: ${String((e as Error)?.name ?? "error")}` };
+  }
+  const empty = { topLevelKeys: [] as string[], scalars: {} as Record<string, string | number | boolean | null>, locations: [] as string[], ftpLocationCount: 0, ftpLocations: [] as string[] };
+  if (!res.ok) return { httpStatus: String(res.status), ...empty, note: "the catalogue details endpoint returned an error; nothing else is known" };
+  let body: Record<string, unknown> = {};
+  try { body = (await res.json()) as Record<string, unknown>; } catch { return { httpStatus: "200", ...empty, note: "response was not JSON" }; }
+  const scalars: Record<string, string | number | boolean | null> = {};
+  for (const [k, v] of Object.entries(body)) {
+    if (k === "Locations" || k === "FTPLocations" || Array.isArray(v)) continue;
+    scalars[k] = safeValue(v);
+  }
+  const locs = Array.isArray(body.Locations) ? (body.Locations as unknown[]) : [];
+  const ftp = Array.isArray(body.FTPLocations) ? (body.FTPLocations as unknown[]) : [];
+  return {
+    httpStatus: "200",
+    topLevelKeys: Object.keys(body),
+    scalars,
+    locations: locs.slice(0, 20).map((x) => safePath(String(x))),
+    ftpLocationCount: ftp.length,
+    ftpLocations: ftp.slice(0, 20).map((x) => safeFtpName(String(x))),
+    note: "read-only: nothing downloaded; FTP entries reduced to host and file name; no user names, passwords or full paths",
+  };
+}
