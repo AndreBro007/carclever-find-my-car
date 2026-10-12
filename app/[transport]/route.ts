@@ -711,7 +711,7 @@ const handler = createMcpHandler((server) => {
             content: [
               {
                 type: "text" as const,
-                text: activeSource() === "edmunds_catalog"
+                text: activeSource() === "edmunds_catalog" || activeSource() === "catalog_db"
                   ? `No listing found for VIN ${rawVin} right now. Not substituting a similar vehicle since a specific VIN was requested.`
                   : `No listing found for VIN ${rawVin} in current live inventory — this exact vehicle isn't currently available (or was already sold/delisted). Not substituting a similar vehicle since a specific VIN was requested.`,
               },

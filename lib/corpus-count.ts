@@ -24,6 +24,7 @@ let corpusCountForDescription = "several million"; // deliberately vaguer than t
 export function getCorpusCountForDescription(): string {
   // spike/edmunds-catalog-mode: when the catalogue is the source, describe the catalogue (1.35M items at last check).
   if (configuredMode() === "edmunds_catalog" && catalogConfigured()) return "about 1.3 million";
+  if (configuredMode() === "catalog_db") return "about 1.4 million"; // our own catalogue database (1,396,476 cars on Oct 12, 2026)
   return corpusCountForDescription;
 }
 
