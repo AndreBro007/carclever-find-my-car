@@ -1039,7 +1039,7 @@ const handler = createMcpHandler((server) => {
         baseQuery.used == null &&
         activeSource() !== "edmunds_catalog" && // catalogue cannot split new/used: one query, no duplicate pool
         (input.priorityAxis === "best_for_budget" || input.priorityAxis == null);
-      let rawResult: { data: AutoDevListing[]; total: number | null; error?: string; degraded?: string; source?: "auto_dev" | "edmunds_catalog"; localApplied?: boolean };
+      let rawResult: { data: AutoDevListing[]; total: number | null; error?: string; degraded?: string; source?: "auto_dev" | "edmunds_catalog" | "catalog_db"; localApplied?: boolean };
       if (useFairPool) {
         const [newResult, usedResult] = await Promise.all([
           searchListingsLean({ ...baseQuery, used: false }),

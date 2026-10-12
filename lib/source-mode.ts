@@ -5,6 +5,7 @@
  * touching any existing Auto.dev code path:
  *   LISTING_SOURCE=auto_dev        -> Auto.dev only (previous behaviour)
  *   LISTING_SOURCE=edmunds_catalog -> Edmunds/Impact catalogue only, ZERO Auto.dev calls
+ *   LISTING_SOURCE=catalog_db      -> our own catalogue DATABASE (DATABASE_URL), ZERO Auto.dev calls
  *   LISTING_SOURCE=auto (default)  -> Auto.dev first; when Auto.dev starts rejecting
  *                                     calls (quota/auth/rate/outage) switch to the
  *                                     catalogue automatically for a cooldown window.
@@ -17,11 +18,11 @@
  * a cold instance spends at most one rejected call learning the state, and
  * rejected calls are not expected to consume allowance.
  */
-export type ListingSourceMode = "auto_dev" | "edmunds_catalog" | "auto";
+export type ListingSourceMode = "auto_dev" | "edmunds_catalog" | "catalog_db" | "auto";
 
 export function configuredMode(): ListingSourceMode {
   const v = (process.env.LISTING_SOURCE ?? "auto").trim().toLowerCase();
-  return v === "auto_dev" || v === "edmunds_catalog" ? v : "auto";
+  return v === "auto_dev" || v === "edmunds_catalog" || v === "catalog_db" ? v : "auto";
 }
 
 const QUOTA_COOLDOWN_MS = 15 * 60_000; // 401/402/403: allowance or auth problem

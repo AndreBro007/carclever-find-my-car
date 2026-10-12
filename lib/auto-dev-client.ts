@@ -293,7 +293,7 @@ export interface ListingsResponse {
   /** Set when results came back but via a reduced fallback request. */
   degraded?: string;
   /** Which source produced these rows (spike/edmunds-catalog-mode). Absent = Auto.dev. */
-  source?: "auto_dev" | "edmunds_catalog";
+  source?: "auto_dev" | "edmunds_catalog" | "catalog_db";
   /** Catalogue rows were ordered/filtered by distance from the search ZIP (dealer ZIP -> offline ZIP table). */
   localApplied?: boolean;
 }
