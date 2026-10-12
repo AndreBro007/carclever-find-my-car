@@ -9,6 +9,7 @@ import { createGunzip } from "node:zlib";
 import readline from "node:readline";
 import { Pool } from "pg";
 import { loadFeed } from "../lib/catalog-db/load";
+import { cleanConnectionString } from "../lib/catalog-db/conn";
 
 async function main(): Promise<void> {
   const file = process.argv[2];
@@ -17,7 +18,7 @@ async function main(): Promise<void> {
   const expect = i > 0 ? Number(process.argv[i + 1]) : 0;
   const j = process.argv.indexOf("--sample-every");
   const sampleEvery = j > 0 ? Number(process.argv[j + 1]) : 0; // test mode: load only every Nth car
-  const url = process.env.DATABASE_URL_DIRECT || process.env.DATABASE_URL;
+  const url = cleanConnectionString(process.env.DATABASE_URL_DIRECT || process.env.DATABASE_URL);
   if (!url) throw new Error("DATABASE_URL_DIRECT or DATABASE_URL is required");
   const raw = createReadStream(file);
   const input = file.endsWith(".gz") ? raw.pipe(createGunzip()) : raw;

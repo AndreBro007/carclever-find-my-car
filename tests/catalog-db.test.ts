@@ -6,6 +6,7 @@ import { FEED_COLUMNS, alnumKey, bodyClassesFor, buildTrackingUrl, headerIndex, 
 import { loadFeed } from "../lib/catalog-db/load";
 import { rowToListing, searchCatalogDbListings, getCatalogDbListing, catalogDbModelFacets, setCatalogDbPoolForTests } from "../lib/catalog-db-source";
 import { SCHEMA_SQL } from "../lib/catalog-db/schema";
+import { cleanConnectionString } from "../lib/catalog-db/conn";
 
 // ---------- synthetic feed (NO real partner data is committed to this public repository) ----------
 const HEADER = FEED_COLUMNS.join("\t");
@@ -95,6 +96,13 @@ describe("catalogue db: pure normalisation", () => {
     const r = parseRow(feedLine({ year: 2025, make: "Ford", model: "F-150", cond: "new", price: 52000, odo: "", body: "Truck", dealer: 5 }).split("\t"), idx);
     assert.ok("row" in r); if ("row" in r) { assert.equal(r.row.odometer, null); assert.equal(r.row.condition, "n"); assert.equal(r.row.dealerZip, "10001"); assert.equal(r.row.linkOverride, null); }
     const o = parseRow(feedLine(OVERRIDE_CAR).split("\t"), idx); assert.ok("row" in o && o.row.linkOverride === OVERRIDE_LINK);
+  });
+  test("hosted connection strings: channel_binding is dropped, everything else is kept", () => {
+    const raw = "postgresql://user:p%40ss@ep-x-pooler.c-13.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
+    const out = cleanConnectionString(raw) ?? "";
+    assert.ok(!out.includes("channel_binding")); assert.ok(out.includes("sslmode=require")); assert.ok(out.includes("p%40ss@ep-x-pooler"));
+    assert.equal(cleanConnectionString("  "), undefined); assert.equal(cleanConnectionString(undefined), undefined);
+    assert.equal(cleanConnectionString("not a url"), "not a url");
   });
   test("a 4-digit ZIP regains its leading zero", () => {
     const idx = headerIndex(HEADER); const cols = feedLine(CARS[0]).split("\t"); cols[idx["dealer_zip"]] = "2108";

@@ -10,6 +10,7 @@ import type { AutoDevListing, ListingsQuery, ListingsResponse } from "./auto-dev
 import { classModels } from "./vehicle-class";
 import { buildTrackingUrl, type BodyClass } from "./catalog-db/normalize";
 import { modelFacets, rowByVin, searchRows, type DbRow, type Queryable } from "./catalog-db/search";
+import { cleanConnectionString } from "./catalog-db/conn";
 
 export function catalogDbConfigured(): boolean {
   return typeof process.env.DATABASE_URL === "string" && process.env.DATABASE_URL.trim() !== "";
@@ -18,7 +19,9 @@ export function catalogDbConfigured(): boolean {
 let pool: Pool | null = null;
 function getPool(): Pool {
   if (!pool) {
-    pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3, idleTimeoutMillis: 10_000, connectionTimeoutMillis: 6_000, statement_timeout: 8_000 });
+    // query_timeout is enforced by the driver itself. (statement_timeout would be sent as a startup parameter, which a pooled
+    // connection through PgBouncer can reject.)
+    pool = new Pool({ connectionString: cleanConnectionString(process.env.DATABASE_URL), max: 3, idleTimeoutMillis: 10_000, connectionTimeoutMillis: 6_000, query_timeout: 8_000 });
     pool.on("error", () => { /* an idle client dropped; the next query reconnects */ });
   }
   return pool;
