@@ -1,3 +1,11 @@
+// =====================================================================================================
+// OPS TOOL — NOT PART OF ANY APP VERSION. DO NOT MERGE, CHERRY-PICK OR COPY THIS FILE INTO release/v2,
+// ANY V3 BRANCH, OR ANY OTHER APP BRANCH. It has nothing to do with the CarClever app or its V3 rebuild.
+// It sits on this legacy dev branch only because the dev project ccfmc-dev-v3 already holds the Auto.dev key
+// and is reachable from Claude's sandbox. The V3 rebuild starts from release/v2 and cherry-picks only the six
+// original V3 commits (see PLAN_V3_REBUILD_FROM_V2... and PLAYBOOK.md "OPS TOOLS"). Remove or re-home this
+// file before ccfmc-dev-v3 is re-pointed at a rebuilt V3 branch.
+// =====================================================================================================
 // Ops health probe for the Auto.dev data API.
 // Returns 404 unless AUTODEV_HEALTH_TOKEN is set AND the request carries it in the x-health-token header.
 // Makes ONE Auto.dev /listings call (limit=1) using the key held in this project's environment and returns only
