@@ -1,0 +1,35 @@
+import { decodeNhtsaElectrification } from "./nhtsa-client";
+import { resolveLinks } from "./link-resolution";
+import type { AutoDevListing } from "./auto-dev-client";
+
+/** "TOYOTA" -> "Toyota", "LAND ROVER" -> "Land Rover" */
+const cap = (s: string): string => s.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
+
+export interface NotListedDeps { decode?: typeof decodeNhtsaElectrification; resolve?: typeof resolveLinks; currentYear?: number }
+
+/**
+ * A VIN that is not in our listings is a dead end for the buyer (and for us). Decode it with NHTSA (free) to learn year, make and
+ * model, then return the same Edmunds affiliate links the rest of the app uses: the exact-VIN page (Edmunds may carry cars our
+ * partner feed does not) and a similar-vehicles page. Nothing is substituted: the first sentence of the reply still says the VIN
+ * is not listed. Returns "" when the VIN cannot be decoded or no link can be built.
+ */
+export async function notListedLinksText(vin: string, deps: NotListedDeps = {}): Promise<string> {
+  const decode = deps.decode ?? decodeNhtsaElectrification;
+  const resolve = deps.resolve ?? resolveLinks;
+  const r = await decode(vin, null, null, null);
+  if (!r || !r.make || !r.model || !r.modelYear) return "";
+  const year = Number(r.modelYear);
+  if (!Number.isFinite(year)) return "";
+  const make = cap(r.make), model = r.model;
+  const trim = r.trimOptions.length === 1 ? r.trimOptions[0] : undefined; // only when NHTSA names exactly one trim
+  const nowYear = deps.currentYear ?? new Date().getFullYear();
+  const isNew = year >= nowYear; // current or next model year: treat as a new car (category link, no exact-VIN attempt)
+  const listing = { vin, vehicle: { make, model, year, ...(trim ? { trim } : {}) }, ...(isNew ? { retailListing: { used: false } } : {}) } as unknown as AutoDevListing;
+  const links = resolve(listing);
+  const label = `${year} ${make} ${model}${trim ? " " + trim : ""}`;
+  const lines: string[] = [];
+  if (links.affiliateUrl) lines.push(isNew ? `Check ${label} availability on Edmunds: ${links.affiliateUrl}` : `Check this exact VIN on Edmunds: ${links.affiliateUrl}`);
+  if (links.affiliateFallbackUrl) lines.push(`Similar ${label} for sale on Edmunds: ${links.affiliateFallbackUrl}`);
+  if (lines.length === 0) return "";
+  return `\n\nThis VIN decodes to a ${label}.\n${lines.join("\n")}`;
+}

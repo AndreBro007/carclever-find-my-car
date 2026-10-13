@@ -5,6 +5,8 @@ import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
 // (Auto.dev unchanged unless mode/breaker selects the Edmunds catalogue).
 import { catalogOutputActive, shapeCardsForSource, shapeBuyerCheckForCatalog } from "@/lib/catalog-output";
 import { withNhtsaSpecs } from "@/lib/nhtsa-specs";
+import { notListedLinksText } from "@/lib/vin-not-listed";
+import { catalogDescription } from "@/lib/catalog-output";
 import { attachNhtsaRatings } from "@/lib/nhtsa-ratings";
 import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, activeSource } from "@/lib/listing-source";
 import { inferClassHint } from "@/lib/vehicle-class";
@@ -30,7 +32,7 @@ import { sanitizeDealerName } from "@/lib/dealer-name";
 import { applyKnownHybridOverride, formatFuelTypeForDisplay } from "@/lib/fuel-type";
 import { decodeNhtsaElectrification, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, type ElectrificationState, ELECTRIFICATION_POOL_SIZE, prioritizeElectrificationCandidates, electrificationStateSatisfies } from "@/lib/nhtsa-client";
 import { isAnomalousPrice, buildCpoSummary, buildHistorySummary, applyLocalBestForBudgetOrdering, applyLocalLowerRiskOrdering } from "@/lib/local-ranking";
-import { FindMatchingVehicleInput } from "@/lib/find-matching-vehicle-input";
+import { FindMatchingVehicleInput, FindMatchingVehicleInputCatalog } from "@/lib/find-matching-vehicle-input";
 import { getCorpusCountForDescription, initCorpusCount } from "@/lib/corpus-count";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting, type CardIntentInput } from "@/lib/qualifier-accounting";
@@ -639,8 +641,8 @@ const handler = createMcpHandler((server) => {
     "find_matching_vehicle",
     {
       title: "Find Matching Vehicle",
-      description: FIND_MATCHING_VEHICLE_DESCRIPTION(),
-      inputSchema: FindMatchingVehicleInput,
+      description: catalogOutputActive() ? catalogDescription(FIND_MATCHING_VEHICLE_DESCRIPTION()) : FIND_MATCHING_VEHICLE_DESCRIPTION(),
+      inputSchema: catalogOutputActive() ? FindMatchingVehicleInputCatalog : FindMatchingVehicleInput,
       outputSchema: catalogOutputActive() ? CatalogDbOutputSchema : FindMatchingVehicleOutputSchema,
       // Canonical output contract. All live structuredContent construction paths
       // are compile-time validated against this schema via `satisfies`.
@@ -719,12 +721,14 @@ const handler = createMcpHandler((server) => {
         ]);
 
         if (!fullListing) {
+          // Database app: a VIN we do not list still gets the exact-VIN and similar-vehicle Edmunds links (end of funnel: dealer contact).
+          const notListedLinks = activeSource() === "catalog_db" ? await notListedLinksText(rawVin) : "";
           return {
             content: [
               {
                 type: "text" as const,
                 text: activeSource() === "edmunds_catalog" || activeSource() === "catalog_db"
-                  ? `No listing found for VIN ${rawVin} right now. Not substituting a similar vehicle since a specific VIN was requested.`
+                  ? `No listing found for VIN ${rawVin} right now. Not substituting a different vehicle since a specific VIN was requested.${notListedLinks}`
                   : `No listing found for VIN ${rawVin} in current live inventory — this exact vehicle isn't currently available (or was already sold/delisted). Not substituting a similar vehicle since a specific VIN was requested.`,
               },
             ],

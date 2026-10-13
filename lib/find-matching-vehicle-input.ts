@@ -95,3 +95,16 @@ export const FindMatchingVehicleInput = z.object({
   // still produces the exact `{code: "unrecognized_keys", keys:
   // ["goals"], message: 'Unrecognized key: "goals"'}` result, surfaced
   // to the host as an McpError, not silently dropped.
+
+/**
+ * Database app (LISTING_SOURCE=catalog_db): the same inputs, with notes that say what this inventory can and cannot do. The Auto.dev
+ * notes stay as they are for the other apps. Only descriptions differ; the accepted fields and types are identical.
+ */
+export const FindMatchingVehicleInputCatalog = FindMatchingVehicleInput.safeExtend({
+  vin: z.string().optional().describe("Exact 17-character VIN for one current listing. Other criteria are evaluated against that listing; if the VIN is not listed, links to the exact VIN and to similar vehicles on Edmunds are returned, but no different vehicle is substituted."),
+  exteriorColor: z.string().optional().describe("Requested exterior colour (for example white, black, gray, blue), matched against the dealer's colour name. If fewer than 3 cars match, colour only influences ranking."),
+  interiorColor: z.string().optional().describe("Requested interior colour, matched against the dealer's colour name. If fewer than 3 cars match, colour only influences ranking."),
+  cpo: z.boolean().optional().describe("Request for certified pre-owned status. This inventory carries no certification data, so results are reported as unconfirmed."),
+  noAccidents: z.boolean().optional().describe("Request for no reported accidents. This inventory carries no accident-history data, so results are reported as unconfirmed."),
+  oneOwner: z.boolean().optional().describe("Request for one-owner history. This inventory carries no ownership data, so results are reported as unconfirmed."),
+});
