@@ -6,6 +6,7 @@ import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
 import { catalogOutputActive, shapeCardsForSource, shapeBuyerCheckForCatalog, nhtsaTextLines, nhtsaTextFootnote } from "@/lib/catalog-output";
 import { withNhtsaSpecs } from "@/lib/nhtsa-specs";
 import { notListedLinksText } from "@/lib/vin-not-listed";
+import { closingExitLine, zeroResultsExitLine, sortByScoreThenDistance } from "@/lib/dead-end-links";
 import { catalogDescription } from "@/lib/catalog-output";
 import { attachNhtsaRatings } from "@/lib/nhtsa-ratings";
 import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, activeSource } from "@/lib/listing-source";
@@ -1962,6 +1963,14 @@ const handler = createMcpHandler((server) => {
       } else {
         cards.sort((a, b) => b.ranking.matchScore - a.ranking.matchScore);
       }
+      // Database app, default ordering only: among equally good matches (same match score) the nearest dealer comes first. The distance comes
+      // from the first-pass rows (the refetched copy has none). The priority axes above keep their own order.
+      if (catalogOutputActive() && input.priorityAxis !== "cheapest" && input.priorityAxis !== "lowest_mileage" && input.priorityAxis !== "newest" && input.priorityAxis !== "lower_risk") {
+        const miles = new Map<string, number>();
+        for (const l of [...leanShortlist, ...spareLean]) { const d = (l as any).catalog?.distanceMiles; if (typeof d === "number") miles.set(l.vin, d); }
+        const sorted = sortByScoreThenDistance(cards, miles);
+        cards.splice(0, cards.length, ...sorted);
+      }
 
       const dataNotes: string[] = [];
       if (lowestMileageDefaultedToUsed && !servedByCatalog) {
@@ -2172,7 +2181,7 @@ const handler = createMcpHandler((server) => {
         serviceFailureMessage
           ? disclosurePrefix + serviceFailureMessage
           : cards.length === 0
-          ? disclosurePrefix + noResultsMessage
+          ? disclosurePrefix + noResultsMessage + zeroResultsExitLine(input.make, input.model, input.used)
           : disclosurePrefix + partialWideningNote + `Found ${cards.length} closely matching vehicle${cards.length === 1 ? "" : "s"}${totalPhrase}:\n\n` +
             cards
               .map((c, i) => {                const id = c.identity;
@@ -2222,7 +2231,7 @@ const handler = createMcpHandler((server) => {
                 const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
                 return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}${nhtsaTextLines(c)}\n   Link: ${linkStr}`;
               })
-              .join("\n\n") + nhtsaTextFootnote(cards);
+              .join("\n\n") + nhtsaTextFootnote(cards) + closingExitLine(cards);
 
       return {
         content: [{ type: "text" as const, text: summary }],
