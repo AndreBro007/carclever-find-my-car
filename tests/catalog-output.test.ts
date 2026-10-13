@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { FindMatchingVehicleOutputSchema, CatalogDbOutputSchema } from "../lib/find-matching-vehicle-output";
-import { shapeCardForCatalog, shapeCardsForSource, shapeBuyerCheckForCatalog } from "../lib/catalog-output";
+import { shapeCardForCatalog, shapeCardsForSource, shapeBuyerCheckForCatalog, nhtsaTextLines, nhtsaTextFootnote } from "../lib/catalog-output";
 
 const HIST = "Accident history was not reported for this listing. No Carfax link was available.";
 const card = () => ({
@@ -85,4 +85,14 @@ test("buyer check built for the text the model reads: history, Carfax and CPO 'm
     assert.equal(s.nextSteps[1], "Independently verify the items listed above — via a vehicle history report, a trusted mechanic, or the dealer — before finalizing a purchase.");
     assert.ok(!JSON.stringify(s).toLowerCase().includes("carfax")); assert.deepEqual(s.goodSigns, ["VIN verified"]);
   } finally { if (prev === undefined) delete process.env.LISTING_SOURCE; else process.env.LISTING_SOURCE = prev; }
+});
+
+test("text the AI reads: details line and safety line appear in database mode only, recall count gets one footnote", () => {
+  const c: any = { powertrain: { drivetrain: "AWD", engine: "2.5L 4-cyl 203 hp" }, detail: { fuelTypeDisplay: "Hybrid", seats: 5, nhtsaOverallRating: 5, nhtsaRecallCampaigns: 3, standardSafetyTech: ["Automatic emergency braking", "Forward collision warning", "Lane departure warning", "Rear camera", "Blind spot monitoring", "Adaptive cruise control"] } };
+  const t = nhtsaTextLines(c, true);
+  assert.equal(t, "\n   Hybrid · AWD · 2.5L 4-cyl 203 hp · 5 seats\n   NHTSA 5★ overall · 3 recall campaigns for this model year · standard: Automatic emergency braking, Forward collision warning, Lane departure warning, Rear camera +2 more");
+  assert.equal(nhtsaTextLines(c, false), ""); assert.equal(nhtsaTextLines({ powertrain: {}, detail: {} }, true), ""); assert.equal(nhtsaTextLines(null, true), "");
+  assert.equal(nhtsaTextLines({ powertrain: {}, detail: { nhtsaRecallCampaigns: 1 } }, true), "\n   1 recall campaign for this model year");
+  assert.match(nhtsaTextFootnote([c, c], true), /^\n\nNote: recall counts are for the model year/); assert.equal(nhtsaTextFootnote([c], false), ""); assert.equal(nhtsaTextFootnote([{ detail: {} }], true), "");
+  assert.equal((nhtsaTextFootnote([c, c], true).match(/Note:/g) ?? []).length, 1);
 });

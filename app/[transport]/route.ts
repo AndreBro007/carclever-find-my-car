@@ -3,7 +3,7 @@ import { z } from "zod";
 import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
 // spike/edmunds-catalog-mode: same four functions, now routed through the source facade
 // (Auto.dev unchanged unless mode/breaker selects the Edmunds catalogue).
-import { catalogOutputActive, shapeCardsForSource, shapeBuyerCheckForCatalog } from "@/lib/catalog-output";
+import { catalogOutputActive, shapeCardsForSource, shapeBuyerCheckForCatalog, nhtsaTextLines, nhtsaTextFootnote } from "@/lib/catalog-output";
 import { withNhtsaSpecs } from "@/lib/nhtsa-specs";
 import { notListedLinksText } from "@/lib/vin-not-listed";
 import { catalogDescription } from "@/lib/catalog-output";
@@ -905,7 +905,7 @@ const handler = createMcpHandler((server) => {
                       : "") +
                     (buyerCheck.nextSteps.length > 0 ? `\n  Next steps: ${buyerCheck.nextSteps.join(" ")}` : "")
                   : "";
-                return `Found the exact vehicle for VIN ${rawVin}:\n\n${formatVehicleTitle(id)} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${violationNote}\n   Link: ${primaryLinkStr}${buyerCheckText}`;
+                return `Found the exact vehicle for VIN ${rawVin}:\n\n${formatVehicleTitle(id)} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${violationNote}${nhtsaTextLines(c)}\n   Link: ${primaryLinkStr}${buyerCheckText}${nhtsaTextFootnote([c])}`;
               })();
 
         return {
@@ -1975,12 +1975,15 @@ const handler = createMcpHandler((server) => {
         );
       }
       if (bodyStyleFallbackUsed) {
+        const bodyStyleLabel = droppedBodyStyle ?? "match for the requested body style";
         dataNotes.push(
-          `None of the results could be confirmed as a genuine ${droppedBodyStyle} — Auto.dev's own data appears to mislabel this model's body style. Shown anyway since they're still the correct model, with each result's actual reported body style disclosed individually below.`,
+          catalogOutputActive()
+            ? `None of the results could be confirmed as a genuine ${bodyStyleLabel} — the listing data may label this model's body style differently. Shown anyway since they're still the correct model, with each result's reported body style disclosed individually below.`
+            : `None of the results could be confirmed as a genuine ${bodyStyleLabel} — Auto.dev's own data appears to mislabel this model's body style. Shown anyway since they're still the correct model, with each result's actual reported body style disclosed individually below.`,
         );
       } else if (bodyStyleDriftDetected) {
         dataNotes.push(
-          `One or more listings turned out not to be a genuine ${droppedBodyStyle} at the detailed lookup stage, despite passing the initial search — excluded rather than shown as a mismatch.`,
+          `One or more listings turned out not to be a genuine ${droppedBodyStyle ?? "match for the requested body style"} at the detailed lookup stage, despite passing the initial search — excluded rather than shown as a mismatch.`,
         );
       }
       if (trimDriftDetected) {
@@ -1990,12 +1993,16 @@ const handler = createMcpHandler((server) => {
       }
       if (geoDriftDetected) {
         dataNotes.push(
-          "One or more listings were confirmed to be reported far outside the requested search radius at the detailed lookup stage, despite passing the provider's own radius filter — excluded rather than shown as a mismatch.",
+          catalogOutputActive()
+            ? "One or more listings turned out to be far outside the requested search radius at the detailed lookup stage — excluded rather than shown as a mismatch."
+            : "One or more listings were confirmed to be reported far outside the requested search radius at the detailed lookup stage, despite passing the provider's own radius filter — excluded rather than shown as a mismatch.",
         );
       }
       if (violationRate > 0.2) {
         dataNotes.push(
-          "Some results from the underlying data source didn't fully match the stated filters and were excluded — this can happen with the provider's data.",
+          catalogOutputActive()
+            ? "Some results didn't fully match the stated filters and were excluded."
+            : "Some results from the underlying data source didn't fully match the stated filters and were excluded — this can happen with the provider's data.",
         );
       }
       if (rawResult.degraded) {
@@ -2213,9 +2220,9 @@ const handler = createMcpHandler((server) => {
                 );
                 const confirmedLine = confirmedItems.length > 0 ? `\n   Confirmed: ${confirmedItems.join(", ")}` : "";
                 const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
-                return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}\n   Link: ${linkStr}`;
+                return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}${nhtsaTextLines(c)}\n   Link: ${linkStr}`;
               })
-              .join("\n\n");
+              .join("\n\n") + nhtsaTextFootnote(cards);
 
       return {
         content: [{ type: "text" as const, text: summary }],

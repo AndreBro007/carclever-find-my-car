@@ -76,3 +76,26 @@ export function catalogDescription(base: string): string {
   }
   return d;
 }
+
+/**
+ * Database app: the per-car text the AI reads (many AI hosts rely mostly on the text, not the structured data). Adds one line of vehicle
+ * details (fuel, drive, engine, transmission, seats) and one line of NHTSA safety information (rating, model-year recall count, up to 4
+ * standard features). Returns "" for other apps and for cars with nothing to show.
+ */
+export function nhtsaTextLines(c: any, active: boolean = catalogOutputActive()): string {
+  if (!active || !c) return "";
+  const p = c.powertrain ?? {}, d = c.detail ?? {};
+  const spec = [d.fuelTypeDisplay, p.drivetrain, p.engine, p.transmission, d.seats ? `${d.seats} seats` : null].filter((x) => typeof x === "string" ? x.trim() : x).join(" · ");
+  const safety: string[] = [];
+  if (d.nhtsaOverallRating) safety.push(`NHTSA ${d.nhtsaOverallRating}★ overall`);
+  if (d.nhtsaRecallCampaigns > 0) safety.push(`${d.nhtsaRecallCampaigns} recall campaign${d.nhtsaRecallCampaigns === 1 ? "" : "s"} for this model year`);
+  const feats: string[] = Array.isArray(d.standardSafetyTech) ? d.standardSafetyTech : [];
+  if (feats.length) safety.push(`standard: ${feats.slice(0, 4).join(", ")}${feats.length > 4 ? ` +${feats.length - 4} more` : ""}`);
+  return (spec ? `\n   ${spec}` : "") + (safety.length ? `\n   ${safety.join(" · ")}` : "");
+}
+
+/** One footnote (not one per car) explaining what a recall count means; "" when no car shows one. */
+export function nhtsaTextFootnote(cards: any[], active: boolean = catalogOutputActive()): string {
+  if (!active || !cards.some((c) => c?.detail?.nhtsaRecallCampaigns > 0)) return "";
+  return "\n\nNote: recall counts are for the model year, not specific to a car, and do not say whether a recall was repaired; a buyer can check a VIN at nhtsa.gov/recalls.";
+}
