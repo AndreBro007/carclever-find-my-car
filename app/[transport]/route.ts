@@ -3,7 +3,7 @@ import { z } from "zod";
 import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
 // spike/edmunds-catalog-mode: same four functions, now routed through the source facade
 // (Auto.dev unchanged unless mode/breaker selects the Edmunds catalogue).
-import { catalogOutputActive, shapeCardsForSource } from "@/lib/catalog-output";
+import { catalogOutputActive, shapeCardsForSource, shapeBuyerCheckForCatalog } from "@/lib/catalog-output";
 import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, activeSource } from "@/lib/listing-source";
 import { inferClassHint } from "@/lib/vehicle-class";
 // Widening ladder re-enabled 2026-08-16 (SYS-20260816-008). It was bypassed on
@@ -825,7 +825,7 @@ const handler = createMcpHandler((server) => {
         // search results. Pure function over the same evidence
         // buildResultCard() already produced for vinCard above; no new
         // Auto.dev call, no new data source.
-        const buyerCheck = vinCard ? buildBuyerCheck(vinCard) : null;
+        const buyerCheck = vinCard ? shapeBuyerCheckForCatalog(buildBuyerCheck(vinCard)) : null;
         const vinCardsWithBuyerCheck = vinCard && buyerCheck ? [{ ...vinCard, buyerCheck }] : vinCards;
 
         // Other stated hard constraints (price/year/mileage) are checked

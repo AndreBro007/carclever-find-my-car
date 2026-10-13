@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { FindMatchingVehicleOutputSchema, CatalogDbOutputSchema } from "../lib/find-matching-vehicle-output";
-import { shapeCardForCatalog, shapeCardsForSource } from "../lib/catalog-output";
+import { shapeCardForCatalog, shapeCardsForSource, shapeBuyerCheckForCatalog } from "../lib/catalog-output";
 
 const HIST = "Accident history was not reported for this listing. No Carfax link was available.";
 const card = () => ({
@@ -60,4 +60,26 @@ test("buyer check on a VIN lookup loses the 'history not reported' line but keep
   const s: any = shapeCardForCatalog(c);
   assert.deepEqual(s.buyerCheck.needsVerification, ["Confirm price with the dealer"]);
   assert.deepEqual(s.buyerCheck.goodSigns, ["VIN verified"]);
+});
+
+test("buyer check built for the text the model reads: history, Carfax and CPO 'missing' lines are dropped in database mode only", () => {
+  const bc = {
+    outcome: "verify_before_proceeding", goodSigns: ["VIN verified"], concerns: [] as string[],
+    needsVerification: [
+      "model and trim cannot be confirmed from the VIN alone - confirm independently.",
+      "Accident history was not reported for this listing - this is common.",
+      "CPO status was not reported for this listing - ask the dealer if certification matters to you.",
+      "No Carfax link was available on this listing - request an independent vehicle history report before purchase.",
+    ],
+    nextSteps: ["Have a pre-purchase inspection done by an independent mechanic."],
+  };
+  const prev = process.env.LISTING_SOURCE;
+  try {
+    process.env.LISTING_SOURCE = "auto_dev";
+    assert.equal(shapeBuyerCheckForCatalog(bc).needsVerification.length, 4); // the other apps are unchanged
+    process.env.LISTING_SOURCE = "catalog_db";
+    const s = shapeBuyerCheckForCatalog(bc);
+    assert.deepEqual(s.needsVerification, ["model and trim cannot be confirmed from the VIN alone - confirm independently."]);
+    assert.deepEqual(s.nextSteps, bc.nextSteps); assert.deepEqual(s.goodSigns, ["VIN verified"]);
+  } finally { if (prev === undefined) delete process.env.LISTING_SOURCE; else process.env.LISTING_SOURCE = prev; }
 });

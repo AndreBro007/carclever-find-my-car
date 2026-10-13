@@ -32,11 +32,22 @@ export function shapeCardForCatalog<T>(card: T): T {
   c.links = without(c.links, ["dealerListingUrl"]);
   c.media = without(c.media, ["photoUrls"]);
   c.detail = without(c.detail, DETAIL_DROP);
-  if (c.buyerCheck && historyNote) {
-    const keep = (a: unknown) => (Array.isArray(a) ? a.filter((x) => x !== historyNote) : a);
+  if (c.buyerCheck) {
+    const keep = (a: unknown) => (Array.isArray(a) ? a.filter((x) => x !== historyNote && !MISSING_DATA_LINE.test(String(x))) : a);
     c.buyerCheck = { ...c.buyerCheck, goodSigns: keep(c.buyerCheck.goodSigns), concerns: keep(c.buyerCheck.concerns), needsVerification: keep(c.buyerCheck.needsVerification) };
   }
   return c as T;
+}
+
+// Lines that only say "this data is missing": accident history not reported, no Carfax link, CPO not reported.
+const MISSING_DATA_LINE = /(accident history|history was not reported|carfax link|cpo status was not reported)/i;
+type BuyerCheckLike = { goodSigns: string[]; concerns: string[]; needsVerification: string[]; nextSteps: string[] };
+
+/** Database mode: drop buyer-check lines about history / Carfax / CPO that the feed can never answer. Other lines stay. */
+export function shapeBuyerCheckForCatalog<T extends BuyerCheckLike>(bc: T): T {
+  if (!catalogOutputActive()) return bc;
+  const keep = (a: string[]) => a.filter((x) => !MISSING_DATA_LINE.test(x));
+  return { ...bc, goodSigns: keep(bc.goodSigns), concerns: keep(bc.concerns), needsVerification: keep(bc.needsVerification) };
 }
 
 export function shapeCardsForSource<T>(cards: T[]): T[] {
