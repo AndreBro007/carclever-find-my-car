@@ -193,6 +193,9 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 .cc-rate.is-yellow{background:rgba(234,196,18,.96);border-color:rgba(166,136,6,.9);color:#1a1604}
 .cc-rate.is-amber{background:rgba(245,158,11,.96);border-color:rgba(180,105,4,.9);color:#1a1204}
 .cc-rate.is-red{background:rgba(220,38,38,.95);border-color:rgba(165,26,26,.9);color:#fff6f6}
+.cc-fresh{border-radius:999px;border:1px solid rgba(255,255,255,.16);font-size:9.5px;line-height:1;padding:4px 7px;font-weight:700;letter-spacing:.02em;white-space:nowrap;text-transform:uppercase}
+.cc-fresh.is-new{background:rgba(37,99,235,.95);border-color:rgba(29,78,216,.9);color:#f4f8ff}
+.cc-fresh.is-drop{background:rgba(16,145,86,.95);border-color:rgba(9,110,64,.9);color:#f3fff9}
 /* "EXACT VIN" bottom-left image badge — same direct-VIN-lookup-only scope
    as .cc-risk above. */
 .cc-exact-vin{position:absolute;bottom:8px;left:8px;border-radius:6px;font-size:8.5px;line-height:1;padding:3px 6px;font-weight:700;background:rgba(8,18,31,.82);color:#edf4fc;border:1px solid rgba(255,255,255,.16);text-transform:uppercase;letter-spacing:.03em}
@@ -430,6 +433,12 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     var ratePill = nhtsaStars >= 1 && nhtsaStars <= 5
       ? '<span class="cc-rate is-' + (nhtsaStars >= 5 ? "green" : nhtsaStars === 4 ? "lime" : nhtsaStars === 3 ? "yellow" : nhtsaStars === 2 ? "amber" : "red") + '" title="NHTSA overall crash-test rating for this model year">\u2605' + nhtsaStars + " NHTSA</span>"
       : "";
+    // Database app (V3): "Just added" (first seen in our listings within 3 days) and "Price down $X" (a drop of at least $100 within 7 days).
+    // Only a number is ever printed from the data; both pills are absent when the server sends neither field.
+    var freshPills = (c.detail && c.detail.justAdded === true ? '<span class=\"cc-fresh is-new\" title=\"First appeared in our listings in the last 3 days\">Just added</span>' : "") +
+      (c.detail && c.detail.priceDrop && typeof c.detail.priceDrop.amount === \"number\" && c.detail.priceDrop.amount > 0
+        ? '<span class=\"cc-fresh is-drop\" title=\"The price fell by this amount in the last 7 days\">Price down $' + Math.round(c.detail.priceDrop.amount).toLocaleString(\"en-US\") + \"</span>\"
+        : \"\");
     var exactVinBadge = buyerCheck ? '<div class="cc-exact-vin">EXACT VIN</div>' : "";
     // CTA link/label (fix/affiliate-routing): the card's clickable CTA never
     // routes to links.dealerListingUrl — including Carvana. affiliateUrl
@@ -536,7 +545,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 
     return '<article class="cc-card">' +
       '<div class="cc-photo-wrap">' + photoBlock + exactVinBadge +
-        '<div class="cc-badges">' + (listingType ? '<span class="cc-type">' + esc(listingType) + "</span>" : "") + '<span style="display:flex;gap:6px">' + ratePill + riskPill + "</span></div>" +
+        '<div class="cc-badges">' + (listingType ? '<span class="cc-type">' + esc(listingType) + "</span>" : "") + '<span style="display:flex;gap:6px">' + freshPills + ratePill + riskPill + "</span></div>" +
       "</div>" +
       '<div class="cc-body">' +
         (primaryUrl

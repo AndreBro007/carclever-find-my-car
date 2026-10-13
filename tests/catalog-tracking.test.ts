@@ -102,3 +102,40 @@ describe("tracking in the loader and the app (real PostgreSQL)", { skip: DB ? fa
     const five = await getCatalogDbListing(vinFor(5)); assert.equal(five?.catalog?.firstSeen, today);
   });
 });
+
+// ---------- the card pills (real card, jsdom) ----------
+async function renderPills(detail: Record<string, unknown>) {
+  const { buildResultsCardHtml } = await import("../lib/results-card");
+  const { JSDOM } = await import("jsdom");
+  const dom = new JSDOM(buildResultsCardHtml(), { runScripts: "dangerously", resources: "usable", url: "https://carclever-find-my-car.vercel.app/" });
+  const { window } = dom; await new Promise((r) => setTimeout(r, 200));
+  const results = [{
+    identity: { vin: "1FTEW2KP9TKE60601", year: 2024, make: "Kia", model: "Seltos", trim: "EX" }, condition: { inventoryType: "used", used: true },
+    powertrain: { drivetrain: "FWD" }, listing: { price: 21000, mileage: 9000, dealer: "Test Dealer", city: "Austin", state: "TX" }, media: { cardImageUrl: null },
+    detail: { exteriorColor: "Blue", ...detail }, ranking: { matchScore: 100 }, links: { affiliateUrl: null, affiliateFallbackUrl: null, isCarvana: false, linkStatus: "none-available" }, badges: [], intentConfirmations: [],
+  }];
+  window.postMessage({ method: "ui/notifications/tool-result", params: { structuredContent: { meta: { corpusSizeApprox: "1.4 million", totalMatches: 1 }, results } } }, "*");
+  await new Promise((r) => setTimeout(r, 200));
+  return window.document;
+}
+describe("card pills", () => {
+  test("Just added and Price down render with their numbers, in the same badge row", async () => {
+    const doc = await renderPills({ justAdded: true, priceDrop: { amount: 1200, was: 32990, on: "2026-10-18" } });
+    const pills = [...doc.querySelectorAll(".cc-fresh")]; assert.equal(pills.length, 2);
+    assert.equal(pills[0].textContent, "Just added"); assert.ok(pills[0].classList.contains("is-new"));
+    assert.equal(pills[1].textContent, "Price down $1,200"); assert.ok(pills[1].classList.contains("is-drop"));
+    assert.equal(pills[0].parentElement, pills[1].parentElement);
+  });
+  test("each pill alone, and no pill when the server sends neither", async () => {
+    assert.equal((await renderPills({ justAdded: true })).querySelectorAll(".cc-fresh").length, 1);
+    assert.equal((await renderPills({ priceDrop: { amount: 500, was: 9000, on: "2026-10-18" } })).querySelector(".cc-fresh")!.textContent, "Price down $500");
+    assert.equal((await renderPills({})).querySelectorAll(".cc-fresh").length, 0);
+    assert.equal((await renderPills({ justAdded: false })).querySelectorAll(".cc-fresh").length, 0);
+  });
+  test("only a real positive number is ever printed (no injection through the amount)", async () => {
+    for (const bad of ["<img src=x onerror=alert(1)>", "1200", null, 0, -50, {}]) {
+      const doc = await renderPills({ priceDrop: { amount: bad, was: 1, on: "x" } });
+      assert.equal(doc.querySelectorAll(".cc-fresh").length, 0, JSON.stringify(bad)); assert.equal(doc.querySelector('img[src="x"], [onerror]'), null, "no injected element"); assert.ok(!doc.body.innerHTML.includes("onerror=alert"), "the payload text must not appear unescaped");
+    }
+  });
+});
