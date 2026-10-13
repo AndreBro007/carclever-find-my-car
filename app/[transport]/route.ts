@@ -4,6 +4,7 @@ import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
 // spike/edmunds-catalog-mode: same four functions, now routed through the source facade
 // (Auto.dev unchanged unless mode/breaker selects the Edmunds catalogue).
 import { catalogOutputActive, shapeCardsForSource, shapeBuyerCheckForCatalog } from "@/lib/catalog-output";
+import { withNhtsaSpecs } from "@/lib/nhtsa-specs";
 import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, activeSource } from "@/lib/listing-source";
 import { inferClassHint } from "@/lib/vehicle-class";
 // Widening ladder re-enabled 2026-08-16 (SYS-20260816-008). It was bypassed on
@@ -26,7 +27,7 @@ import { computeMatchScore } from "@/lib/match-score";
 import { resolveLinks } from "@/lib/link-resolution";
 import { sanitizeDealerName } from "@/lib/dealer-name";
 import { applyKnownHybridOverride, formatFuelTypeForDisplay } from "@/lib/fuel-type";
-import { decodeNhtsaElectrification, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, type ElectrificationState, ELECTRIFICATION_POOL_SIZE, electrificationStateSatisfies } from "@/lib/nhtsa-client";
+import { decodeNhtsaElectrification, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, type ElectrificationState, ELECTRIFICATION_POOL_SIZE, prioritizeElectrificationCandidates, electrificationStateSatisfies } from "@/lib/nhtsa-client";
 import { isAnomalousPrice, buildCpoSummary, buildHistorySummary, applyLocalBestForBudgetOrdering, applyLocalLowerRiskOrdering } from "@/lib/local-ranking";
 import { FindMatchingVehicleInput } from "@/lib/find-matching-vehicle-input";
 import { getCorpusCountForDescription, initCorpusCount } from "@/lib/corpus-count";
@@ -284,6 +285,8 @@ async function buildResultCard(
   evidenceRequest?: ConstraintEvidenceRequest,
   relaxedFields?: ReadonlySet<string>,
 ) {
+  // Database mode: fill blank drivetrain/transmission/engine/cylinders/seats from the NHTSA decode already made for this car (never overrides the listing).
+  if (catalogOutputActive()) listing = withNhtsaSpecs(listing, nhtsa);
   const verification = crossCheckVin(listing); // now local/synchronous — no API call
   const { matchScore, matchScoreLabel, breakdown } = computeMatchScore(listing, intent, verification, intentInput);
 
@@ -505,6 +508,7 @@ async function buildResultCard(
       historyPersonalUse: listing.history?.personalUse ?? null,
       titleStatus: rl?.titleStatus ?? null,
       fuelTypeDisplay: formatFuelTypeForDisplay(finalNormalizedFuel, v?.fuel),
+      ...(catalogOutputActive() && nhtsa?.specs?.safetyTech?.length ? { standardSafetyTech: nhtsa.specs.safetyTech } : {}),
     },
     badges,
   };
@@ -1447,7 +1451,7 @@ const handler = createMcpHandler((server) => {
       const electrificationResult = electrificationRequired
         ? await (async () => {
             const requestedTypes = input.electrificationTypes!;
-            const pool = trimOrderedCandidates.slice(0, ELECTRIFICATION_POOL_SIZE);
+            const pool = prioritizeElectrificationCandidates(trimOrderedCandidates).slice(0, ELECTRIFICATION_POOL_SIZE);
             const poolNhtsa = await Promise.all(
               pool.map((c) =>
                 decodeNhtsaElectrification(c.vin, c.vehicle?.make, c.vehicle?.model, c.vehicle?.cylinders),
@@ -1468,7 +1472,7 @@ const handler = createMcpHandler((server) => {
             // top-20 pool as "required" (ELECTRIFICATION_POOL_SIZE) — see
             // comment above.
             const requestedTypes = input.electrificationTypes!;
-            const pool = trimOrderedCandidates.slice(0, ELECTRIFICATION_POOL_SIZE);
+            const pool = prioritizeElectrificationCandidates(trimOrderedCandidates).slice(0, ELECTRIFICATION_POOL_SIZE);
             const poolNhtsa = await Promise.all(
               pool.map((c) =>
                 decodeNhtsaElectrification(c.vin, c.vehicle?.make, c.vehicle?.model, c.vehicle?.cylinders),

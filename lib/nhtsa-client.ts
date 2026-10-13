@@ -50,8 +50,27 @@
  * DECISIONS.md SYS-20260819-003/004.
  */
 
+import { specsFromRow, type NhtsaSpecs } from "./nhtsa-specs";
+
 const NHTSA_BASE_URL = "https://vpic.nhtsa.dot.gov/api/vehicles/decodevinvalues";
 const NHTSA_TIMEOUT_MS = 3_000;
+
+// 24-hour in-memory cache of raw decode rows by VIN (a VIN's decode never changes). Only successful decodes are cached;
+// a failure or timeout is retried on the next search. Per server instance, so it speeds repeat searches and cuts NHTSA load.
+const ROW_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const ROW_CACHE_MAX = 3000;
+const rowCache = new Map<string, { t: number; r: Record<string, unknown> }>();
+function cacheGet(key: string): Record<string, unknown> | null {
+  const e = rowCache.get(key);
+  if (!e) return null;
+  if (Date.now() - e.t > ROW_CACHE_TTL_MS) { rowCache.delete(key); return null; }
+  return e.r;
+}
+function cachePut(key: string, r: Record<string, unknown>): void {
+  if (rowCache.size >= ROW_CACHE_MAX) { const k = rowCache.keys().next().value; if (k !== undefined) rowCache.delete(k); }
+  rowCache.set(key, { t: Date.now(), r });
+}
+export function resetNhtsaCacheForTests(): void { rowCache.clear(); }
 
 /**
  * Canonical electrification classification, replacing
@@ -135,6 +154,8 @@ export function classifyElectrification(
 }
 
 export interface NhtsaElectrificationResult {
+  /** Drive type, transmission, engine, seats and standard safety tech from the same decode (lib/nhtsa-specs.ts). */
+  specs?: NhtsaSpecs;
   /** Canonical classification derived from the raw
    * fields below. Prefer this over hand-rolling ElectrificationLevel
    * string matching at call sites — see classifyElectrification(). */
@@ -201,20 +222,26 @@ export async function decodeNhtsaElectrification(
   const claimedMake = claimedMakeRaw == null ? null : String(claimedMakeRaw);
   const claimedModel = claimedModelRaw == null ? null : String(claimedModelRaw);
   try {
-    const res = await fetch(`${NHTSA_BASE_URL}/${encodeURIComponent(vin)}?format=json`, {
-      signal: AbortSignal.timeout(NHTSA_TIMEOUT_MS),
-    });
-    if (!res.ok) return null;
+    const cacheKey = String(vin).toUpperCase();
+    let r: any = cacheGet(cacheKey);
+    const fromCache = r != null;
+    if (!r) {
+      const res = await fetch(`${NHTSA_BASE_URL}/${encodeURIComponent(vin)}?format=json`, {
+        signal: AbortSignal.timeout(NHTSA_TIMEOUT_MS),
+      });
+      if (!res.ok) return null;
 
-    const data = await res.json();
-    const r = data?.Results?.[0];
-    if (!r) return null;
+      const data = await res.json();
+      r = data?.Results?.[0];
+      if (!r) return null;
+    }
 
     // NHTSA returns ErrorCode "0" for a clean decode; anything else (6, 7,
     // 11, 400, etc, comma-separated) means the VIN was incomplete, unknown
     // to NHTSA, or otherwise not reliably decoded — treat as unknown.
     const errorCode = String(r.ErrorCode ?? "");
     if (errorCode !== "0") return null;
+    if (!fromCache) cachePut(cacheKey, r);
 
     const make: string | null = r.Make || null;
     const model: string | null = r.Model || null;
@@ -261,6 +288,7 @@ export async function decodeNhtsaElectrification(
       driveType: r.DriveType || null,
       cylindersConflict,
       trimOptions,
+      specs: specsFromRow(r),
     };
   } catch {
     // Timeout, network error, or malformed JSON — never let this block or
@@ -316,7 +344,18 @@ export function nhtsaIndicatesElectrified(result: NhtsaElectrificationResult | n
  * functions/constants for direct unit testing (confirmed by a real local
  * build failure this session).
  */
-export const ELECTRIFICATION_POOL_SIZE = 30; // was 20; NHTSA calls stay bounded
+export const ELECTRIFICATION_POOL_SIZE = 45; // was 20. Measured Oct 13 (cold, parallel single calls): 30 VINs 1.4 s, 60 VINs 2.7 s, all succeeded; 45 keeps clear of the 3 s timeout
+
+const ELECTRIFIED_HINT = /\b(hybrid|hev|phev|plug-?in|prime|electric|ev\d*|e-?tron|ioniq|bolt|leaf|volt|prius|niro|mach-?e|id\.?4|taycan|lucid|rivian|polestar|recharge|e-?hybrid|[24]xe|i[3-8x]|ix\d?|model [3sxy])\b/i;
+
+/**
+ * For hybrid/EV searches the decode pool is only the first ELECTRIFICATION_POOL_SIZE candidates. Put cars whose make, model or
+ * trim already hints at electrification first (stable order inside each group), so the bounded pool is spent where hybrids are.
+ */
+export function prioritizeElectrificationCandidates<T extends { vehicle?: { make?: unknown; model?: unknown; trim?: unknown } | null }>(cands: T[]): T[] {
+  const hinted = (c: T) => ELECTRIFIED_HINT.test([c.vehicle?.make, c.vehicle?.model, c.vehicle?.trim].map((x) => (x == null ? "" : String(x))).join(" "));
+  return [...cands.filter(hinted), ...cands.filter((c) => !hinted(c))];
+}
 
 /**
  * True when a decoded NHTSA electrification state satisfies one of the

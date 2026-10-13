@@ -1,0 +1,88 @@
+/**
+ * Specs read from NHTSA's VIN decode (vPIC). The call is already made for every shortlisted car, so using more of its answer is free.
+ * NHTSA describes the VIN's model/trim configuration, not an inspected car: "Standard" means standard on that configuration.
+ * Values are only used to FILL BLANKS in the listing, never to override what the listing itself says.
+ */
+export interface NhtsaSpecs {
+  driveType: "AWD" | "4WD" | "FWD" | "RWD" | null; // NHTSA's "4x2" says two-wheel drive without front/rear, so it stays null (never guessed)
+  transmission: "Automatic" | "Manual" | null; // CVT, dual-clutch etc. stay null: a user asking for "automatic" must not see a false mismatch
+  cylinders: number | null;
+  engine: string | null; // e.g. "2.5L 4-cyl 203 hp turbo"
+  seats: number | null;
+  safetyTech: string[]; // only features NHTSA lists as Standard (ABS, stability control and traction control are universal, so not listed)
+}
+
+type Row = Record<string, unknown>;
+const s = (v: unknown): string => (v == null ? "" : String(v).trim());
+const num = (v: unknown): number | null => {
+  const n = Number(s(v));
+  return s(v) !== "" && Number.isFinite(n) ? n : null;
+};
+
+export function normalizeDriveType(raw: unknown): NhtsaSpecs["driveType"] {
+  const t = s(raw).toLowerCase();
+  if (!t) return null;
+  if (t.includes("all-wheel") || t.includes("awd")) return "AWD";
+  if (t.includes("4wd") || t.includes("4-wheel") || t.includes("4x4")) return "4WD";
+  if (t.includes("front-wheel") || t.includes("fwd")) return "FWD";
+  if (t.includes("rear-wheel") || t.includes("rwd")) return "RWD";
+  return null;
+}
+
+export function normalizeTransmission(raw: unknown): NhtsaSpecs["transmission"] {
+  const t = s(raw).toLowerCase();
+  if (t === "automatic") return "Automatic";
+  if (t === "manual" || t === "manual/standard") return "Manual";
+  return null;
+}
+
+const SAFETY: Array<[field: string, label: string]> = [
+  ["CIB", "Automatic emergency braking"],
+  ["ForwardCollisionWarning", "Forward collision warning"],
+  ["PedestrianAutomaticEmergencyBraking", "Pedestrian emergency braking"],
+  ["LaneDepartureWarning", "Lane departure warning"],
+  ["LaneKeepSystem", "Lane keeping assist"],
+  ["BlindSpotMon", "Blind spot monitoring"],
+  ["RearCrossTrafficAlert", "Rear cross-traffic alert"],
+  ["AdaptiveCruiseControl", "Adaptive cruise control"],
+  ["ParkAssist", "Parking assist"],
+  ["RearVisibilitySystem", "Rear camera"],
+];
+
+export function specsFromRow(r: Row): NhtsaSpecs {
+  const cyl = num(r.EngineCylinders);
+  const disp = num(r.DisplacementL);
+  const hp = num(r.EngineHP);
+  const seats = num(r.Seats);
+  const parts = [disp != null ? `${disp.toFixed(1)}L` : "", cyl != null ? `${cyl}-cyl` : "", hp != null ? `${Math.round(hp)} hp` : "", s(r.Turbo).toLowerCase() === "yes" ? "turbo" : ""].filter(Boolean);
+  const seen = new Set<string>();
+  const safetyTech: string[] = [];
+  for (const [field, label] of SAFETY) {
+    if (s(r[field]).toLowerCase() === "standard" && !seen.has(label)) { seen.add(label); safetyTech.push(label); }
+  }
+  return {
+    driveType: normalizeDriveType(r.DriveType),
+    transmission: normalizeTransmission(r.TransmissionStyle),
+    cylinders: cyl,
+    engine: disp != null || cyl != null ? parts.join(" ") : null,
+    seats: seats != null && seats >= 1 && seats <= 15 ? seats : null,
+    safetyTech,
+  };
+}
+
+/** Fill ONLY the blanks in listing.vehicle from the decode; a value the listing already has is never replaced. */
+export function withNhtsaSpecs<L extends { vehicle?: unknown }>(listing: L, nhtsa?: { specs?: NhtsaSpecs } | null): L {
+  const sp = nhtsa?.specs;
+  if (!sp || !listing.vehicle || typeof listing.vehicle !== "object") return listing;
+  const v: Record<string, unknown> = { ...(listing.vehicle as Record<string, unknown>) };
+  let changed = false;
+  const fill = (k: string, val: unknown) => {
+    if (val != null && (v[k] == null || v[k] === "")) { v[k] = val; changed = true; }
+  };
+  fill("drivetrain", sp.driveType);
+  fill("transmission", sp.transmission);
+  fill("engine", sp.engine);
+  fill("cylinders", sp.cylinders);
+  fill("seats", sp.seats);
+  return changed ? { ...listing, vehicle: v } : listing;
+}

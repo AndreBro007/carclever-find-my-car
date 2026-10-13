@@ -178,6 +178,8 @@ const DetailSchema = z.object({
   // string is available. Real runtime possibility, not TS over-widening;
   // schema fixed to match, not the other way around.
   fuelTypeDisplay: z.string().optional(),
+  // Database mode only: safety tech NHTSA lists as STANDARD for this VIN's model/trim configuration (not an inspection of the car).
+  standardSafetyTech: z.array(z.string()).optional(),
 });
 
 const ConstraintCheckSchema = z.object({
