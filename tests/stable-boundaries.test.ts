@@ -807,17 +807,17 @@ async function renderCardWithResults(resultCount: number) {
   return window.document;
 }
 
-test("D8a. Widget header discloses the cap when results.length (8) exceeds the display slice (5): 'Top 5 of 8 shown', not the tautological 'Top 5 shown'", async () => {
-  const doc = await renderCardWithResults(8);
+test("D8a. Widget header discloses the cap when results.length (12) exceeds the display slice (8): 'Top 8 of 12 shown', not the tautological 'Top 8 shown'", async () => {
+  const doc = await renderCardWithResults(12);
   const header = doc.querySelector(".cc-header-center");
   assert.ok(header, "cc-header-center element must exist");
-  assert.equal(header?.textContent, "Top 5 of 8 shown", `expected 'Top 5 of 8 shown', got '${header?.textContent}'`);
+  assert.equal(header?.textContent, "Top 8 of 12 shown", `expected 'Top 8 of 12 shown', got '${header?.textContent}'`);
 });
 
-test("D8b. Widget header does NOT claim a cap when results.length (5) does not exceed the display slice (5)", async () => {
-  const doc = await renderCardWithResults(5);
+test("D8b. Widget header does NOT claim a cap when results.length (8) does not exceed the display slice (8)", async () => {
+  const doc = await renderCardWithResults(8);
   const header = doc.querySelector(".cc-header-center");
-  assert.equal(header?.textContent, "5 shown", `expected '5 shown' with no false 'Top' cap language, got '${header?.textContent}'`);
+  assert.equal(header?.textContent, "8 shown", `expected '8 shown' with no false 'Top' cap language, got '${header?.textContent}'`);
 });
 
 test("D8c. Widget header uses singular phrasing for exactly one result", async () => {
@@ -826,10 +826,10 @@ test("D8c. Widget header uses singular phrasing for exactly one result", async (
   assert.equal(header?.textContent, "1 match shown", `expected '1 match shown', got '${header?.textContent}'`);
 });
 
-test("D8d. Carousel itself still renders at most 5 cards even when more results are present (display cap unchanged, only its label was dishonest)", async () => {
-  const doc = await renderCardWithResults(8);
+test("D8d. Carousel renders at most 8 cards (display cap raised from 5 for the database app) even when more results are present", async () => {
+  const doc = await renderCardWithResults(12);
   const cards = doc.querySelectorAll("#cc-carousel > article");
-  assert.equal(cards.length, 5, `expected exactly 5 rendered cards (unchanged display cap), got ${cards.length}`);
+  assert.equal(cards.length, 8, `expected exactly 8 rendered cards (display cap), got ${cards.length}`);
 });
 
 // ============================================================================

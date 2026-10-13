@@ -316,7 +316,7 @@ export function nhtsaIndicatesElectrified(result: NhtsaElectrificationResult | n
  * functions/constants for direct unit testing (confirmed by a real local
  * build failure this session).
  */
-export const ELECTRIFICATION_POOL_SIZE = 20;
+export const ELECTRIFICATION_POOL_SIZE = 30; // was 20; NHTSA calls stay bounded
 
 /**
  * True when a decoded NHTSA electrification state satisfies one of the

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
 // spike/edmunds-catalog-mode: same four functions, now routed through the source facade
 // (Auto.dev unchanged unless mode/breaker selects the Edmunds catalogue).
+import { catalogOutputActive, shapeCardsForSource } from "@/lib/catalog-output";
 import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, activeSource } from "@/lib/listing-source";
 import { inferClassHint } from "@/lib/vehicle-class";
 // Widening ladder re-enabled 2026-08-16 (SYS-20260816-008). It was bypassed on
@@ -37,6 +38,7 @@ import { trimMatches } from "@/lib/trim-match";
 import { formatVehicleTitle } from "@/lib/vehicle-title";
 import {
   FindMatchingVehicleOutputSchema,
+  CatalogDbOutputSchema,
   type FindMatchingVehicleOutput,
 } from "@/lib/find-matching-vehicle-output";
 import {
@@ -226,7 +228,7 @@ function resolveSort(
   }
 }
 
-const CANDIDATE_POOL_SIZE = 100; // Growth plan cap per docs; silently clamps to 20 on Starter
+const CANDIDATE_POOL_SIZE = 300; // was 100 (Auto.dev Growth cap). Database mode has no such cap: searches take 10-250 ms at 1.4 million cars
 
 // Shared anomalous-price rule (feature/value-based-best-for-budget follow-up):
 // hoisted to module scope so the "price-likely-inaccurate" card badge
@@ -629,7 +631,7 @@ const handler = createMcpHandler((server) => {
     {
       description: FIND_MATCHING_VEHICLE_DESCRIPTION(),
       inputSchema: FindMatchingVehicleInput,
-      outputSchema: FindMatchingVehicleOutputSchema,
+      outputSchema: catalogOutputActive() ? CatalogDbOutputSchema : FindMatchingVehicleOutputSchema,
       // Canonical output contract. All live structuredContent construction paths
       // are compile-time validated against this schema via `satisfies`.
       annotations: { title: "Find Matching Vehicle", readOnlyHint: true, openWorldHint: true, destructiveHint: false },
@@ -906,7 +908,7 @@ const handler = createMcpHandler((server) => {
               interpretationNotes: [`Direct VIN lookup for ${rawVin} — identifies exactly one vehicle; no broader search was run.`],
               qualifierAccounting: buildQualifierAccounting(vinIntentInput),
             },
-            results: vinCardsWithBuyerCheck,
+            results: shapeCardsForSource(vinCardsWithBuyerCheck),
           } satisfies FindMatchingVehicleOutput,
         };
       }
@@ -2024,7 +2026,7 @@ const handler = createMcpHandler((server) => {
           interpretationNotes: intent.interpretationNotes,
           qualifierAccounting: buildQualifierAccounting(intentInput),
         },
-        results: cards,
+        results: shapeCardsForSource(cards),
       } satisfies FindMatchingVehicleOutput;
 
       // The text content block is what the host model actually reads and

@@ -20,9 +20,10 @@ const LARGE_3ROW_SUV: Array<[string, string]> = [
   ["Jeep", "Wagoneer"], ["Jeep", "Grand Wagoneer"], ["Lincoln", "Navigator"], ["Cadillac", "Escalade"], ["Cadillac", "Escalade ESV"], ["Toyota", "Land Cruiser"],
   ["Infiniti", "QX80"], ["Infiniti", "QX60"], ["Acura", "MDX"], ["Volvo", "XC90"], ["Lincoln", "Aviator"], ["Mercedes-Benz", "GLS"],
   ["BMW", "X7"], ["Jeep", "Grand Cherokee L"], ["Lexus", "TX"], ["Lexus", "GX"], ["Lexus", "LX"], ["Land Rover", "Defender"], ["Rivian", "R1S"],
+  ["Kia", "EV9"], ["Audi", "Q7"], ["Genesis", "GV80"],
 ];
 const LUXURY_FIRST_FROM = 24; // index where the luxury block starts
-const MAX_CLASS_MODELS = 24;
+const MAX_CLASS_MODELS = 60; // was 24 (an API-era cap); the database handles a long model list at no cost
 
 const TEXT = (v: unknown): string => (typeof v === "string" ? v : "");
 

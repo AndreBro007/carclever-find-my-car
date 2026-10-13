@@ -587,7 +587,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
       root.innerHTML = '<div class="cc-loading">No matching vehicles to show.</div>';
       return;
     }
-    var visible = results.slice(0, 5);
+    var visible = results.slice(0, 8);
     var hasAffiliate = visible.some(function(c){ return c.links && (c.links.affiliateUrl || c.links.affiliateFallbackUrl); });
     var html = '<section class="cc-shell">' +
       '<header class="cc-header">' +

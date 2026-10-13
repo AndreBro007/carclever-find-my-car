@@ -165,7 +165,7 @@ export interface WidenOptions {
 // (protected) dimension gets a real shot: the 3 dimensions ahead of it can
 // cost up to 4 calls total (mileage alone can cost 2 — raise, then drop —
 // plus 1 each for the other two), then +1 more for the protected one = 5.
-const DEFAULT_MAX_CALLS = 5;
+const DEFAULT_MAX_CALLS = 10; // was 5 to bound paid Auto.dev calls; database steps are free
 
 export type StepName = "radius" | "mileage" | "year" | "price";
 

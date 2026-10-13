@@ -267,7 +267,8 @@ test("class safety net: large 3-row SUV without models expands to a curated mode
   assert.equal(inferClassHint({ bodyType: "Sedan", vehicleNeeds: ["large"] }), undefined); // not an SUV
   assert.equal(inferClassHint({ bodyType: "SUV", seatsMinPreference: 7 }), "large_suv_3row");
   const budget = classModels("large_suv_3row", { priceMax: 60000 });
-  assert.ok(budget.includes("Atlas") && budget.includes("Telluride") && budget.includes("Tahoe") && budget.length <= 24);
+  assert.ok(budget.includes("Atlas") && budget.includes("Telluride") && budget.includes("Tahoe") && budget.length <= 60);
+  assert.ok(budget.includes("Wagoneer") && budget.includes("EV9") && budget.includes("Grand Wagoneer")); // the list is no longer cut at 24 models
   assert.ok(!budget.includes("Trax") && !budget.includes("CR-V") && !budget.includes("HR-V")); // small SUVs never appear
   assert.deepEqual(classModels("large_suv_3row", { make: "Toyota" }), ["Sequoia", "Highlander", "Grand Highlander", "Land Cruiser", "Lexus-free"].filter((m) => m !== "Lexus-free"));
   assert.ok(classModels("large_suv_3row", { priceMax: 120000 }).slice(0, 3).join() !== budget.slice(0, 3).join()); // luxury budgets list luxury models first

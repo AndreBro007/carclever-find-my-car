@@ -243,3 +243,20 @@ export const FindMatchingVehicleOutputSchema = z.object({
 });
 
 export type FindMatchingVehicleOutput = z.infer<typeof FindMatchingVehicleOutputSchema>;
+
+// Database mode (LISTING_SOURCE=catalog_db): the feed carries no accident history, Carfax link, CPO status, risk
+// inputs, owner or title data, dealer VDP link, extra photos or Auto.dev-only identifiers. Those fields are LEFT OUT
+// of the output (lib/catalog-output.ts) instead of being sent empty or with "not reported" notes that confuse the
+// calling model and the buyer. This variant of the registered schema allows exactly those omissions.
+const CatalogDbResultSchema = ResultSchema.extend({
+  risk: RiskSchema.optional(),
+  history: HistorySchema.optional(),
+  identity: IdentitySchema.partial({ series: true, squishVin: true, bodyStyleConfig: true }),
+  condition: ConditionSchema.partial({ cpo: true, cpoEvidenceState: true }),
+  body: BodySchema.partial({ vehicleType: true }),
+  listing: ListingSchema.partial({ rawVdp: true, resolvedDestination: true, destinationClass: true }),
+  links: LinksSchema.partial({ dealerListingUrl: true }),
+  media: MediaSchema.partial({ photoUrls: true }),
+  detail: DetailSchema.partial({ carfaxUrl: true, cpoNote: true, ownerHistoryNote: true, seatsNote: true, dataConfidence: true, historyUsageType: true, historyPersonalUse: true, titleStatus: true }),
+});
+export const CatalogDbOutputSchema = FindMatchingVehicleOutputSchema.extend({ results: z.array(CatalogDbResultSchema) });

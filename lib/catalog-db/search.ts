@@ -18,8 +18,8 @@ export interface DbRow {
 }
 export interface DbSearchResult { rows: DbRow[]; total: number | null; localApplied: boolean }
 
-const DEFAULT_LIMIT = 100;
-const MAX_LIMIT = 200;
+const DEFAULT_LIMIT = 300;
+const MAX_LIMIT = 300;
 const TOTAL_CAP = 10_000;
 export const DEFAULT_RADIUS_MILES = 50;
 export const MIN_LOCAL_RESULTS = 3;
