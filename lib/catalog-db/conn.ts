@@ -8,6 +8,10 @@ export function cleanConnectionString(raw: string | undefined): string | undefin
   try {
     const u = new URL(s);
     u.searchParams.delete("channel_binding");
+    // The Node driver already treats require/prefer/verify-ca as verify-full; say so explicitly (silences its warning and
+    // keeps the behaviour if the driver later adopts libpq semantics). Hosted Neon certificates are valid, so this is safe.
+    const mode = u.searchParams.get("sslmode");
+    if (mode === "require" || mode === "prefer" || mode === "verify-ca") u.searchParams.set("sslmode", "verify-full");
     return u.toString();
   } catch {
     return s;

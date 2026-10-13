@@ -1,13 +1,15 @@
-# NOT ACTIVE HERE. GitHub would not let the automation token create files under .github/workflows.
-# To activate: copy everything below this line into a new file named .github/workflows/catalog-daily.yml on the DEFAULT branch (main) of the repository getcarwise-docs.
-# GitHub only runs scheduled and manually started workflows from the default branch. GitHub website: Add file > Create new file.
+# NOT ACTIVE HERE. Copy everything below the dashed line into .github/workflows/catalog-daily.yml on the main branch of the repository getcarwise-docs
+# (GitHub allows only the website, not the automation token, to create workflow files). Current version: v2 (Oct 13, 2026).
 # ---------------------------------------------------------------------------------------------------
 name: catalog-daily
-# Fetches Edmunds' rich product feed from Impact once a day and refreshes the catalogue database.
-# Secrets (settings of the repository this file lives in, getcarwise-docs): IMPACT_FTP_USER, IMPACT_FTP_PASS, DATABASE_URL_DIRECT (direct, non-pooled connection string).
+# Fetches Edmunds' rich product feed from Impact and refreshes the catalogue database.
+# All logic lives in the app repository (branch catalog-db/v1: scripts/fetch-feed.sh and scripts/load-feed.sh),
+# so it can change without editing this file. Secrets (settings of THIS repository):
+# IMPACT_FTP_USER, IMPACT_FTP_PASS, DATABASE_URL_DIRECT (direct, non-pooled connection string).
 on:
-  schedule:
-    - cron: "30 8 * * *" # 08:30 UTC, about three hours after Impact's update (05:33 UTC on Oct 12, 2026)
+  # schedule is OFF until the Neon upgrade (a full load needs about 1.1 GB, over the free plan). To switch on, remove the two # below.
+  # schedule:
+  #   - cron: "30 8 * * *" # 08:30 UTC, about three hours after Impact's update (05:33 UTC on Oct 12, 2026)
   workflow_dispatch:
     inputs:
       sample_every:
@@ -19,42 +21,25 @@ concurrency:
   cancel-in-progress: false
 jobs:
   load:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
-          repository: AndreBro007/carclever-find-my-car # this file lives in the docs repository; the loader code is checked out from the app repository
+          repository: AndreBro007/carclever-find-my-car # this file lives in the docs repository; the code is checked out from the app repository
           ref: catalog-db/v1
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Download the rich feed (encrypted SFTP first, pinned host key; plain FTP only as a fallback)
+      - name: Download and verify the rich feed
         env:
           IMPACT_FTP_USER: ${{ secrets.IMPACT_FTP_USER }}
           IMPACT_FTP_PASS: ${{ secrets.IMPACT_FTP_PASS }}
-        run: |
-          set -uo pipefail
-          # Host key fingerprint read from a screenshot on Oct 12, 2026: verify it before relying on it.
-          HOSTKEY="VnpT96wJuWk5n+mOCab3Tw084xZgZ6ojm4ZtRh82vTs"
-          if curl --fail -sS --retry 3 --hostpubsha256 "$HOSTKEY" -u "$IMPACT_FTP_USER:$IMPACT_FTP_PASS" -o feed.txt.gz "sftp://products.impact.com/Edmunds/Edmunds-Product-Feed_CUSTOM.txt.gz"; then
-            echo "downloaded over SFTP"
-          else
-            echo "SFTP failed; falling back to plain FTP (the server offers no FTPS)"
-            curl --fail -sS --retry 3 --ftp-pasv -u "$IMPACT_FTP_USER:$IMPACT_FTP_PASS" -o feed.txt.gz "ftp://products.impact.com/Edmunds/Edmunds-Product-Feed_CUSTOM.txt.gz"
-          fi
-          ls -l feed.txt.gz
-          test "$(stat -c %s feed.txt.gz)" -gt 50000000
-          gzip -t feed.txt.gz
-      - name: Load into the database (aborts without changes if the feed is truncated)
+        run: bash scripts/fetch-feed.sh feed.txt.gz
+      - name: Load into the database
         env:
           DATABASE_URL_DIRECT: ${{ secrets.DATABASE_URL_DIRECT }}
           SAMPLE_EVERY: ${{ github.event.inputs.sample_every }}
-        run: |
-          if [ -n "$SAMPLE_EVERY" ]; then
-            npx tsx scripts/catalog-load.ts feed.txt.gz --sample-every "$SAMPLE_EVERY"
-          else
-            npx tsx scripts/catalog-load.ts feed.txt.gz --expect-rows 1300000
-          fi
+        run: bash scripts/load-feed.sh feed.txt.gz

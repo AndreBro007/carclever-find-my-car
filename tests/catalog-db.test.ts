@@ -98,11 +98,15 @@ describe("catalogue db: pure normalisation", () => {
     const o = parseRow(feedLine(OVERRIDE_CAR).split("\t"), idx); assert.ok("row" in o && o.row.linkOverride === OVERRIDE_LINK);
   });
   test("hosted connection strings: channel_binding is dropped, everything else is kept", () => {
-    const raw = "postgresql://user:p%40ss@ep-x-pooler.c-13.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
+    const raw = "postgresql://user:p%40ss@ep-x-pooler.db.example.com/neondb?sslmode=require&channel_binding=require";
     const out = cleanConnectionString(raw) ?? "";
-    assert.ok(!out.includes("channel_binding")); assert.ok(out.includes("sslmode=require")); assert.ok(out.includes("p%40ss@ep-x-pooler"));
+    assert.ok(!out.includes("channel_binding")); assert.ok(out.includes("sslmode=verify-full")); assert.ok(out.includes("p%40ss@ep-x-pooler"));
     assert.equal(cleanConnectionString("  "), undefined); assert.equal(cleanConnectionString(undefined), undefined);
     assert.equal(cleanConnectionString("not a url"), "not a url");
+  });
+  test("feed header: a byte-order mark is tolerated, and a wrong file is named in the error", () => {
+    assert.ok(headerIndex("\uFEFF" + FEED_COLUMNS.join("\t")).id === 0);
+    assert.throws(() => headerIndex(["Unique Merchant SKU", "Product Name", "Product URL"].join("\t")), /missing column "id".*Unique Merchant SKU/);
   });
   test("a 4-digit ZIP regains its leading zero", () => {
     const idx = headerIndex(HEADER); const cols = feedLine(CARS[0]).split("\t"); cols[idx["dealer_zip"]] = "2108";

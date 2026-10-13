@@ -178,9 +178,13 @@ export function parseRow(cols: string[], idx: Record<string, number>): ParseResu
 }
 
 export function headerIndex(headerLine: string): Record<string, number> {
-  const cols = headerLine.replace(/\r$/, "").split("\t").map((c) => c.trim());
+  const clean = headerLine.replace(/^\uFEFF/, "").replace(/\r$/, "");
+  const cols = clean.split("\t").map((c) => c.trim());
   const idx: Record<string, number> = {};
   cols.forEach((c, i) => { idx[c] = i; });
-  for (const need of FEED_COLUMNS) if (!(need in idx)) throw new Error(`feed header is missing column "${need}"`);
+  for (const need of FEED_COLUMNS) {
+    // The message names the header's own column names (no car data) so a wrong file is easy to recognise.
+    if (!(need in idx)) throw new Error(`feed header is missing column "${need}" (the header has ${cols.length} columns and begins: ${cols.slice(0, 6).join(" | ").slice(0, 160)})`);
+  }
   return idx;
 }
