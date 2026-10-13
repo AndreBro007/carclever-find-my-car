@@ -102,3 +102,22 @@ export function withNhtsaSpecs<L extends { vehicle?: unknown }>(listing: L, nhts
   fill("fuel", sp.fuel);
   return changed ? { ...listing, vehicle: v } : listing;
 }
+
+const mkey = (x: unknown): string => String(x ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+/**
+ * Do the listing's model and NHTSA's decoded model name the same car? Prefix-tolerant, plus the naming families where the two sources
+ * differ only in style (found on 395 real listings: MINI Cooper/Hardtop, BMW 3 Series/330i, Mercedes C-Class/C300).
+ * Returns true when there is nothing to compare, so a missing name is never a conflict.
+ */
+export function modelsAgree(claimed: unknown, decoded: unknown, make?: unknown): boolean {
+  const c = mkey(claimed), d = mkey(decoded);
+  if (!c || !d) return true;
+  if (d.startsWith(c) || c.startsWith(d)) return true;
+  const series = /^(\d)SERIES/.exec(c); // BMW: "3 Series" against 330i, 530e, M340i
+  if (series && d.replace(/^M(?=\d{3})/, "").startsWith(series[1]) && /^\d{3}/.test(d.replace(/^M(?=\d{3})/, ""))) return true;
+  const cls = /^([A-Z]{1,3})CLASS$/.exec(c); // Mercedes-Benz: "C-Class" against C300, E350, GLC300
+  if (cls && d.startsWith(cls[1]) && /\d/.test(d.charAt(cls[1].length))) return true;
+  if (mkey(make) === "MINI" && c.startsWith("COOPER") && /^(HARDTOP|CLUBMAN|COUNTRYMAN|PACEMAN|CONVERTIBLE|COUPE|ROADSTER)/.test(d)) return true; // MINI
+  return false;
+}

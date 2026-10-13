@@ -27,7 +27,27 @@ function getPool(): Pool {
   return pool;
 }
 /** Tests inject their own pool. */
-export function setCatalogDbPoolForTests(p: Pool | null): void { pool = p; }
+let asOfCache: { t: number; v: string | undefined } | null = null;
+export function setCatalogDbPoolForTests(p: Pool | null): void { pool = p; asOfCache = null; }
+
+/** ISO time of the last successful daily load (cached 10 minutes); undefined if unknown. Never throws. */
+export async function getCatalogDataAsOf(): Promise<string | undefined> {
+  if (asOfCache && Date.now() - asOfCache.t < 10 * 60_000) return asOfCache.v;
+  try {
+    const r = await getPool().query("SELECT value FROM catalog_meta WHERE key = 'last_load'");
+    const v = r.rows[0]?.value;
+    asOfCache = { t: Date.now(), v: typeof v === "string" && !Number.isNaN(Date.parse(v)) ? v : undefined };
+    return asOfCache.v;
+  } catch { return undefined; }
+}
+
+/** A sentence for the AI when the data is more than 48 hours old; null when fresh or unknown. */
+export function dataStaleNote(asOf: string | undefined, nowMs: number = Date.now()): string | null {
+  if (!asOf) return null;
+  const t = Date.parse(asOf);
+  if (Number.isNaN(t) || nowMs - t <= 48 * 3_600_000) return null;
+  return `Listings were last refreshed on ${new Date(t).toISOString().slice(0, 10)}; availability and prices may have changed since.`;
+}
 
 const BODY_LABEL: Record<BodyClass, string> = {
   suv: "SUV", sedan: "Sedan", coupe: "Coupe", hatchback: "Hatchback", convertible: "Convertible",

@@ -54,6 +54,7 @@ const MetaSchema = z.object({
   // ONLY field the calling LLM should use when stating how many results
   // are below — never totalMatches or totalCandidatesConsidered.
   resultsShown: z.number().describe("The exact count of items in `results` below — always equals results.length. May differ from totalMatches and totalCandidatesConsidered, which describe an earlier, broader match-pool stage and are not guaranteed to match the final result count."),
+  dataAsOf: z.string().optional().describe("Database mode: when the listings were last refreshed (ISO time of the last daily load)."),
   corpusSizeApprox: z.string(),
   relaxations: z.array(RelaxationSchema),
   dataNotes: z.array(z.string()),

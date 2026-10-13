@@ -50,7 +50,7 @@
  * DECISIONS.md SYS-20260819-003/004.
  */
 
-import { specsFromRow, fuelFor, type NhtsaSpecs } from "./nhtsa-specs";
+import { specsFromRow, fuelFor, modelsAgree, type NhtsaSpecs } from "./nhtsa-specs";
 
 const NHTSA_BASE_URL = "https://vpic.nhtsa.dot.gov/api/vehicles/decodevinvalues";
 const NHTSA_TIMEOUT_MS = 3_000;
@@ -256,11 +256,7 @@ export async function decodeNhtsaElectrification(
     // Prefix-tolerant, same reasoning as post-verify.ts/match-score.ts —
     // cross-API model-family naming varies (SYS-20260812-039), exact
     // equality would produce false conflicts on genuinely matching cars.
-    const modelConflict =
-      !!claimedModel &&
-      !!model &&
-      !model.trim().toUpperCase().startsWith(claimedModel.trim().toUpperCase()) &&
-      !claimedModel.trim().toUpperCase().startsWith(model.trim().toUpperCase());
+    const modelConflict = !!claimedModel && !!model && !modelsAgree(claimedModel, model, make);
     const cylindersConflict =
       claimedCylinders != null &&
       engineCylinders != null &&

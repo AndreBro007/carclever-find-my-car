@@ -4,6 +4,7 @@ import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
 // spike/edmunds-catalog-mode: same four functions, now routed through the source facade
 // (Auto.dev unchanged unless mode/breaker selects the Edmunds catalogue).
 import { catalogOutputActive, shapeCardsForSource, shapeBuyerCheckForCatalog } from "@/lib/catalog-output";
+import { getCatalogDataAsOf, dataStaleNote } from "@/lib/catalog-db-source";
 import { withNhtsaSpecs } from "@/lib/nhtsa-specs";
 import { attachNhtsaRatings } from "@/lib/nhtsa-ratings";
 import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, activeSource } from "@/lib/listing-source";
@@ -638,6 +639,7 @@ const handler = createMcpHandler((server) => {
   server.registerTool(
     "find_matching_vehicle",
     {
+      title: "Find Matching Vehicle",
       description: FIND_MATCHING_VEHICLE_DESCRIPTION(),
       inputSchema: FindMatchingVehicleInput,
       outputSchema: catalogOutputActive() ? CatalogDbOutputSchema : FindMatchingVehicleOutputSchema,
@@ -911,6 +913,7 @@ const handler = createMcpHandler((server) => {
               totalMatches: vinCards.length,
               resultsShown: vinCardsWithBuyerCheck.length,
               corpusSizeApprox: getCorpusCountForDescription(),
+              ...(catalogOutputActive() ? { dataAsOf: await getCatalogDataAsOf() } : {}),
               relaxations: [],
               dataNotes: vinDataNotes,
               scopeNote: "vin_lookup",
@@ -2024,17 +2027,23 @@ const handler = createMcpHandler((server) => {
         dataNotes.push(`No specific ZIP or city was given, so this search covers all of ${baseQuery.state} rather than a specific area.`);
       }
 
+      // Database mode: say how fresh the data is, and warn the AI when the last daily load is more than 48 hours old.
+      const dataAsOf = catalogOutputActive() ? await getCatalogDataAsOf() : undefined;
+      const staleNote = dataStaleNote(dataAsOf);
+      if (staleNote) dataNotes.push(staleNote);
+
       const response = {
         meta: {
           totalCandidatesConsidered: candidates.length,
           totalMatches: typeof total === "number" ? total : null,
           resultsShown: cards.length,
           corpusSizeApprox: getCorpusCountForDescription(),
+          ...(dataAsOf ? { dataAsOf } : {}),
           relaxations,
           dataNotes,
           scopeNote,
           serviceError: rawResult.error ?? null,
-          interpretationNotes: intent.interpretationNotes,
+          interpretationNotes: [...intent.interpretationNotes, ...(catalogOutputActive() && (input.exteriorColor || input.interiorColor) ? ["Colour is matched against the dealer's colour name (for example \"Glacier White\" or \"Brooklyn Grey Metallic\"); a car whose colour name has no standard colour word may not appear. If fewer than 3 cars match, colour only influences ranking."] : [])],
           qualifierAccounting: buildQualifierAccounting(intentInput),
         },
         results: shapeCardsForSource(cards),
@@ -2224,6 +2233,7 @@ const handler = createMcpHandler((server) => {
   server.registerTool(
     "resolve_dealer_url",
     {
+      title: "Resolve Dealer Link",
       description:
         "Resolves a usable link for viewing or purchasing a specific vehicle, given its VIN, make, model, and year. Prefers the Edmunds VIN-specific pricing link; when that's unavailable (including for Carvana-sourced vehicles, which are never on Edmunds by VIN), falls back to affiliateFallbackUrl, a live Edmunds category-search link for the same make/model that never dead-ends. Never returns the dealer's own listing URL (dealerListingUrl) as the resolved link, even for Carvana — that field is still present on structuredContent for internal/diagnostic use, just never the text response.",
       inputSchema: {
@@ -2233,7 +2243,7 @@ const handler = createMcpHandler((server) => {
         year: z.number().describe("Model year."),
       },
       outputSchema: ResolveDealerUrlOutput,
-      annotations: { title: "Resolve Dealer URL", readOnlyHint: true, openWorldHint: true, destructiveHint: false },
+      annotations: { title: "Resolve Dealer Link", readOnlyHint: true, openWorldHint: true, destructiveHint: false },
     },
     async ({ vin, make, model, year }) => {
       // No retailListing data available in this call path (only VIN/make/

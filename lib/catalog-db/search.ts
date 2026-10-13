@@ -26,6 +26,22 @@ export const MIN_LOCAL_RESULTS = 3;
 export const MAX_LOCAL_FALLBACK = 12;
 const MAX_RADIUS = 1000;
 
+const COLOUR_WORDS: Record<string, string[]> = {
+  gray: ["gray", "grey", "charcoal", "graphite", "gunmetal"], grey: ["gray", "grey", "charcoal", "graphite", "gunmetal"], silver: ["silver"], white: ["white", "ivory"],
+  black: ["black"], blue: ["blue"], red: ["red", "crimson"], green: ["green"], brown: ["brown", "bronze", "chocolate"], orange: ["orange"], yellow: ["yellow"],
+  gold: ["gold"], burgundy: ["burgundy", "maroon", "wine"], beige: ["beige", "tan", "sand", "cashmere"], tan: ["tan", "beige", "sand"],
+};
+/** Regex (PostgreSQL syntax) for a requested colour list, or null. The feed uses marketing names ("Glacier White", "Brooklyn Grey Metallic"), so this matches whole words. */
+export function colourRegex(spec: string | undefined): string | null {
+  const words = new Set<string>();
+  for (const raw of String(spec ?? "").toLowerCase().split(/[,/]/)) {
+    const t = raw.trim().replace(/[^a-z ]/g, "");
+    if (!t) continue;
+    for (const w of COLOUR_WORDS[t] ?? [t]) words.add(w);
+  }
+  return words.size ? `\\y(${[...words].join("|")})\\y` : null;
+}
+
 class Params {
   readonly values: unknown[] = [];
   add(v: unknown): string { this.values.push(v); return `$${this.values.length}`; }
@@ -40,7 +56,7 @@ function haversine(p: Params, lat: number, lon: number): string {
   return `(3958.8 * 2 * asin(sqrt(power(sin(radians(l.lat - ${a}) / 2), 2) + cos(radians(${a})) * cos(radians(l.lat)) * power(sin(radians(l.lon - ${b}) / 2), 2))))`;
 }
 
-export function whereFor(q: ListingsQuery, models: string[] | null, p: Params, opts: { skipModel?: boolean } = {}): string[] {
+export function whereFor(q: ListingsQuery, models: string[] | null, p: Params, opts: { skipModel?: boolean; strictColour?: boolean } = {}): string[] {
   const w: string[] = [];
   if (q.make) w.push(`l.make_key = ${p.add(alnumKey(q.make))}`);
   if (!opts.skipModel && models && models.length) w.push(`l.model_key = ANY(${p.add(models.map(alnumKey).filter(Boolean))})`);
@@ -56,7 +72,21 @@ export function whereFor(q: ListingsQuery, models: string[] | null, p: Params, o
   if (q.used === false) w.push(`l.condition = 'n'`);
   if (q.state && /^[A-Za-z]{2}$/.test(q.state)) w.push(`l.state = ${p.add(q.state.toUpperCase())}`);
   if (q.doors != null) w.push(`l.doors = ${p.add(q.doors)}`);
+  if (opts.strictColour) { // colour as a real filter (used first; the caller falls back to ranking when too few match)
+    const ext = colourRegex(q.exteriorColor), int = colourRegex(q.interiorColor);
+    if (ext) w.push(`l.ext_color ~* ${p.add(ext)}`);
+    if (int) w.push(`l.int_color ~* ${p.add(int)}`);
+  }
   return w;
+}
+
+/** Colour is a RANKING boost, not a filter: matching cars sort first so they fall inside the candidate pool; others stay (the per-car colour check still flags a mismatch). */
+function colourRank(q: ListingsQuery, p: Params): string {
+  const parts: string[] = [];
+  const ext = colourRegex(q.exteriorColor), int = colourRegex(q.interiorColor);
+  if (ext) parts.push(`(CASE WHEN l.ext_color ~* ${p.add(ext)} THEN 0 ELSE 1 END)`);
+  if (int) parts.push(`(CASE WHEN l.int_color ~* ${p.add(int)} THEN 0 ELSE 1 END)`);
+  return parts.length ? parts.join(" + ") : "0";
 }
 
 function orderFor(sort: string | undefined): string {
@@ -80,28 +110,31 @@ async function countCapped(db: Queryable, whereSql: string, values: unknown[]): 
   return n > TOTAL_CAP ? null : n; // null = "more than we count", which the app treats as unknown, never as zero
 }
 
-async function plainSearch(db: Queryable, q: ListingsQuery, models: string[] | null): Promise<DbSearchResult> {
+async function plainSearch(db: Queryable, q: ListingsQuery, models: string[] | null, strict = false): Promise<DbSearchResult> {
   const p = new Params();
-  const w = whereFor(q, models, p);
+  const w = whereFor(q, models, p, { strictColour: strict });
   const whereSql = w.length ? `WHERE ${w.join(" AND ")}` : "";
-  const rows = await db.query(`SELECT ${SELECT_COLS}, NULL::float AS distance ${FROM} ${whereSql} ORDER BY ${orderFor(q.sort)} LIMIT ${limitOf(q)}`, p.values);
-  const total = await countCapped(db, whereSql, p.values);
+  const nWhere = p.values.length; // the count query uses only the filter parameters, not the ranking ones added below
+  const cr = colourRank(q, p);
+  const rows = await db.query(`SELECT ${SELECT_COLS}, NULL::float AS distance ${FROM} ${whereSql} ORDER BY ${cr === "0" ? "" : cr + ", "}${orderFor(q.sort)} LIMIT ${limitOf(q)}`, p.values);
+  const total = await countCapped(db, whereSql, p.values.slice(0, nWhere));
   return { rows: rows.rows as unknown as DbRow[], total, localApplied: false };
 }
 
-async function localSearch(db: Queryable, q: ListingsQuery, models: string[] | null, origin: { lat: number; lon: number }, radius: number): Promise<DbSearchResult> {
+async function localSearch(db: Queryable, q: ListingsQuery, models: string[] | null, origin: { lat: number; lon: number }, radius: number, strict = false): Promise<DbSearchResult> {
   const lim = limitOf(q);
   const run = async (r: number | null, limit: number) => {
     const p = new Params();
-    const w = whereFor(q, models, p);
+    const w = whereFor(q, models, p, { strictColour: strict });
     const dist = haversine(p, origin.lat, origin.lon);
     w.push("l.lat IS NOT NULL");
     if (r != null) {
       const dLat = r / 69, dLon = r / (69 * Math.max(Math.cos((origin.lat * Math.PI) / 180), 0.2));
       w.push(`l.lat BETWEEN ${p.add(origin.lat - dLat)} AND ${p.add(origin.lat + dLat)}`, `l.lon BETWEEN ${p.add(origin.lon - dLon)} AND ${p.add(origin.lon + dLon)}`);
     }
-    const inner = `SELECT ${SELECT_COLS}, ${dist} AS distance ${FROM} WHERE ${w.join(" AND ")}`;
-    const rows = await db.query(`SELECT * FROM (${inner}) x ${r != null ? `WHERE x.distance <= ${p.add(r)}` : ""} ORDER BY x.distance ASC, x.price ASC NULLS LAST LIMIT ${limit}`, p.values);
+    const cr = colourRank(q, p);
+    const inner = `SELECT ${SELECT_COLS}, ${dist} AS distance, ${cr} AS colour_rank ${FROM} WHERE ${w.join(" AND ")}`;
+    const rows = await db.query(`SELECT * FROM (${inner}) x ${r != null ? `WHERE x.distance <= ${p.add(r)}` : ""} ORDER BY x.colour_rank ASC, x.distance ASC, x.price ASC NULLS LAST LIMIT ${limit}`, p.values);
     return rows.rows as unknown as DbRow[];
   };
   let rows = await run(radius, lim);
@@ -110,17 +143,23 @@ async function localSearch(db: Queryable, q: ListingsQuery, models: string[] | n
     const wider = Math.min(radius * 4, MAX_RADIUS);
     rows = await run(wider, lim); used = wider;
   }
+  if (strict) return { rows, total: rows.length < lim ? rows.length : null, localApplied: true }; // strict colour: no "nearest anywhere" fallback, the caller decides
   if (rows.length < MIN_LOCAL_RESULTS) rows = await run(null, MAX_LOCAL_FALLBACK); // nearest anywhere, never nothing
   if (rows.length === 0) return plainSearch(db, q, models); // no coordinates for any match: fall back to nationwide order
   return { rows, total: rows.length < lim ? rows.length : null, localApplied: true };
 }
 
+/** A colour request filters only when at least this many cars match; below that it only ranks (so a search is never emptied by colour naming). */
+export const MIN_COLOUR_MATCHES = 3;
+
 export async function searchRows(db: Queryable, q: ListingsQuery, models: string[] | null): Promise<DbSearchResult> {
   const origin = q.zip && /^\d{5}$/.test(q.zip) ? zipcodes.lookup(q.zip) : undefined;
-  if (origin) {
-    const radius = q.radius != null && q.radius > 0 ? Math.min(q.radius, MAX_RADIUS) : DEFAULT_RADIUS_MILES;
-    return localSearch(db, q, models, { lat: origin.latitude, lon: origin.longitude }, radius);
+  const radius = q.radius != null && q.radius > 0 ? Math.min(q.radius, MAX_RADIUS) : DEFAULT_RADIUS_MILES;
+  if (colourRegex(q.exteriorColor) || colourRegex(q.interiorColor)) {
+    const strict = origin ? await localSearch(db, q, models, { lat: origin.latitude, lon: origin.longitude }, radius, true) : await plainSearch(db, q, models, true);
+    if (strict.rows.length >= MIN_COLOUR_MATCHES) return strict;
   }
+  if (origin) return localSearch(db, q, models, { lat: origin.latitude, lon: origin.longitude }, radius);
   return plainSearch(db, q, models);
 }
 
