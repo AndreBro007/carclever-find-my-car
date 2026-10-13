@@ -10,7 +10,7 @@ const MAX_VARIANTS = 8;
 const MAX_CACHE = 2000;
 
 export interface NhtsaRating { overall: 1 | 2 | 3 | 4 | 5 }
-type Variant = { desc: string; rating: number | null };
+type Variant = { desc: string; rating: number | null; recalls: number | null };
 const cache = new Map<string, { t: number; variants: Variant[] }>();
 export function resetNhtsaRatingCacheForTests(): void { cache.clear(); }
 
@@ -41,7 +41,9 @@ async function loadVariants(year: string, make: string, model: string): Promise<
   const variants = await Promise.all(found.map(async (x): Promise<Variant | null> => {
     const d = await getJson(`${BASE}/VehicleId/${encodeURIComponent(String(x.VehicleId))}?format=json`);
     if (d == null) return null;
-    return { desc: String(rows(d)[0]?.VehicleDescription ?? x.VehicleDescription ?? ""), rating: parseRating(rows(d)[0]?.OverallRating) };
+    const row = rows(d)[0];
+    const rc = Number(row?.RecallsCount);
+    return { desc: String(row?.VehicleDescription ?? x.VehicleDescription ?? ""), rating: parseRating(row?.OverallRating), recalls: row?.RecallsCount != null && Number.isFinite(rc) && rc >= 0 ? rc : null };
   }));
   if (variants.some((v) => v === null)) return null; // a variant lookup failed: incomplete, do not cache
   const done = variants as Variant[];
@@ -50,32 +52,49 @@ async function loadVariants(year: string, make: string, model: string): Promise<
   return done;
 }
 
-export async function lookupOverallRating(year: unknown, make: unknown, model: unknown, driveType?: string | null): Promise<NhtsaRating | null> {
+/** Picks one value across variants: all agree -> that value; else the variants matching this car\'s drive type if they agree; else unknown (null). */
+function pick(vs: Variant[], get: (v: Variant) => number | null, driveType?: string | null): number | null {
+  const have = vs.filter((v) => get(v) != null);
+  if (have.length === 0) return null;
+  if (new Set(have.map((v) => get(v))).size === 1) return get(have[0]);
+  if (driveType) {
+    const re = new RegExp(`\\b${driveType === "4WD" ? "(4WD|4X4)" : driveType}\\b`, "i");
+    const m = have.filter((v) => re.test(v.desc));
+    if (m.length > 0 && new Set(m.map((v) => get(v))).size === 1) return get(m[0]);
+  }
+  return null;
+}
+
+export interface NhtsaModelYearSafety { overall: NhtsaRating["overall"] | null; recallCampaigns: number | null }
+
+/** Rating and recall-campaign count for this model year, from the same two NHTSA calls. Null when the model year is not in NHTSA's list or the lookup failed. */
+export async function lookupModelYearSafety(year: unknown, make: unknown, model: unknown, driveType?: string | null): Promise<NhtsaModelYearSafety | null> {
   const y = String(year ?? "").trim(), mk = String(make ?? "").trim(), md = String(model ?? "").trim();
   if (!/^\d{4}$/.test(y) || !mk || !md) return null;
   const variants = await loadVariants(y, mk, md);
-  const rated = (variants ?? []).filter((v) => v.rating != null);
-  if (rated.length === 0) return null;
-  const set = new Set(rated.map((v) => v.rating));
-  if (set.size === 1) return { overall: rated[0].rating as NhtsaRating["overall"] };
-  if (driveType) { // variants disagree: use the variant that matches this car's drive type, else say nothing
-    const m = rated.filter((v) => new RegExp(`\\b${driveType === "4WD" ? "(4WD|4X4)" : driveType}\\b`, "i").test(v.desc));
-    if (m.length > 0 && new Set(m.map((v) => v.rating)).size === 1) return { overall: m[0].rating as NhtsaRating["overall"] };
-  }
-  return null;
+  if (!variants || variants.length === 0) return null;
+  const overall = pick(variants, (v) => v.rating, driveType) as NhtsaRating["overall"] | null;
+  const recallCampaigns = pick(variants, (v) => v.recalls, driveType);
+  return overall == null && recallCampaigns == null ? null : { overall, recallCampaigns };
+}
+
+export async function lookupOverallRating(year: unknown, make: unknown, model: unknown, driveType?: string | null): Promise<NhtsaRating | null> {
+  const r = await lookupModelYearSafety(year, make, model, driveType);
+  return r?.overall != null ? { overall: r.overall } : null;
 }
 
 /** Adds `rating` to each decode result (in parallel, within a time budget). Never throws; a slow or failed lookup leaves the result unrated. */
 export async function attachNhtsaRatings<T extends { modelYear: string | null; make: string | null; model: string | null; specs?: { driveType: string | null } } | null | undefined>(
   results: T[], budgetMs = 3_500,
-): Promise<Array<(T extends null | undefined ? never : T & { rating?: NhtsaRating | null }) | null | undefined>> {
+): Promise<Array<(T extends null | undefined ? never : T & { rating?: NhtsaRating | null; recallCampaigns?: number | null }) | null | undefined>> {
   const one = async (r: T) => {
     if (!r) return r as any;
-    const rating = await Promise.race([
-      lookupOverallRating(r.modelYear, r.make, r.model, r.specs?.driveType ?? null),
+    const safety = await Promise.race([
+      lookupModelYearSafety(r.modelYear, r.make, r.model, r.specs?.driveType ?? null),
       new Promise<null>((res) => setTimeout(() => res(null), budgetMs)),
     ]).catch(() => null);
-    return rating ? { ...r, rating } : r;
+    if (!safety) return r;
+    return { ...r, ...(safety.overall != null ? { rating: { overall: safety.overall } } : {}), ...(safety.recallCampaigns != null ? { recallCampaigns: safety.recallCampaigns } : {}) };
   };
   return Promise.all(results.map(one));
 }

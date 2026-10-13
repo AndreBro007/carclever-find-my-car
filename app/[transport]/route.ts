@@ -511,6 +511,9 @@ async function buildResultCard(
       fuelTypeDisplay: formatFuelTypeForDisplay(finalNormalizedFuel, v?.fuel),
       ...(catalogOutputActive() && nhtsa?.specs?.safetyTech?.length ? { standardSafetyTech: nhtsa.specs.safetyTech } : {}),
       ...(catalogOutputActive() && nhtsa?.rating ? { nhtsaOverallRating: nhtsa.rating.overall } : {}),
+      ...(catalogOutputActive() && nhtsa?.recallCampaigns && nhtsa.recallCampaigns > 0
+        ? { nhtsaRecallCampaigns: nhtsa.recallCampaigns, nhtsaRecallNote: `NHTSA lists ${nhtsa.recallCampaigns} recall campaign${nhtsa.recallCampaigns === 1 ? "" : "s"} for this model year. This is not specific to this car and does not say whether any recall was repaired; check this VIN at nhtsa.gov/recalls.` }
+        : {}),
     },
     badges,
   };

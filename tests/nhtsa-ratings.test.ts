@@ -123,3 +123,17 @@ test("real response shapes: 2020 RAV4 list (FWD and AWD variants) with the real 
     assert.equal(await lookupOverallRating("2020", "TOYOTA", "RAV4", null), null); // variants disagree, drive type unknown
   } finally { one(m); }
 });
+
+test("recall campaigns: real layout (RecallsCount) is read; the car's drive type picks the variant when counts differ; 'Not Rated' still gives the count", async () => {
+  const { lookupModelYearSafety } = await import("../lib/nhtsa-ratings");
+  const v = (id: number, desc: string, recalls: number) => ({ Count: 1, Results: [{ OverallRating: "Not Rated", RecallsCount: recalls, ComplaintsCount: 5, VehicleDescription: desc, VehicleId: id }] });
+  const m = mockFetch((u) => u.includes("/modelyear/2013/") ? realRdxList : u.includes("VehicleId/7731") ? v(7731, "2013 Acura RDX SUV 4WD", 3) : v(7520, "2013 Acura RDX SUV FWD", 3));
+  try {
+    assert.deepEqual(await lookupModelYearSafety("2013", "ACURA", "RDX", null), { overall: null, recallCampaigns: 3 }); // all variants agree
+  } finally { one(m); }
+  const d = mockFetch((u) => u.includes("/modelyear/2020/") ? realRavList : u.includes("VehicleId/14726") ? v(14726, "2020 Toyota RAV4 SUV FWD", 2) : v(14693, "2020 Toyota RAV4 SUV AWD", 4));
+  try {
+    assert.deepEqual(await lookupModelYearSafety("2020", "TOYOTA", "RAV4", "AWD"), { overall: null, recallCampaigns: 4 });
+    assert.equal(await lookupModelYearSafety("2020", "TOYOTA", "RAV4", null), null); // counts differ, drive unknown: say nothing
+  } finally { one(d); }
+});

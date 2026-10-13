@@ -50,7 +50,7 @@
  * DECISIONS.md SYS-20260819-003/004.
  */
 
-import { specsFromRow, type NhtsaSpecs } from "./nhtsa-specs";
+import { specsFromRow, fuelFor, type NhtsaSpecs } from "./nhtsa-specs";
 
 const NHTSA_BASE_URL = "https://vpic.nhtsa.dot.gov/api/vehicles/decodevinvalues";
 const NHTSA_TIMEOUT_MS = 3_000;
@@ -158,6 +158,8 @@ export interface NhtsaElectrificationResult {
   specs?: NhtsaSpecs;
   /** NHTSA 5-star overall rating for this model year (database mode; attached by lib/nhtsa-ratings.ts). */
   rating?: { overall: 1 | 2 | 3 | 4 | 5 } | null;
+  /** NHTSA recall campaigns listed for this model year variant (not specific to one car; attached by lib/nhtsa-ratings.ts). */
+  recallCampaigns?: number | null;
   /** Canonical classification derived from the raw
    * fields below. Prefer this over hand-rolling ElectrificationLevel
    * string matching at call sites — see classifyElectrification(). */
@@ -276,8 +278,9 @@ export async function decodeNhtsaElectrification(
     const electrificationLevel: string | null = r.ElectrificationLevel || null;
     const fuelTypeSecondary: string | null = r.FuelTypeSecondary || null;
 
+    const electrificationState = classifyElectrification(electrificationLevel, fuelTypeSecondary);
     return {
-      electrificationState: classifyElectrification(electrificationLevel, fuelTypeSecondary),
+      electrificationState,
       electrificationLevel,
       fuelTypePrimary: r.FuelTypePrimary || null,
       fuelTypeSecondary,
@@ -290,7 +293,7 @@ export async function decodeNhtsaElectrification(
       driveType: r.DriveType || null,
       cylindersConflict,
       trimOptions,
-      specs: specsFromRow(r),
+      specs: { ...specsFromRow(r), fuel: fuelFor(electrificationState, r.FuelTypePrimary) },
     };
   } catch {
     // Timeout, network error, or malformed JSON — never let this block or

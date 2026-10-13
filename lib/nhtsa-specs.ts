@@ -9,6 +9,7 @@ export interface NhtsaSpecs {
   cylinders: number | null;
   engine: string | null; // e.g. "2.5L 4-cyl 203 hp turbo"
   seats: number | null;
+  fuel: "Gasoline" | "Diesel" | "Hybrid" | "Plug-In Hybrid" | "Electric" | null; // from the app's own electrification classifier + NHTSA primary fuel; ambiguous stays null
   safetyTech: string[]; // only features NHTSA lists as Standard (ABS, stability control and traction control are universal, so not listed)
 }
 
@@ -66,8 +67,22 @@ export function specsFromRow(r: Row): NhtsaSpecs {
     cylinders: cyl,
     engine: disp != null || cyl != null ? parts.join(" ") : null,
     seats: seats != null && seats >= 1 && seats <= 15 ? seats : null,
+    fuel: null, // set by the decoder, which owns the electrification classifier (lib/nhtsa-client.ts)
     safetyTech,
   };
+}
+
+/** Fuel for the card from the electrification state (classifier output) and NHTSA's primary fuel. Anything unclear stays null. */
+export function fuelFor(state: string, primary: unknown): NhtsaSpecs["fuel"] {
+  if (state === "electric") return "Electric";
+  if (state === "plug_in_hybrid") return "Plug-In Hybrid";
+  if (state === "hybrid" || state === "mild_hybrid") return "Hybrid";
+  if (state === "not_electrified") {
+    const p = s(primary).toLowerCase();
+    if (p === "gasoline") return "Gasoline";
+    if (p === "diesel") return "Diesel";
+  }
+  return null;
 }
 
 /** Fill ONLY the blanks in listing.vehicle from the decode; a value the listing already has is never replaced. */
@@ -84,5 +99,6 @@ export function withNhtsaSpecs<L extends { vehicle?: unknown }>(listing: L, nhts
   fill("engine", sp.engine);
   fill("cylinders", sp.cylinders);
   fill("seats", sp.seats);
+  fill("fuel", sp.fuel);
   return changed ? { ...listing, vehicle: v } : listing;
 }

@@ -1,7 +1,7 @@
 // NHTSA decode improvements (database app): richer specs from the call we already make, a 24h cache, hybrid-first pool ordering.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeDriveType, normalizeTransmission, specsFromRow, withNhtsaSpecs } from "../lib/nhtsa-specs";
+import { normalizeDriveType, normalizeTransmission, specsFromRow, withNhtsaSpecs, fuelFor } from "../lib/nhtsa-specs";
 import { decodeNhtsaElectrification, prioritizeElectrificationCandidates, resetNhtsaCacheForTests, ELECTRIFICATION_POOL_SIZE } from "../lib/nhtsa-client";
 
 test("drive type: AWD/4WD/FWD/RWD are mapped; NHTSA's 4x2 stays unknown (front or rear is not stated)", () => {
@@ -27,7 +27,7 @@ test("specsFromRow: engine summary, seats, and only STANDARD safety tech (option
   assert.equal(sp.engine, "2.5L 4-cyl 203 hp");
   assert.deepEqual(sp.safetyTech, ["Automatic emergency braking", "Forward collision warning", "Lane departure warning", "Rear camera"]);
   assert.equal(specsFromRow({ ...row, Turbo: "Yes" }).engine, "2.5L 4-cyl 203 hp turbo");
-  assert.deepEqual(specsFromRow({}), { driveType: null, transmission: null, cylinders: null, engine: null, seats: null, safetyTech: [] });
+  assert.deepEqual(specsFromRow({}), { driveType: null, transmission: null, cylinders: null, engine: null, seats: null, fuel: null, safetyTech: [] });
 });
 test("withNhtsaSpecs fills blanks only and never overrides a value the listing has", () => {
   const sp = specsFromRow(row);
@@ -56,5 +56,34 @@ test("decode cache: the same VIN is fetched once, a failed decode is not cached,
     assert.equal(await decodeNhtsaElectrification("1HGCM82633A004352", "Honda", "Accord", null), null);
     assert.equal(await decodeNhtsaElectrification("1HGCM82633A004352", "Honda", "Accord", null), null);
     assert.equal(calls, 2); // failures are retried, not cached
+  } finally { globalThis.fetch = realFetch; resetNhtsaCacheForTests(); }
+});
+
+test("fuel from the electrification state: hybrid/PHEV/electric are named, plain gasoline/diesel come from NHTSA's primary fuel, anything unclear stays blank", () => {
+  assert.equal(fuelFor("electric", "Electric"), "Electric");
+  assert.equal(fuelFor("plug_in_hybrid", "Gasoline"), "Plug-In Hybrid");
+  assert.equal(fuelFor("hybrid", "Gasoline"), "Hybrid");
+  assert.equal(fuelFor("mild_hybrid", "Gasoline"), "Hybrid");
+  assert.equal(fuelFor("not_electrified", "Gasoline"), "Gasoline");
+  assert.equal(fuelFor("not_electrified", "Diesel"), "Diesel");
+  assert.equal(fuelFor("not_electrified", "Flexible Fuel Vehicle (FFV)"), null);
+  assert.equal(fuelFor("ambiguous", "Gasoline"), null);
+  assert.equal(fuelFor("unknown", "Gasoline"), null);
+  const filled: any = withNhtsaSpecs({ vehicle: { fuel: null } }, { specs: { ...specsFromRow({}), fuel: "Hybrid" } });
+  assert.equal(filled.vehicle.fuel, "Hybrid");
+  const kept: any = withNhtsaSpecs({ vehicle: { fuel: "Gasoline" } }, { specs: { ...specsFromRow({}), fuel: "Hybrid" } });
+  assert.equal(kept.vehicle.fuel, "Gasoline"); // the listing's own value is never replaced
+});
+test("decode of a hybrid and an electric VIN carries the fuel in specs", async () => {
+  resetNhtsaCacheForTests();
+  const rows: Record<string, any> = {
+    HYB: { ErrorCode: "0", Make: "TOYOTA", Model: "Camry", ModelYear: "2026", ElectrificationLevel: "HEV (Hybrid Electric Vehicle)", FuelTypePrimary: "Gasoline", FuelTypeSecondary: "Electric" },
+    BEV: { ErrorCode: "0", Make: "TESLA", Model: "Model Y", ModelYear: "2026", ElectrificationLevel: "BEV (Battery Electric Vehicle)", FuelTypePrimary: "Electric" },
+  };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (u: string) => ({ ok: true, json: async () => ({ Results: [String(u).includes("HYBVIN") ? rows.HYB : rows.BEV] }) })) as any;
+  try {
+    assert.equal((await decodeNhtsaElectrification("HYBVIN00000000001", "Toyota", "Camry", null))?.specs?.fuel, "Hybrid");
+    assert.equal((await decodeNhtsaElectrification("BEVVIN00000000001", "Tesla", "Model Y", null))?.specs?.fuel, "Electric");
   } finally { globalThis.fetch = realFetch; resetNhtsaCacheForTests(); }
 });
