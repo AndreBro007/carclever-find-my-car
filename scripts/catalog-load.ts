@@ -4,12 +4,10 @@
  * Env: DATABASE_URL_DIRECT (preferred: a direct, non-pooled connection) or DATABASE_URL.
  * Aborts (changing nothing) when the feed is empty, truncated (below 90% of what is stored) or below 97% of --expect-rows.
  */
-import { createReadStream } from "node:fs";
-import { createGunzip } from "node:zlib";
-import readline from "node:readline";
 import { Pool } from "pg";
 import { loadFeed } from "../lib/catalog-db/load";
 import { cleanConnectionString } from "../lib/catalog-db/conn";
+import { readLines } from "../lib/catalog-db/lines";
 
 async function main(): Promise<void> {
   const file = process.argv[2];
@@ -20,12 +18,9 @@ async function main(): Promise<void> {
   const sampleEvery = j > 0 ? Number(process.argv[j + 1]) : 0; // test mode: load only every Nth car
   const url = cleanConnectionString(process.env.DATABASE_URL_DIRECT || process.env.DATABASE_URL);
   if (!url) throw new Error("DATABASE_URL_DIRECT or DATABASE_URL is required");
-  const raw = createReadStream(file);
-  const input = file.endsWith(".gz") ? raw.pipe(createGunzip()) : raw;
   const pool = new Pool({ connectionString: url, max: 1 });
   try {
-    const rl = readline.createInterface({ input, crlfDelay: Infinity });
-    const report = await loadFeed(pool, rl, { minRows: expect > 0 && !sampleEvery ? Math.floor(expect * 0.97) : 1, sampleEvery, log: (m) => console.log(m) });
+    const report = await loadFeed(pool, readLines(file), { minRows: expect > 0 && !sampleEvery ? Math.floor(expect * 0.97) : 1, sampleEvery, log: (m) => console.log(m) });
     console.log(JSON.stringify(report));
   } finally {
     await pool.end();
