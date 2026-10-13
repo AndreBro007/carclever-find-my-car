@@ -270,6 +270,18 @@ A tool call succeeding at the server/data level (confirmed via raw MCP call or v
 - Fix (`SYS-20260907-002`): added a `conditionStr` (New/Used/Certified Pre-Owned (Used)) directly into the existing per-listing text line. Rerun of the exact same query type via a new temporary connector pointed at this branch's own Preview (`ccfmc-dev-v2-git-v25-condition-b53986-...vercel.app`) confirmed fixed: 5/5 results correctly labeled, including the CPO nuance, matching card badges exactly, VIN-verified on all 5.
 - Independent of and unrelated to V2.4 — branched separately off `release/v2`.
 
+### Sep 8, 2026 — RETRACTION of the "universal card-rendering regression" below, root cause found
+
+The "text-only, no card, on every commit including pre-V3.3" finding recorded in the entry immediately below this one was **not a code regression**. Root cause: the temporary diagnostic connectors created during that investigation (`TEMP Control Test`, `TEMP Bisect V32`) had **Authentication set to something other than "None"** — most likely introduced by browser-automation clicking the wrong radio button while recreating connectors via script rather than by hand. A connector requiring sign-in can still return correct tool-call text (which is why the recall data looked right every time) while the separate widget-resource fetch silently fails — producing exactly the "correct text, no card" symptom observed.
+
+**Confirmed by André manually**: a fresh connector (`CarTest`) pointed at the exact same URL used in the "broken" tests, with Authentication correctly left on the auto-detected "None", rendered the card correctly on the first try — using `find_matching_vehicle`, the same tool path `check_vehicle`'s card relies on.
+
+**Correct conclusion:** V3.1, V3.2, and V3.3 are all sound. The `getAppOrigin()`/CSP/Production-domain investigation earlier in this session was chasing a phantom and did not find (or need) a real bug. No code changes are needed as a result of any of this.
+
+**Lesson for future sessions:** when creating connectors via browser automation rather than by hand, explicitly verify Authentication reads "None" (or whatever was intended) after creation — do not assume the auto-detected default survived the click sequence. A connector requiring sign-in fails silently and specifically at the card-rendering layer, not at the tool-call layer, which makes it easy to misdiagnose as a code bug.
+
+**Status at pause:** V3.3's no-VIN path re-confirmation and ChatGPT-side testing are still outstanding, now that the false alarm is resolved. `CarClever V3 Test` (the standing Claude connector) was being recreated by André manually with explicit "None" auth confirmation at the point this session paused.
+
 ### Sep 8, 2026 — commit `ab2c9ed` (V3.3, standalone identity card) — Host: Claude, Haiku 4.5 then Sonnet 5 (`TEMP V3.3 Test`)
 - Tester: Claude (Engineering lane), directed by André
 - Result: **FAIL on Haiku 4.5 (same host-side failure class as V3.2), PASS on Sonnet 5**
