@@ -17,8 +17,8 @@ const list = (vs: Array<[number, string]>) => ({ Count: vs.length, Results: vs.m
 const rate = (id: number, d: string, r: string) => ({ Count: 1, Results: [{ VehicleId: id, VehicleDescription: d, OverallRating: r }] });
 const one = (m: ReturnType<typeof mockFetch>) => m.restore();
 
-test("tone: each star level has its own colour (5 green, 4 yellow, 3 amber, 2 and 1 red)", () => {
-  assert.deepEqual([5, 4, 3, 2, 1].map(ratingTone), ["green", "yellow", "amber", "red", "red"]);
+test("tone: each star level has its own colour (5 green, 4 light green, 3 yellow, 2 amber, 1 red)", () => {
+  assert.deepEqual([5, 4, 3, 2, 1].map(ratingTone), ["green", "lime", "yellow", "amber", "red"]);
 });
 test("all variants agree -> that rating", async () => {
   const m = mockFetch((u) => u.includes("/modelyear/") ? list([[1, "2020 Toyota RAV4 SUV FWD"], [2, "2020 Toyota RAV4 SUV AWD"]]) : u.includes("VehicleId/1") ? rate(1, "2020 Toyota RAV4 SUV FWD", "5") : rate(2, "2020 Toyota RAV4 SUV AWD", "5"));
@@ -86,7 +86,7 @@ async function renderCard(stars: number | undefined) {
   await new Promise((r) => setTimeout(r, 200));
   return window.document;
 }
-for (const [stars, tone] of [[5, "green"], [4, "yellow"], [3, "amber"], [2, "red"], [1, "red"]] as const) {
+for (const [stars, tone] of [[5, "green"], [4, "lime"], [3, "yellow"], [2, "amber"], [1, "red"]] as const) {
   test(`card pill: ${stars} stars -> ${tone}`, async () => {
     const doc = await renderCard(stars);
     const pill = doc.querySelector(".cc-rate");

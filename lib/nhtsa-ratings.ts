@@ -14,9 +14,9 @@ type Variant = { desc: string; rating: number | null };
 const cache = new Map<string, { t: number; variants: Variant[] }>();
 export function resetNhtsaRatingCacheForTests(): void { cache.clear(); }
 
-/** Colour tone of the card pill: each star level has its own colour. */
-export function ratingTone(n: number): "green" | "yellow" | "amber" | "red" {
-  return n >= 5 ? "green" : n === 4 ? "yellow" : n === 3 ? "amber" : "red";
+/** Colour tone of the card pill: each star level has its own colour (5 green, 4 light green, 3 yellow, 2 amber, 1 red). */
+export function ratingTone(n: number): "green" | "lime" | "yellow" | "amber" | "red" {
+  return n >= 5 ? "green" : n === 4 ? "lime" : n === 3 ? "yellow" : n === 2 ? "amber" : "red";
 }
 
 const rows = (j: any): any[] => (Array.isArray(j?.Results) ? j.Results : Array.isArray(j?.results) ? j.results : []);
