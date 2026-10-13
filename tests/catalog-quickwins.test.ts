@@ -1,8 +1,7 @@
-// Quick wins for the database app: colour regex (marketing colour names), data-as-of note, model naming aliases.
+// Quick wins for the database app: colour regex (marketing colour names) and model naming aliases.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { colourRegex } from "../lib/catalog-db/search";
-import { dataStaleNote } from "../lib/catalog-db-source";
 import { modelsAgree } from "../lib/nhtsa-specs";
 
 const matches = (spec: string, name: string): boolean => { const r = colourRegex(spec); return !!r && new RegExp(r.replace(/\\y/g, "\\b"), "i").test(name); };
@@ -14,13 +13,6 @@ test("colour regex: base colour words match the feed's marketing names as whole 
   assert.ok(!matches("Black", "Glacier White")); assert.ok(!matches("White", "Crystal Black Pearl"));
   assert.ok(!matches("Tan", "Titanium")); assert.ok(!matches("Red", "Tangerine Orange"));
   assert.equal(colourRegex(undefined), null); assert.equal(colourRegex(" , "), null);
-});
-test("data-as-of: a note only when the last load is more than 48 hours old", () => {
-  const now = Date.parse("2026-10-14T12:00:00Z");
-  assert.equal(dataStaleNote("2026-10-14T08:30:00Z", now), null);
-  assert.equal(dataStaleNote("2026-10-12T13:00:00Z", now), null); // 47 hours
-  assert.match(String(dataStaleNote("2026-10-11T08:30:00Z", now)), /last refreshed on 2026-10-11/);
-  assert.equal(dataStaleNote(undefined, now), null); assert.equal(dataStaleNote("not a date", now), null);
 });
 test("model aliases: the 15 naming differences seen on real listings agree; real differences still conflict", () => {
   assert.ok(modelsAgree("Cooper", "Hardtop", "MINI")); assert.ok(modelsAgree("Cooper", "Clubman", "MINI")); assert.ok(modelsAgree("Cooper", "Countryman", "MINI"));

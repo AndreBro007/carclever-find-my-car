@@ -71,15 +71,18 @@ test("buyer check built for the text the model reads: history, Carfax and CPO 'm
       "CPO status was not reported for this listing - ask the dealer if certification matters to you.",
       "No Carfax link was available on this listing - request an independent vehicle history report before purchase.",
     ],
-    nextSteps: ["Have a pre-purchase inspection done by an independent mechanic."],
+    nextSteps: ["Have a pre-purchase inspection done by an independent mechanic.", "Independently verify the items listed above — via Carfax, a trusted mechanic, or the dealer — before finalizing a purchase."],
   };
   const prev = process.env.LISTING_SOURCE;
   try {
     process.env.LISTING_SOURCE = "auto_dev";
     assert.equal(shapeBuyerCheckForCatalog(bc).needsVerification.length, 4); // the other apps are unchanged
+    assert.ok(shapeBuyerCheckForCatalog(bc).nextSteps[1].includes("Carfax"));
     process.env.LISTING_SOURCE = "catalog_db";
     const s = shapeBuyerCheckForCatalog(bc);
     assert.deepEqual(s.needsVerification, ["model and trim cannot be confirmed from the VIN alone - confirm independently."]);
-    assert.deepEqual(s.nextSteps, bc.nextSteps); assert.deepEqual(s.goodSigns, ["VIN verified"]);
+    assert.equal(s.nextSteps[0], bc.nextSteps[0]);
+    assert.equal(s.nextSteps[1], "Independently verify the items listed above — via a vehicle history report, a trusted mechanic, or the dealer — before finalizing a purchase.");
+    assert.ok(!JSON.stringify(s).toLowerCase().includes("carfax")); assert.deepEqual(s.goodSigns, ["VIN verified"]);
   } finally { if (prev === undefined) delete process.env.LISTING_SOURCE; else process.env.LISTING_SOURCE = prev; }
 });

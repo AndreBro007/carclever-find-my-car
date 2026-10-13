@@ -4,7 +4,6 @@ import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
 // spike/edmunds-catalog-mode: same four functions, now routed through the source facade
 // (Auto.dev unchanged unless mode/breaker selects the Edmunds catalogue).
 import { catalogOutputActive, shapeCardsForSource, shapeBuyerCheckForCatalog } from "@/lib/catalog-output";
-import { getCatalogDataAsOf, dataStaleNote } from "@/lib/catalog-db-source";
 import { withNhtsaSpecs } from "@/lib/nhtsa-specs";
 import { attachNhtsaRatings } from "@/lib/nhtsa-ratings";
 import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, activeSource } from "@/lib/listing-source";
@@ -913,7 +912,6 @@ const handler = createMcpHandler((server) => {
               totalMatches: vinCards.length,
               resultsShown: vinCardsWithBuyerCheck.length,
               corpusSizeApprox: getCorpusCountForDescription(),
-              ...(catalogOutputActive() ? { dataAsOf: await getCatalogDataAsOf() } : {}),
               relaxations: [],
               dataNotes: vinDataNotes,
               scopeNote: "vin_lookup",
@@ -2027,18 +2025,12 @@ const handler = createMcpHandler((server) => {
         dataNotes.push(`No specific ZIP or city was given, so this search covers all of ${baseQuery.state} rather than a specific area.`);
       }
 
-      // Database mode: say how fresh the data is, and warn the AI when the last daily load is more than 48 hours old.
-      const dataAsOf = catalogOutputActive() ? await getCatalogDataAsOf() : undefined;
-      const staleNote = dataStaleNote(dataAsOf);
-      if (staleNote) dataNotes.push(staleNote);
-
       const response = {
         meta: {
           totalCandidatesConsidered: candidates.length,
           totalMatches: typeof total === "number" ? total : null,
           resultsShown: cards.length,
           corpusSizeApprox: getCorpusCountForDescription(),
-          ...(dataAsOf ? { dataAsOf } : {}),
           relaxations,
           dataNotes,
           scopeNote,

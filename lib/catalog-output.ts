@@ -47,7 +47,9 @@ type BuyerCheckLike = { goodSigns: string[]; concerns: string[]; needsVerificati
 export function shapeBuyerCheckForCatalog<T extends BuyerCheckLike>(bc: T): T {
   if (!catalogOutputActive()) return bc;
   const keep = (a: string[]) => a.filter((x) => !MISSING_DATA_LINE.test(x));
-  return { ...bc, goodSigns: keep(bc.goodSigns), concerns: keep(bc.concerns), needsVerification: keep(bc.needsVerification) };
+  // The next-steps advice stays, but without the Carfax brand name (this app has no Carfax data or link).
+  const nextSteps = bc.nextSteps.map((x) => x.replace(/\bCarfax\b/gi, "a vehicle history report"));
+  return { ...bc, goodSigns: keep(bc.goodSigns), concerns: keep(bc.concerns), needsVerification: keep(bc.needsVerification), nextSteps };
 }
 
 export function shapeCardsForSource<T>(cards: T[]): T[] {
