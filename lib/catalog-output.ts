@@ -119,3 +119,42 @@ export function catalogCheckVehicleDescription(base: string): string {
   }
   return d;
 }
+
+/**
+ * Database app: "Just added" and "Price dropped" signals from the daily loads. Honest scope: the feed has no listing age, so "just added"
+ * means the car first appeared in OUR listings within the last 3 days (never "new on the market"); a price drop is a fall of at least $100
+ * recorded between two daily loads within the last 7 days. Cars that were already stored before tracking began have no first-seen date
+ * and are never labelled.
+ */
+export const JUST_ADDED_DAYS = 3;
+export const PRICE_DROP_DAYS = 7;
+export const PRICE_DROP_MIN = 100;
+function daysAgo(ymd: string | undefined, now: Date): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(ymd ?? "");
+  if (!m) return null;
+  return Math.round((Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - Date.UTC(+m[1], +m[2] - 1, +m[3])) / 86_400_000);
+}
+export function freshnessSignals(
+  cat: { firstSeen?: string; priceWas?: number; priceChangedAt?: string } | undefined,
+  price: number | null | undefined,
+  now: Date = new Date(),
+): { justAdded?: true; priceDrop?: { amount: number; was: number; on: string } } {
+  const out: { justAdded?: true; priceDrop?: { amount: number; was: number; on: string } } = {};
+  if (!cat) return out;
+  const fa = daysAgo(cat.firstSeen, now);
+  if (fa != null && fa >= 0 && fa <= JUST_ADDED_DAYS) out.justAdded = true;
+  const pc = daysAgo(cat.priceChangedAt, now);
+  if (pc != null && pc >= 0 && pc <= PRICE_DROP_DAYS && cat.priceWas != null && price != null && cat.priceWas - price >= PRICE_DROP_MIN && cat.priceChangedAt) {
+    out.priceDrop = { amount: cat.priceWas - price, was: cat.priceWas, on: cat.priceChangedAt };
+  }
+  return out;
+}
+const shortDate = (ymd: string): string => new Date(ymd + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+/** One text line under a car: "Just added to the listings · Price dropped $1,200 (was $32,990, changed Oct 21)". "" when neither applies or in other apps. */
+export function freshnessTextLine(c: any, active: boolean = catalogOutputActive()): string {
+  if (!active || !c?.detail) return "";
+  const d = c.detail, bits: string[] = [];
+  if (d.justAdded) bits.push("Just added to the listings");
+  if (d.priceDrop) bits.push(`Price dropped $${d.priceDrop.amount.toLocaleString("en-US")} (was $${d.priceDrop.was.toLocaleString("en-US")}, changed ${shortDate(d.priceDrop.on)})`);
+  return bits.length ? `\n   ${bits.join(" · ")}` : "";
+}

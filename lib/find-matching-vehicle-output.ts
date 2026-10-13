@@ -190,6 +190,8 @@ const DetailSchema = z.object({
   standardSafetyTech: z.array(z.string()).optional(),
   // Database mode only: NHTSA 5-star overall crash-test rating (1-5) for this model year; absent when not rated or unknown.
   nhtsaOverallRating: z.number().optional(),
+  justAdded: z.boolean().optional(), // database app: the car first appeared in our listings within the last 3 days
+  priceDrop: z.object({ amount: z.number(), was: z.number(), on: z.string() }).optional(), // database app: price fell by at least $100 within the last 7 days
   // Database mode only: NHTSA recall campaigns listed for this MODEL YEAR (not this car) + the wording to use. Present only when at least 1.
   nhtsaRecallCampaigns: z.number().optional(),
   nhtsaRecallNote: z.string().optional(),

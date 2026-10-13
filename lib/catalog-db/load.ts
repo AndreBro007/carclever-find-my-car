@@ -98,14 +98,16 @@ export async function loadFeed(pool: Pool, lines: AsyncIterable<string>, opts: L
       const cols = "id, vin, year, make, make_key, model, model_key, trim, condition, price, odometer, body_raw, body_class, doors, ext_color, int_color, dealer_id, state, zip, lat, lon, image_url, link_override";
       const up = await client.query(`
         WITH up AS (
-          INSERT INTO listing (${cols})
-          SELECT DISTINCT ON (id) ${cols} FROM listing_stage ORDER BY id
+          INSERT INTO listing (${cols}, first_seen)
+          SELECT DISTINCT ON (id) ${cols}, ${existing > 0 ? "current_date" : "NULL::date"} FROM listing_stage ORDER BY id
           ON CONFLICT (id) DO UPDATE SET vin = EXCLUDED.vin, year = EXCLUDED.year, make = EXCLUDED.make, make_key = EXCLUDED.make_key,
             model = EXCLUDED.model, model_key = EXCLUDED.model_key, trim = EXCLUDED.trim, condition = EXCLUDED.condition,
             price = EXCLUDED.price, odometer = EXCLUDED.odometer, body_raw = EXCLUDED.body_raw, body_class = EXCLUDED.body_class,
             doors = EXCLUDED.doors, ext_color = EXCLUDED.ext_color, int_color = EXCLUDED.int_color, dealer_id = EXCLUDED.dealer_id,
             state = EXCLUDED.state, zip = EXCLUDED.zip, lat = EXCLUDED.lat, lon = EXCLUDED.lon, image_url = EXCLUDED.image_url,
-            link_override = EXCLUDED.link_override, loaded_at = now()
+            link_override = EXCLUDED.link_override, loaded_at = now(),
+            price_prev = CASE WHEN listing.price IS NOT NULL AND EXCLUDED.price IS NOT NULL AND listing.price <> EXCLUDED.price THEN listing.price ELSE listing.price_prev END,
+            price_changed_at = CASE WHEN listing.price IS NOT NULL AND EXCLUDED.price IS NOT NULL AND listing.price <> EXCLUDED.price THEN current_date ELSE listing.price_changed_at END
           WHERE (listing.price, listing.odometer, listing.condition, listing.image_url, listing.link_override, listing.dealer_id, listing.body_class, listing.trim, listing.make, listing.model, listing.year)
                 IS DISTINCT FROM (EXCLUDED.price, EXCLUDED.odometer, EXCLUDED.condition, EXCLUDED.image_url, EXCLUDED.link_override, EXCLUDED.dealer_id, EXCLUDED.body_class, EXCLUDED.trim, EXCLUDED.make, EXCLUDED.model, EXCLUDED.year)
           RETURNING (xmax = 0) AS inserted)

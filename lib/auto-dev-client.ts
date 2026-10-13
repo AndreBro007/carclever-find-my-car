@@ -75,7 +75,7 @@ export interface AutoDevListing {
   "@id"?: string;
   createdAt?: string;
   /** Set only for rows that came from the Edmunds/Impact catalogue (spike/edmunds-catalog-mode). */
-  catalog?: { itemId?: string; trackingUrl?: string; distanceMiles?: number };
+  catalog?: { itemId?: string; trackingUrl?: string; distanceMiles?: number; firstSeen?: string; priceWas?: number; priceChangedAt?: string };
   vehicle?: {
     make?: string;
     model?: string;

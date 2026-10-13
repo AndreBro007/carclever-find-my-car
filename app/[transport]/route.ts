@@ -3,7 +3,7 @@ import { z } from "zod";
 import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
 // spike/edmunds-catalog-mode: same four functions, now routed through the source facade
 // (Auto.dev unchanged unless mode/breaker selects the Edmunds catalogue).
-import { catalogOutputActive, shapeCardsForSource, shapeBuyerCheckForCatalog, nhtsaTextLines, nhtsaTextFootnote, catalogCheckVehicleDescription } from "@/lib/catalog-output";
+import { catalogOutputActive, shapeCardsForSource, shapeBuyerCheckForCatalog, nhtsaTextLines, nhtsaTextFootnote, catalogCheckVehicleDescription, freshnessSignals, freshnessTextLine } from "@/lib/catalog-output";
 import { withNhtsaSpecs } from "@/lib/nhtsa-specs";
 import { notListedLinksText, titleCaseMake } from "@/lib/vin-not-listed";
 import { buildComparison, comparisonText, type CompareItem } from "@/lib/compare";
@@ -517,6 +517,7 @@ async function buildResultCard(
       fuelTypeDisplay: formatFuelTypeForDisplay(finalNormalizedFuel, v?.fuel),
       ...(catalogOutputActive() && nhtsa?.specs?.safetyTech?.length ? { standardSafetyTech: nhtsa.specs.safetyTech } : {}),
       ...(catalogOutputActive() && nhtsa?.rating ? { nhtsaOverallRating: nhtsa.rating.overall } : {}),
+      ...(catalogOutputActive() ? freshnessSignals(listing.catalog, rl?.price ?? null) : {}),
       ...(catalogOutputActive() && nhtsa?.recallCampaigns && nhtsa.recallCampaigns > 0
         ? { nhtsaRecallCampaigns: nhtsa.recallCampaigns, nhtsaRecallNote: `NHTSA lists ${nhtsa.recallCampaigns} recall campaign${nhtsa.recallCampaigns === 1 ? "" : "s"} for this model year. This is not specific to this car and does not say whether any recall was repaired; check this VIN at nhtsa.gov/recalls.` }
         : {}),
@@ -1017,7 +1018,7 @@ const handler = createMcpHandler((server) => {
                       : "") +
                     (buyerCheck.nextSteps.length > 0 ? `\n  Next steps: ${buyerCheck.nextSteps.join(" ")}` : "")
                   : "";
-                return `Found the exact vehicle for VIN ${rawVin}:\n\n${formatVehicleTitle(id)} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${violationNote}${nhtsaTextLines(c)}\n   Link: ${primaryLinkStr}${buyerCheckText}${nhtsaTextFootnote([c])}`;
+                return `Found the exact vehicle for VIN ${rawVin}:\n\n${formatVehicleTitle(id)} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${violationNote}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${primaryLinkStr}${buyerCheckText}${nhtsaTextFootnote([c])}`;
               })();
 
         return {
@@ -2340,7 +2341,7 @@ const handler = createMcpHandler((server) => {
                 );
                 const confirmedLine = confirmedItems.length > 0 ? `\n   Confirmed: ${confirmedItems.join(", ")}` : "";
                 const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
-                return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}${nhtsaTextLines(c)}\n   Link: ${linkStr}`;
+                return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${linkStr}`;
               })
               .join("\n\n") + nhtsaTextFootnote(cards) + closingExitLine(cards);
 
@@ -2722,7 +2723,7 @@ const handler = createMcpHandler((server) => {
           const similar = `similar ${id.year ?? ""} ${id.make ?? ""} ${id.model ?? ""}`.replace(/\s+/g, " ").trim();
           const fallback = card.links.affiliateFallbackUrl ? ` · If that Edmunds listing is no longer available, see ${similar}: ${card.links.affiliateFallbackUrl}` : "";
           const link = card.links.affiliateUrl ? card.links.affiliateUrl + fallback : card.links.affiliateFallbackUrl ? `Similar options on Edmunds (${similar}): ${card.links.affiliateFallbackUrl}` : "no link available";
-          return `${i + 1}. ${formatVehicleTitle(id)} — VIN ${id.vin} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}${nhtsaTextLines(card)}\n   Link: ${link}`;
+          return `${i + 1}. ${formatVehicleTitle(id)} — VIN ${id.vin} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}${nhtsaTextLines(card)}${freshnessTextLine(card)}\n   Link: ${link}`;
         });
         const cards = usable.map((x) => x.card);
         const compareResults = shapeCardsForSource(cards);

@@ -15,6 +15,7 @@ export interface DbRow {
   doors: number | null; ext_color: string | null; int_color: string | null; dealer_id: number | null; state: string | null; zip: string | null;
   image_url: string | null; link_override: string | null; dealer_name: string | null; dealer_city: string | null; dealer_street: string | null;
   distance: number | null;
+  first_seen?: string | null; price_prev?: number | null; price_changed_at?: string | null; // tracking columns (absent until the loader has added them)
 }
 export interface DbSearchResult { rows: DbRow[]; total: number | null; localApplied: boolean }
 
@@ -47,9 +48,26 @@ class Params {
   add(v: unknown): string { this.values.push(v); return `$${this.values.length}`; }
 }
 
-const SELECT_COLS = `l.id, l.vin, l.year, l.make, l.model, l.trim, l.condition, l.price, l.odometer, l.body_raw, l.body_class, l.doors,
+const SELECT_COLS_BASE = `l.id, l.vin, l.year, l.make, l.model, l.trim, l.condition, l.price, l.odometer, l.body_raw, l.body_class, l.doors,
   l.ext_color, l.int_color, l.dealer_id, l.state, l.zip, l.image_url, l.link_override, d.name AS dealer_name, d.city AS dealer_city, d.street AS dealer_street`;
 const FROM = `FROM listing l LEFT JOIN dealer d ON d.id = l.dealer_id`;
+
+// Tracking columns (first seen, previous price, price-change date) are created by the loader. The app must work before AND after that
+// migration, so it checks once (and again every 5 minutes until they exist) instead of assuming. Dates are read as text (YYYY-MM-DD).
+const TRACK_COLS = `, l.first_seen::text AS first_seen, l.price_prev, l.price_changed_at::text AS price_changed_at`;
+let SELECT_COLS = SELECT_COLS_BASE;
+let trackingChecked = 0;
+let trackingPresent = false;
+async function ensureTrackingCols(db: Queryable): Promise<void> {
+  if (trackingPresent || Date.now() - trackingChecked < 300_000) return;
+  trackingChecked = Date.now();
+  try {
+    const r = await db.query(`SELECT 1 FROM information_schema.columns WHERE table_name = 'listing' AND column_name = 'first_seen' LIMIT 1`);
+    trackingPresent = r.rows.length > 0;
+  } catch { trackingPresent = false; }
+  SELECT_COLS = SELECT_COLS_BASE + (trackingPresent ? TRACK_COLS : "");
+}
+export function resetTrackingCheckForTests(): void { trackingChecked = 0; trackingPresent = false; SELECT_COLS = SELECT_COLS_BASE; }
 
 function haversine(p: Params, lat: number, lon: number): string {
   const a = p.add(lat), b = p.add(lon);
@@ -153,6 +171,7 @@ async function localSearch(db: Queryable, q: ListingsQuery, models: string[] | n
 export const MIN_COLOUR_MATCHES = 3;
 
 export async function searchRows(db: Queryable, q: ListingsQuery, models: string[] | null): Promise<DbSearchResult> {
+  await ensureTrackingCols(db);
   const origin = q.zip && /^\d{5}$/.test(q.zip) ? zipcodes.lookup(q.zip) : undefined;
   const radius = q.radius != null && q.radius > 0 ? Math.min(q.radius, MAX_RADIUS) : DEFAULT_RADIUS_MILES;
   if (colourRegex(q.exteriorColor) || colourRegex(q.interiorColor)) {
@@ -164,6 +183,7 @@ export async function searchRows(db: Queryable, q: ListingsQuery, models: string
 }
 
 export async function rowByVin(db: Queryable, vin: string): Promise<DbRow | null> {
+  await ensureTrackingCols(db);
   const r = await db.query(`SELECT ${SELECT_COLS}, NULL::float AS distance ${FROM} WHERE l.vin = $1 LIMIT 1`, [vin.toUpperCase()]);
   return (r.rows[0] as unknown as DbRow) ?? null;
 }

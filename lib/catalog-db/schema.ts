@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS listing (
   link_override text,
   loaded_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE listing ADD COLUMN IF NOT EXISTS first_seen date;
+ALTER TABLE listing ADD COLUMN IF NOT EXISTS price_prev integer;
+ALTER TABLE listing ADD COLUMN IF NOT EXISTS price_changed_at date;
 CREATE UNLOGGED TABLE IF NOT EXISTS listing_stage (
   id text, vin char(17), year smallint, make text, make_key text, model text, model_key text, trim text,
   condition char(1), price integer, odometer integer, body_raw text, body_class text, doors smallint,

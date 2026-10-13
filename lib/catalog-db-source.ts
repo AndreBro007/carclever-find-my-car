@@ -41,7 +41,13 @@ export function rowToListing(r: DbRow): AutoDevListing {
   const label = r.body_class ? BODY_LABEL[r.body_class as BodyClass] : "";
   return {
     vin: r.vin,
-    catalog: { itemId: r.id, trackingUrl: tracking, ...(r.distance != null ? { distanceMiles: Math.round(Number(r.distance)) } : {}) },
+    catalog: {
+      itemId: r.id, trackingUrl: tracking,
+      ...(r.distance != null ? { distanceMiles: Math.round(Number(r.distance)) } : {}),
+      ...(r.first_seen ? { firstSeen: String(r.first_seen).slice(0, 10) } : {}),
+      ...(r.price_prev != null ? { priceWas: Number(r.price_prev) } : {}),
+      ...(r.price_changed_at ? { priceChangedAt: String(r.price_changed_at).slice(0, 10) } : {}),
+    },
     vehicle: {
       year, make, model,
       trim: r.trim ?? undefined,
