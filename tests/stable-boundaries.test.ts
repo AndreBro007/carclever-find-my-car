@@ -742,8 +742,10 @@ test("D7b. every meta object literal in route.ts sets resultsShown from the same
   // VIN-success (V3.2), VIN-not-found (V3.3), and no-VIN (V3.3) paths.
   // This count must stay in lockstep with any future response-
   // construction site added to route.ts.
+  // Eighth site (V3, compare_vehicles success path, Oct 14 2026): its meta takes
+  // resultsShown from the same compareResults array it returns as results.
   const resultsShownMatches = routeSource.match(/resultsShown:\s*[^,]+,/g) ?? [];
-  assert.equal(resultsShownMatches.length, 7, `expected exactly 7 resultsShown assignments, found ${resultsShownMatches.length} — every meta object must set it`);
+  assert.equal(resultsShownMatches.length, 8, `expected exactly 8 resultsShown assignments, found ${resultsShownMatches.length} — every meta object must set it`);
 
   // The two empty-result error paths must use the literal 0, not a variable
   // that could silently drift from the actual (empty) results array.
@@ -755,7 +757,7 @@ test("D7b. every meta object literal in route.ts sets resultsShown from the same
   // paths) must derive resultsShown from a `.length` expression (ground
   // truth), never a hardcoded/copied number.
   const lengthDerivedAssignments = routeSource.match(/resultsShown:\s*\w+(\.\w+)*\.length,/g) ?? [];
-  assert.equal(lengthDerivedAssignments.length, 5, "all five success paths must derive resultsShown via .length, not a separate hardcoded number");
+  assert.equal(lengthDerivedAssignments.length, 6, "all six success paths (the five above plus compare_vehicles) must derive resultsShown via .length, not a separate hardcoded number");
 });
 
 // ============================================================================

@@ -3,9 +3,10 @@ import { z } from "zod";
 import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
 // spike/edmunds-catalog-mode: same four functions, now routed through the source facade
 // (Auto.dev unchanged unless mode/breaker selects the Edmunds catalogue).
-import { catalogOutputActive, shapeCardsForSource, shapeBuyerCheckForCatalog, nhtsaTextLines, nhtsaTextFootnote } from "@/lib/catalog-output";
+import { catalogOutputActive, shapeCardsForSource, shapeBuyerCheckForCatalog, nhtsaTextLines, nhtsaTextFootnote, catalogCheckVehicleDescription } from "@/lib/catalog-output";
 import { withNhtsaSpecs } from "@/lib/nhtsa-specs";
-import { notListedLinksText } from "@/lib/vin-not-listed";
+import { notListedLinksText, titleCaseMake } from "@/lib/vin-not-listed";
+import { buildComparison, comparisonText, type CompareItem } from "@/lib/compare";
 import { closingExitLine, zeroResultsExitLine, sortByScoreThenDistance } from "@/lib/dead-end-links";
 import { catalogDescription } from "@/lib/catalog-output";
 import { attachNhtsaRatings } from "@/lib/nhtsa-ratings";
@@ -2355,10 +2356,11 @@ const handler = createMcpHandler((server) => {
   server.registerTool(
     "check_vehicle",
     {
-      description:
-        "Answers 'is this a safe buy,' 'any red flags,' or 'what recalls does it have' for ONE specific, already-identified vehicle — a known VIN, or a complete make+model+year when no VIN is available. This is the preferred tool for known-vehicle risk/recall questions, including follow-ups after a find_matching_vehicle search (e.g. 'check option A', 'any recalls on the second one', 'is this Camry safe to buy'). Self-contained: requires either vin, or all three of make/model/year — never relies on a prior search's session state, so pass the actual VIN or make/model/year the user is referring to, not a reference like 'the second result'. Returns a Buyer Check (identity verification, accident/CPO history, next steps) when a VIN is supplied, plus recall status from NHTSA (make/model/year-level — not a VIN-specific remedy check, so 'status needs verification' is a normal, honest result, not an error). A recall lookup failure never blocks the rest of the response — Buyer Check and any other available information is still returned, with recall status reported as unavailable. Do NOT use this for a broad search ('find me a...', 'show me...') — use find_matching_vehicle for that; this tool is for one already-identified vehicle only.",
+      title: "Check Vehicle",
+      description: catalogCheckVehicleDescription(
+        "Answers 'is this a safe buy,' 'any red flags,' or 'what recalls does it have' for ONE specific, already-identified vehicle — a known VIN, or a complete make+model+year when no VIN is available. This is the preferred tool for known-vehicle risk/recall questions, including follow-ups after a find_matching_vehicle search (e.g. 'check option A', 'any recalls on the second one', 'is this Camry safe to buy'). Self-contained: requires either vin, or all three of make/model/year — never relies on a prior search's session state, so pass the actual VIN or make/model/year the user is referring to, not a reference like 'the second result'. Returns a Buyer Check (identity verification, accident/CPO history, next steps) when a VIN is supplied, plus recall status from NHTSA (make/model/year-level — not a VIN-specific remedy check, so 'status needs verification' is a normal, honest result, not an error). A recall lookup failure never blocks the rest of the response — Buyer Check and any other available information is still returned, with recall status reported as unavailable. Do NOT use this for a broad search ('find me a...', 'show me...') — use find_matching_vehicle for that; this tool is for one already-identified vehicle only."),
       inputSchema: {
-        vin: z.string().optional().describe("The vehicle's exact 17-character VIN. Preferred when available — enables the full Buyer Check (VIN identity verification, accident/CPO history) alongside recall status. If omitted, make, model, AND year must all be supplied instead."),
+        vin: z.string().optional().describe("The vehicle's exact 17-character VIN. Preferred when available — enables the full Buyer Check (VIN identity verification" + (catalogOutputActive() ? " and next steps" : ", accident/CPO history") + ") alongside recall status. If omitted, make, model, AND year must all be supplied instead."),
         make: z.string().optional().describe("Vehicle manufacturer, e.g. Toyota. Required together with model and year when vin is not supplied."),
         model: z.string().optional().describe("Vehicle model name, e.g. Camry — never include the manufacturer name here. Required together with make and year when vin is not supplied."),
         year: z.number().optional().describe("Model year. Required together with make and model when vin is not supplied."),
@@ -2407,6 +2409,7 @@ const handler = createMcpHandler((server) => {
             // inventing a listing or requiring live Edmunds search.
             const standaloneNhtsa = await decodeNhtsaElectrification(rawVin);
             const recallMake = standaloneNhtsa?.make ?? null;
+            const recallMakeDisplay = recallMake ? titleCaseMake(recallMake) : null; // NHTSA writes makes in capitals
             const recallModel = standaloneNhtsa?.model ?? null;
             const recallYear = standaloneNhtsa?.modelYear ? Number(standaloneNhtsa.modelYear) : null;
             const standaloneRecall: RecallInfo | null =
@@ -2414,7 +2417,7 @@ const handler = createMcpHandler((server) => {
 
             const identityCard = buildStandaloneIdentityCard({
               vin: rawVin,
-              make: recallMake,
+              make: recallMakeDisplay,
               model: recallModel,
               year: recallYear,
               trim: standaloneNhtsa?.trimOptions?.[0] ?? null,
@@ -2424,11 +2427,11 @@ const handler = createMcpHandler((server) => {
             const lines: string[] = [];
             lines.push(
               standaloneNhtsa
-                ? `${formatVehicleTitle({ year: recallYear, make: recallMake, model: recallModel, trim: identityCard.identity.trim })} — VIN ${rawVin}`
+                ? `${formatVehicleTitle({ year: recallYear, make: recallMakeDisplay, model: recallModel, trim: identityCard.identity.trim })} — VIN ${rawVin}`
                 : `VIN ${rawVin} — decode unavailable, identity below is unconfirmed.`,
             );
             lines.push("No listing found for this VIN in current inventory — this is an honest \"not currently listed here\" result, not a claim the vehicle doesn't exist.");
-            lines.push(`Recalls: ${standaloneRecall ? standaloneRecall.label : "Data unavailable"}`);
+            lines.push(standaloneRecall ? standaloneRecall.label : "Recalls: Data unavailable"); // the labels already start with "Recalls:"
             if (standaloneRecall && standaloneRecall.campaigns.length > 0) {
               lines.push(
                 `Recall details (NHTSA, ${standaloneRecall.count} total${standaloneRecall.severeCount ? `, ${standaloneRecall.severeCount} severity-flagged` : ""}): ` +
@@ -2439,10 +2442,10 @@ const handler = createMcpHandler((server) => {
               );
               lines.push(`NHTSA source: ${standaloneRecall.nhtsaSourceUrl}`);
             }
-            lines.push("No Buyer Check available — that requires a real listing (accident/ownership history) to verify against, which doesn't exist for this VIN here.");
+            lines.push(catalogOutputActive() ? "No Buyer Check available — that requires a listing to verify against, and none exists for this VIN here." : "No Buyer Check available — that requires a real listing (accident/ownership history) to verify against, which doesn't exist for this VIN here.");
             lines.push("Use \"Check avail.\" to look for this exact trim, or \"View similar\" for the broader make/model.");
 
-            const standaloneVinResults = [identityCard];
+            const standaloneVinResults = shapeCardsForSource([identityCard]);
             return {
               content: [{ type: "text" as const, text: lines.join("\n") }],
               structuredContent: {
@@ -2525,9 +2528,9 @@ const handler = createMcpHandler((server) => {
           // dataConflicts straight off the card buildResultCard() already
           // produced — same evidence, no second computation, matching the
           // existing find_matching_vehicle direct-VIN pattern exactly.
-          const buyerCheck = buildBuyerCheck(card, recall);
+          const buyerCheck = shapeBuyerCheckForCatalog(buildBuyerCheck(card, recall));
           const cardWithBuyerCheck = { ...card, buyerCheck };
-          const checkVehicleResults = [cardWithBuyerCheck];
+          const checkVehicleResults = shapeCardsForSource([cardWithBuyerCheck]);
 
           const outcomeLabel: Record<BuyerCheck["outcome"], string> = {
             promising: "Promising",
@@ -2538,8 +2541,9 @@ const handler = createMcpHandler((server) => {
 
           const lines: string[] = [];
           lines.push(`${formatVehicleTitle({ year: listing.vehicle?.year ?? null, make: listing.vehicle?.make ?? null, model: listing.vehicle?.model ?? null, trim: listing.vehicle?.trim ?? null })} — VIN ${listing.vin}`);
+          if (catalogOutputActive()) lines[0] += nhtsaTextLines(card); // database app: fuel, drive, engine and standard safety features under the title
           lines.push(`Buyer Check: ${outcomeLabel[buyerCheck.outcome]}`);
-          lines.push(`Recalls: ${recall ? recall.label : "Recalls: Data unavailable"}`);
+          lines.push(recall ? recall.label : "Recalls: Data unavailable");
           if (buyerCheck.goodSigns.length) lines.push(`Good signs: ${buyerCheck.goodSigns.join(" ")}`);
           if (buyerCheck.concerns.length) lines.push(`Concerns: ${buyerCheck.concerns.join(" ")}`);
           if (buyerCheck.needsVerification.length) lines.push(`Needs verification: ${buyerCheck.needsVerification.join(" ")}`);
@@ -2609,7 +2613,7 @@ const handler = createMcpHandler((server) => {
 
         const lines = [
           `${year} ${make} ${model} — no specific VIN was given, so this covers recall status only (not a full Buyer Check, which needs a VIN to verify vehicle identity and history).`,
-          `Recalls: ${recall.label}`,
+          recall.label,
         ];
         if (recall.campaigns.length > 0) {
           lines.push(
@@ -2623,7 +2627,7 @@ const handler = createMcpHandler((server) => {
         }
         lines.push("Use \"Check avail.\" to look for this exact trim, or \"View similar\" for the broader make/model.");
 
-        const noVinResults = [noVinCard];
+        const noVinResults = shapeCardsForSource([noVinCard]);
         return {
           content: [{ type: "text" as const, text: lines.join("\n") }],
           structuredContent: {
@@ -2654,6 +2658,94 @@ const handler = createMcpHandler((server) => {
             },
           ],
         };
+      }
+    },
+  );
+
+  server.registerTool(
+    "compare_vehicles",
+    {
+      title: "Compare Vehicles",
+      description:
+        "Compares 2 to 4 specific vehicles side by side (price, mileage, year, trim, fuel, drive, engine, NHTSA safety rating, recall campaign count and, with a ZIP code, distance) for vehicles already identified by VIN, for example after a find_matching_vehicle search: 'compare 1 and 3', 'which of these two is the better deal'. Self-contained: pass the actual VINs, never references like 'the second result'. Every vehicle that is in this inventory is shown with its own Edmunds link; VINs that are not in this inventory are listed as not found. The comparison states differences only: it does not rank vehicles or judge safety, and missing data is shown as unknown, never guessed. Do NOT use this for a broad search (use find_matching_vehicle) or for recalls and red flags on one vehicle (use check_vehicle).",
+      inputSchema: {
+        vins: z.array(z.string()).min(2).max(4).describe("2 to 4 different exact 17-character VINs to compare, for example the VINs of cars 1 and 3 from a search list. Pass the actual VINs, not references like 'the second result'."),
+        zip: z.string().optional().describe("Optional 5-digit ZIP code: adds each dealer's distance from it to the comparison."),
+      },
+      annotations: { title: "Compare Vehicles", readOnlyHint: true, openWorldHint: true, destructiveHint: false },
+      _meta: {
+        ui: { resourceUri: RESULTS_CARD_RESOURCE_URI },
+        "openai/outputTemplate": RESULTS_CARD_RESOURCE_URI,
+      },
+    },
+    async ({ vins, zip }) => {
+      const plain = (text: string) => ({ content: [{ type: "text" as const, text }] });
+      try {
+        const wanted = Array.from(new Set((vins ?? []).map((v) => String(v).trim().toUpperCase()).filter(Boolean)));
+        if (wanted.length < 2 || wanted.length > 4) return plain(`compare_vehicles needs 2 to 4 different VINs (received ${wanted.length}). To look at one vehicle use check_vehicle; to find vehicles use find_matching_vehicle.`);
+        const bad = wanted.filter((v) => !/^[A-HJ-NPR-Z0-9]{17}$/.test(v));
+        if (bad.length > 0) return plain(`These do not look like valid 17-character VINs (VINs never contain the letters I, O, or Q): ${bad.join(", ")} — double-check them and try again.`);
+
+        const fetched = await Promise.all(wanted.map((v) => getListingByVin(v)));
+        const found = fetched.filter((l): l is NonNullable<typeof l> => !!l);
+        const notFound = wanted.filter((_, i) => !fetched[i]);
+        if (found.length < 2) {
+          return plain(`Only ${found.length} of the ${wanted.length} VINs ${found.length === 1 ? "is" : "are"} in this inventory, so there is nothing to compare. Not found: ${notFound.join(", ")}. To look at one vehicle use check_vehicle; to find alternatives use find_matching_vehicle.`);
+        }
+
+        const decoded = await Promise.all(found.map((l) => decodeNhtsaElectrification(l.vin, l.vehicle?.make, l.vehicle?.model, l.vehicle?.cylinders)));
+        const rated = catalogOutputActive() ? await attachNhtsaRatings(decoded) : decoded; // database app: NHTSA rating and model-year recall count
+        const neutralIntent = parseIntent({});
+        const neutralInput: CardIntentInput = { droppedBodyStyleFilter: null };
+        const built = await Promise.all(found.map(async (l, i) => ({ l, card: await buildResultCard(l, neutralIntent, neutralInput, rated[i], undefined, new Set()) })));
+        const usable = built.filter((x): x is { l: typeof x.l; card: NonNullable<typeof x.card> } => x.card !== null);
+        if (usable.length < 2) return plain("Fewer than two of these vehicles have a usable listing link, so they cannot be compared here. Try find_matching_vehicle for alternatives.");
+
+        const fromZip = zip && /^\d{5}$/.test(zip.trim()) ? zip.trim() : null;
+        const items: CompareItem[] = usable.map(({ l, card }) => ({
+          vin: l.vin,
+          year: card.identity.year ?? null, make: card.identity.make ?? null, model: card.identity.model ?? null, trim: card.identity.trim ?? null,
+          price: card.listing.price ?? null, mileage: card.listing.mileage ?? null,
+          condition: card.condition.inventoryType === "new" || card.condition.inventoryType === "used" ? card.condition.inventoryType : null,
+          dealerZip: card.listing.zip ?? null,
+          fuel: card.detail.fuelTypeDisplay ?? null, drive: card.powertrain.drivetrain ?? null, engine: card.powertrain.engine ?? null,
+          rating: card.detail.nhtsaOverallRating ?? null, recallCampaigns: card.detail.nhtsaRecallCampaigns ?? null,
+        }));
+        const rows = buildComparison(items, fromZip);
+
+        const carLines = usable.map(({ card }, i) => {
+          const id = card.identity, l = card.listing;
+          const priceStr = l.price != null ? `$${l.price.toLocaleString()}` : "price unavailable";
+          const mileageStr = l.mileage != null ? `${l.mileage.toLocaleString()} mi` : "mileage unknown";
+          const dealerStr = l.dealer ? ` — ${l.dealer}${l.city ? `, ${l.city}` : ""}${l.state ? `, ${l.state}` : ""}` : "";
+          const conditionStr = card.condition.inventoryType === "new" ? "New" : card.condition.inventoryType === "used" ? "Used" : null;
+          const similar = `similar ${id.year ?? ""} ${id.make ?? ""} ${id.model ?? ""}`.replace(/\s+/g, " ").trim();
+          const fallback = card.links.affiliateFallbackUrl ? ` · If that Edmunds listing is no longer available, see ${similar}: ${card.links.affiliateFallbackUrl}` : "";
+          const link = card.links.affiliateUrl ? card.links.affiliateUrl + fallback : card.links.affiliateFallbackUrl ? `Similar options on Edmunds (${similar}): ${card.links.affiliateFallbackUrl}` : "no link available";
+          return `${i + 1}. ${formatVehicleTitle(id)} — VIN ${id.vin} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}${nhtsaTextLines(card)}\n   Link: ${link}`;
+        });
+        const cards = usable.map((x) => x.card);
+        const compareResults = shapeCardsForSource(cards);
+        const text =
+          `Comparing ${usable.length} vehicles from this inventory:\n\n${carLines.join("\n\n")}\n\n${comparisonText(rows)}` +
+          (notFound.length > 0 ? `\n\nNot found in this inventory (left out): ${notFound.join(", ")}.` : "") +
+          nhtsaTextFootnote(cards);
+
+        return {
+          content: [{ type: "text" as const, text }],
+          structuredContent: {
+            meta: {
+              totalCandidatesConsidered: compareResults.length, totalMatches: compareResults.length, resultsShown: compareResults.length,
+              corpusSizeApprox: getCorpusCountForDescription(), relaxations: [], dataNotes: [], scopeNote: "vin_lookup", serviceError: null,
+              interpretationNotes: [`compare_vehicles for ${usable.length} VINs: no search was run; differences are stated, not ranked.`], qualifierAccounting: [],
+            },
+            results: compareResults,
+            comparison: rows,
+            notFound,
+          },
+        };
+      } catch {
+        return plain("Something went wrong comparing these vehicles — please try again.");
       }
     },
   );

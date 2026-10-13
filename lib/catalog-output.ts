@@ -68,13 +68,14 @@ export const CATALOG_DESCRIPTION_EDITS: Array<[from: string, to: string]> = [
   ["Results include current matching listings, viewing links where available, and available evidence about confirmed, unconfirmed, or changed criteria.",
    "Results include current matching listings, viewing links where available, available evidence about confirmed, unconfirmed, or changed criteria, and, where available, NHTSA safety information for the model year (overall rating, recall campaign count, standard safety features)."],
 ];
+export const CATALOG_DESCRIPTION_APPENDIX = " To compare two or more specific vehicles from a list side by side, use compare_vehicles; for recalls and red flags on one vehicle, use check_vehicle.";
 export function catalogDescription(base: string): string {
   let d = base;
   for (const [from, to] of CATALOG_DESCRIPTION_EDITS) {
     if (!d.includes(from)) console.error("[catalog-output] description sentence not found, left unchanged:", from.slice(0, 60));
     d = d.replace(from, () => to);
   }
-  return d;
+  return d.trimEnd() + CATALOG_DESCRIPTION_APPENDIX;
 }
 
 /**
@@ -98,4 +99,23 @@ export function nhtsaTextLines(c: any, active: boolean = catalogOutputActive()):
 export function nhtsaTextFootnote(cards: any[], active: boolean = catalogOutputActive()): string {
   if (!active || !cards.some((c) => c?.detail?.nhtsaRecallCampaigns > 0)) return "";
   return "\n\nNote: recall counts are for the model year, not specific to a car, and do not say whether a recall was repaired; a buyer can check a VIN at nhtsa.gov/recalls.";
+}
+
+/**
+ * Database app, check_vehicle: the V3 tool description with the phrases written for Auto.dev replaced. This inventory carries no accident or
+ * certification history, and our result lists are numbered (not lettered). Everything else in the description is left exactly as it is.
+ */
+export const CHECK_VEHICLE_DESCRIPTION_EDITS: Array<[from: string, to: string]> = [
+  ["(e.g. 'check option A', 'any recalls on the second one', 'is this Camry safe to buy')", "(e.g. 'check number 2', 'any recalls on the second one', 'is this Camry safe to buy')"],
+  ["Returns a Buyer Check (identity verification, accident/CPO history, next steps) when a VIN is supplied,", "Returns a Buyer Check (identity verification and next steps; this inventory carries no accident or certification history) when a VIN is supplied,"],
+  ["this tool is for one already-identified vehicle only.", "this tool is for one already-identified vehicle only; to compare two or more vehicles side by side use compare_vehicles."],
+];
+export function catalogCheckVehicleDescription(base: string): string {
+  if (!catalogOutputActive()) return base;
+  let d = base;
+  for (const [from, to] of CHECK_VEHICLE_DESCRIPTION_EDITS) {
+    if (!d.includes(from)) console.error("[catalog-output] check_vehicle description sentence not found, left unchanged:", from.slice(0, 60));
+    d = d.replace(from, () => to);
+  }
+  return d;
 }

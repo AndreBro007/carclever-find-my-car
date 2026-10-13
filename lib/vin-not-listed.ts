@@ -2,8 +2,12 @@ import { decodeNhtsaElectrification } from "./nhtsa-client";
 import { resolveLinks } from "./link-resolution";
 import type { AutoDevListing } from "./auto-dev-client";
 
-/** "TOYOTA" -> "Toyota", "LAND ROVER" -> "Land Rover" */
-const cap = (s: string): string => s.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
+const ACRONYM_MAKES = new Set(["BMW", "GMC", "MG", "AMG"]);
+/** NHTSA writes makes in capitals: "TOYOTA" -> "Toyota", "LAND ROVER" -> "Land Rover", "MERCEDES-BENZ" -> "Mercedes-Benz"; acronyms stay ("BMW", "GMC"). */
+export function titleCaseMake(s: string): string {
+  return s.trim().split(/(\s+)/).map((w) => (ACRONYM_MAKES.has(w.toUpperCase()) ? w.toUpperCase() : w.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase()))).join("");
+}
+const cap = titleCaseMake;
 
 export interface NotListedDeps { decode?: typeof decodeNhtsaElectrification; resolve?: typeof resolveLinks; currentYear?: number }
 
