@@ -277,7 +277,7 @@ test("D2h. resolveLinks() Used vehicle -> checkAvailSource 'exact', Check avail.
 
   assert.equal(links.checkAvailSource, "exact");
   assert.ok(links.affiliateUrl!.startsWith(AFFILIATE_PREFIX));
-  const decoded = decodeURIComponent(links.affiliateUrl!.split("u=")[1]);
+  const decoded = decodeURIComponent(links.affiliateUrl!.split("u=")[1].split("&sharedid=")[0]);
   assert.ok(decoded.includes("1FTEW2KP9TKE60602"));
 });
 
@@ -294,7 +294,7 @@ test("D2i. resolveLinks() New vehicle (used: false) -> checkAvailSource 'close',
 
   assert.equal(links.checkAvailSource, "close");
   assert.ok(links.affiliateUrl!.startsWith(AFFILIATE_PREFIX));
-  const decoded = decodeURIComponent(links.affiliateUrl!.split("u=")[1]);
+  const decoded = decodeURIComponent(links.affiliateUrl!.split("u=")[1].split("&sharedid=")[0]);
   assert.ok(!decoded.includes("1FTEW2KP9TKE60602"), "New must never attempt the exact-VIN URL -- ~15-23% real hit rate doesn't justify presenting it");
   assert.ok(decoded.includes("new-ford-f-150-lariat-for-sale"), "should be the trim-specific new-vehicle category URL");
 });
@@ -319,7 +319,7 @@ test("D2j. resolveLinks() View similar: close (trim-specific) for Used, loose (b
   const newVehicle = resolveLinks(newListing as any);
   assert.equal(newVehicle.checkAvailSource, "close");
   assert.ok(!newVehicle.affiliateFallbackUrl!.includes("lariat"), "New: View similar must widen (drop trim) -- Check avail. is already the close tier, so View similar must be a genuinely broader alternative");
-  const decodedNew = decodeURIComponent(newVehicle.affiliateFallbackUrl!.split("u=")[1]);
+  const decodedNew = decodeURIComponent(newVehicle.affiliateFallbackUrl!.split("u=")[1].split("&sharedid=")[0]);
   assert.ok(decodedNew.includes("new-ford-f-150-for-sale"), "should fall to the bare make/model tier");
 
   const carvanaListing = {
@@ -341,7 +341,7 @@ test("D2k. resolveLinks() CPO listing: affiliateFallbackUrl always routes to the
     retailListing: { used: true, cpo: true, dealer: "Example Hyundai" },
   };
   const used = resolveLinks(cpoUsed as any);
-  const decodedUsed = decodeURIComponent(used.affiliateFallbackUrl!.split("u=")[1]);
+  const decodedUsed = decodeURIComponent(used.affiliateFallbackUrl!.split("u=")[1].split("&sharedid=")[0]);
   assert.equal(decodedUsed, "https://www.edmunds.com/used-certified-pre-owned-hyundai-kona/", "CPO must override the close-tier trim URL even on the Used branch");
 
   // Non-CPO listing must NOT be affected by this at all.
@@ -351,7 +351,7 @@ test("D2k. resolveLinks() CPO listing: affiliateFallbackUrl always routes to the
     retailListing: { used: true, dealer: "Example Honda" },
   };
   const plain = resolveLinks(nonCpo as any);
-  const decodedPlain = decodeURIComponent(plain.affiliateFallbackUrl!.split("u=")[1]);
+  const decodedPlain = decodeURIComponent(plain.affiliateFallbackUrl!.split("u=")[1].split("&sharedid=")[0]);
   assert.ok(!decodedPlain.includes("certified-pre-owned"), "non-CPO listings must keep the existing plain used-{make}-{model}-{trim} fallback, unaffected");
 });
 

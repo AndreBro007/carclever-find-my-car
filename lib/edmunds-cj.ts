@@ -176,5 +176,27 @@ export function buildEdmundsCategoryUrl(
  */
 export function wrapWithAffiliateNetwork(rawUrl: string): string {
   const encoded = encodeURIComponent(rawUrl);
-  return `${AFFILIATE_BASE_LINK}?u=${encoded}`;
+  return withSharedId(`${AFFILIATE_BASE_LINK}?u=${encoded}`);
+}
+
+/**
+ * Impact Shared ID for every link the MCP app produces (V3, André Oct 8: one generic tag for all MCP app links, separate from website
+ * tags; per-platform tags later). Impact accepts letters and numbers only (no hyphen, underscore or space), 255 characters at most.
+ */
+export const MCP_SHARED_ID = "mcpapp";
+
+/**
+ * Adds `sharedid=<tag>` to an edmunds.sjv.io URL. Idempotent (an existing sharedid is kept), leaves every other host untouched, and
+ * appends to the original text so the existing `u=` encoding is never re-serialised.
+ */
+export function withSharedId(url: string, tag: string = MCP_SHARED_ID): string {
+  if (!/^[A-Za-z0-9]{1,255}$/.test(tag)) throw new Error("Impact Shared ID must be letters and numbers only");
+  try {
+    const u = new URL(url);
+    if (u.protocol !== "https:" || u.host !== "edmunds.sjv.io") return url;
+  } catch {
+    return url;
+  }
+  if (/[?&]sharedid=/i.test(url)) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}sharedid=${tag}`;
 }

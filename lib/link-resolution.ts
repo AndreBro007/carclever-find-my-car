@@ -57,7 +57,7 @@
  * kind — this server does not call out to Edmunds, Google, or any search
  * vendor at request time.
  */
-import { buildEdmundsUrl, buildEdmundsCategoryUrl, wrapWithAffiliateNetwork } from "./edmunds-cj";
+import { buildEdmundsUrl, buildEdmundsCategoryUrl, wrapWithAffiliateNetwork, withSharedId } from "./edmunds-cj";
 import type { AutoDevListing } from "./auto-dev-client";
 
 export interface LinkResolution {
@@ -138,7 +138,7 @@ export function resolveLinks(listing: AutoDevListing): LinkResolution {
     try {
       const u = new URL(catalogUrl);
       if (u.protocol === "https:" && u.host === "edmunds.sjv.io") {
-        affiliateUrl = catalogUrl;
+        affiliateUrl = withSharedId(catalogUrl); // the feed's own item link, plus the MCP Shared ID (nothing else changed)
         checkAvailSource = "exact";
       }
     } catch {

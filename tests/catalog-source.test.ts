@@ -194,12 +194,12 @@ test("distance: nearest first, outside-radius dropped, dealers with unknown ZIP 
   assert.equal((await searchCatalogListings({ model: "CR-V", priceMax: 30000 })).localApplied, false);
 });
 
-test("links: catalogue tracking URL used exactly as supplied (not re-wrapped); VIN-less rows still get a link", () => {
+test("links: catalogue tracking URL used as supplied (not re-wrapped) plus only the MCP Shared ID; VIN-less rows still get a link", () => {
   const withVin = resolveLinks(normalizeCatalogItem(item())!);
-  assert.equal(withVin.affiliateUrl, TRACK); assert.equal(withVin.checkAvailSource, "exact");
+  assert.equal(withVin.affiliateUrl, TRACK + "&sharedid=mcpapp"); assert.ok(withVin.affiliateUrl!.startsWith(TRACK)); assert.equal(withVin.checkAvailSource, "exact");
   assert.ok(withVin.affiliateFallbackUrl);
   const noVin = resolveLinks(normalizeCatalogItem(item({ Mpn: "" }))!);
-  assert.equal(noVin.affiliateUrl, TRACK); assert.notEqual(noVin.linkStatus, "none-available");
+  assert.equal(noVin.affiliateUrl, TRACK + "&sharedid=mcpapp"); assert.notEqual(noVin.linkStatus, "none-available");
   const noTrack = resolveLinks(normalizeCatalogItem(item({ Mpn: "", Url: "" }))!);
   assert.equal(noTrack.affiliateUrl, null); assert.equal(noTrack.linkStatus, "fallback-only"); // silent degrade, still has a "similar" link
 });
