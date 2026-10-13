@@ -186,6 +186,12 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 .cc-risk.is-green{background:rgba(16,145,86,.95);border-color:rgba(9,110,64,.9);color:#f3fff9}
 .cc-risk.is-amber{background:rgba(245,158,11,.96);border-color:rgba(180,105,4,.9);color:#1a1204}
 .cc-risk.is-red{background:rgba(220,38,38,.95);border-color:rgba(165,26,26,.9);color:#fff6f6}
+/* NHTSA 5-star rating pill: one colour per level (5 green, 4 yellow, 3 amber, 2 or less red) */
+.cc-rate{border-radius:999px;border:1px solid rgba(255,255,255,.16);font-size:9.5px;line-height:1;padding:4px 7px;font-weight:700;color:#edf4fc;letter-spacing:.02em;white-space:nowrap}
+.cc-rate.is-green{background:rgba(16,145,86,.95);border-color:rgba(9,110,64,.9);color:#f3fff9}
+.cc-rate.is-yellow{background:rgba(234,196,18,.96);border-color:rgba(166,136,6,.9);color:#1a1604}
+.cc-rate.is-amber{background:rgba(245,158,11,.96);border-color:rgba(180,105,4,.9);color:#1a1204}
+.cc-rate.is-red{background:rgba(220,38,38,.95);border-color:rgba(165,26,26,.9);color:#fff6f6}
 /* "EXACT VIN" bottom-left image badge — same direct-VIN-lookup-only scope
    as .cc-risk above. */
 .cc-exact-vin{position:absolute;bottom:8px;left:8px;border-radius:6px;font-size:8.5px;line-height:1;padding:3px 6px;font-weight:700;background:rgba(8,18,31,.82);color:#edf4fc;border:1px solid rgba(255,255,255,.16);text-transform:uppercase;letter-spacing:.03em}
@@ -419,6 +425,10 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
       if (ordinaryRiskTier === "amber" || ordinaryRiskTier === "red") riskTier = ordinaryRiskTier;
     }
     var riskPill = riskTier ? '<span class="cc-risk is-' + riskTier + '">RISK</span>' : "";
+    var nhtsaStars = c.detail && c.detail.nhtsaOverallRating;
+    var ratePill = nhtsaStars >= 1 && nhtsaStars <= 5
+      ? '<span class="cc-rate is-' + (nhtsaStars >= 5 ? "green" : nhtsaStars === 4 ? "yellow" : nhtsaStars === 3 ? "amber" : "red") + '" title="NHTSA overall crash-test rating for this model year">\u2605' + nhtsaStars + " NHTSA</span>"
+      : "";
     var exactVinBadge = buyerCheck ? '<div class="cc-exact-vin">EXACT VIN</div>' : "";
     // CTA link/label (fix/affiliate-routing): the card's clickable CTA never
     // routes to links.dealerListingUrl — including Carvana. affiliateUrl
@@ -525,7 +535,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 
     return '<article class="cc-card">' +
       '<div class="cc-photo-wrap">' + photoBlock + exactVinBadge +
-        '<div class="cc-badges">' + (listingType ? '<span class="cc-type">' + esc(listingType) + "</span>" : "") + riskPill + "</div>" +
+        '<div class="cc-badges">' + (listingType ? '<span class="cc-type">' + esc(listingType) + "</span>" : "") + '<span style="display:flex;gap:6px">' + ratePill + riskPill + "</span></div>" +
       "</div>" +
       '<div class="cc-body">' +
         (primaryUrl

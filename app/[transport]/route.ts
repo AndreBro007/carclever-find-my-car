@@ -5,6 +5,7 @@ import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
 // (Auto.dev unchanged unless mode/breaker selects the Edmunds catalogue).
 import { catalogOutputActive, shapeCardsForSource, shapeBuyerCheckForCatalog } from "@/lib/catalog-output";
 import { withNhtsaSpecs } from "@/lib/nhtsa-specs";
+import { attachNhtsaRatings } from "@/lib/nhtsa-ratings";
 import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, activeSource } from "@/lib/listing-source";
 import { inferClassHint } from "@/lib/vehicle-class";
 // Widening ladder re-enabled 2026-08-16 (SYS-20260816-008). It was bypassed on
@@ -509,6 +510,7 @@ async function buildResultCard(
       titleStatus: rl?.titleStatus ?? null,
       fuelTypeDisplay: formatFuelTypeForDisplay(finalNormalizedFuel, v?.fuel),
       ...(catalogOutputActive() && nhtsa?.specs?.safetyTech?.length ? { standardSafetyTech: nhtsa.specs.safetyTech } : {}),
+      ...(catalogOutputActive() && nhtsa?.rating ? { nhtsaOverallRating: nhtsa.rating.overall } : {}),
     },
     badges,
   };
@@ -765,12 +767,13 @@ const handler = createMcpHandler((server) => {
             ? { ...fullListing, retailListing: { ...fullListing.retailListing, price: searchPrice } }
             : fullListing;
 
-        const nhtsaResult = await decodeNhtsaElectrification(
+        const nhtsaDecoded = await decodeNhtsaElectrification(
           resolvedListing.vin,
           resolvedListing.vehicle?.make,
           resolvedListing.vehicle?.model,
           resolvedListing.vehicle?.cylinders,
         );
+        const nhtsaResult = catalogOutputActive() ? (await attachNhtsaRatings([nhtsaDecoded]))[0] : nhtsaDecoded; // database mode: add the NHTSA 5-star rating
 
         const vinIntentInput: CardIntentInput = {
           exteriorColor: input.exteriorColor,
@@ -1582,7 +1585,8 @@ const handler = createMcpHandler((server) => {
       // this lookup, so a positional zip would silently misalign. Cards for
       // any VIN not in this map simply get `undefined`, same as before this
       // feature existed.
-      const nhtsaByVin = new Map(refetched.map((listing, i) => [listing.vin, nhtsaResults[i]]));
+      const ratedNhtsa = catalogOutputActive() ? await attachNhtsaRatings(nhtsaResults) : nhtsaResults; // database mode: add the NHTSA 5-star rating (cached, time-boxed, never blocks)
+      const nhtsaByVin = new Map(refetched.map((listing, i) => [listing.vin, ratedNhtsa[i]]));
 
       // Post-refetch re-verification (SYS-20260816-004): getListingByVin is a
       // separate, independent Auto.dev fetch and can return a price (or other

@@ -156,6 +156,8 @@ export function classifyElectrification(
 export interface NhtsaElectrificationResult {
   /** Drive type, transmission, engine, seats and standard safety tech from the same decode (lib/nhtsa-specs.ts). */
   specs?: NhtsaSpecs;
+  /** NHTSA 5-star overall rating for this model year (database mode; attached by lib/nhtsa-ratings.ts). */
+  rating?: { overall: 1 | 2 | 3 | 4 | 5 } | null;
   /** Canonical classification derived from the raw
    * fields below. Prefer this over hand-rolling ElectrificationLevel
    * string matching at call sites — see classifyElectrification(). */

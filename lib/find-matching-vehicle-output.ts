@@ -180,6 +180,8 @@ const DetailSchema = z.object({
   fuelTypeDisplay: z.string().optional(),
   // Database mode only: safety tech NHTSA lists as STANDARD for this VIN's model/trim configuration (not an inspection of the car).
   standardSafetyTech: z.array(z.string()).optional(),
+  // Database mode only: NHTSA 5-star overall crash-test rating (1-5) for this model year; absent when not rated or unknown.
+  nhtsaOverallRating: z.number().optional(),
 });
 
 const ConstraintCheckSchema = z.object({
