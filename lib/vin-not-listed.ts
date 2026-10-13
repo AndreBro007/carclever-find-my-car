@@ -9,9 +9,9 @@ export interface NotListedDeps { decode?: typeof decodeNhtsaElectrification; res
 
 /**
  * A VIN that is not in our listings is a dead end for the buyer (and for us). Decode it with NHTSA (free) to learn year, make and
- * model, then return the same Edmunds affiliate links the rest of the app uses: the exact-VIN page (Edmunds may carry cars our
- * partner feed does not) and a similar-vehicles page. Nothing is substituted: the first sentence of the reply still says the VIN
- * is not listed. Returns "" when the VIN cannot be decoded or no link can be built.
+ * model, then return the same Edmunds affiliate "similar vehicles" link the rest of the app uses (the "View similar" destination).
+ * Nothing is substituted: the first sentence of the reply still says the VIN is not listed. Returns "" when the VIN cannot be
+ * decoded or no similar-vehicles link can be built.
  */
 export async function notListedLinksText(vin: string, deps: NotListedDeps = {}): Promise<string> {
   const decode = deps.decode ?? decodeNhtsaElectrification;
@@ -28,7 +28,7 @@ export async function notListedLinksText(vin: string, deps: NotListedDeps = {}):
   const links = resolve(listing);
   const label = `${year} ${make} ${model}${trim ? " " + trim : ""}`;
   const lines: string[] = [];
-  if (links.affiliateUrl) lines.push(isNew ? `Check ${label} availability on Edmunds: ${links.affiliateUrl}` : `Check this exact VIN on Edmunds: ${links.affiliateUrl}`);
+  // Only the similar-vehicles link: an exact-VIN or availability link would imply the car exists, and for a VIN we do not list it often leads nowhere.
   if (links.affiliateFallbackUrl) lines.push(`Similar ${label} for sale on Edmunds: ${links.affiliateFallbackUrl}`);
   if (lines.length === 0) return "";
   return `\n\nThis VIN decodes to a ${label}.\n${lines.join("\n")}`;

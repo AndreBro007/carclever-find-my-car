@@ -101,7 +101,7 @@ export const FindMatchingVehicleInput = z.object({
  * notes stay as they are for the other apps. Only descriptions differ; the accepted fields and types are identical.
  */
 export const FindMatchingVehicleInputCatalog = FindMatchingVehicleInput.safeExtend({
-  vin: z.string().optional().describe("Exact 17-character VIN for one current listing. Other criteria are evaluated against that listing; if the VIN is not listed, links to the exact VIN and to similar vehicles on Edmunds are returned, but no different vehicle is substituted."),
+  vin: z.string().optional().describe("Exact 17-character VIN for one current listing. Other criteria are evaluated against that listing; if the VIN is not listed, a link to similar vehicles on Edmunds is returned, but no different vehicle is substituted."),
   exteriorColor: z.string().optional().describe("Requested exterior colour (for example white, black, gray, blue), matched against the dealer's colour name. If fewer than 3 cars match, colour only influences ranking."),
   interiorColor: z.string().optional().describe("Requested interior colour, matched against the dealer's colour name. If fewer than 3 cars match, colour only influences ranking."),
   cpo: z.boolean().optional().describe("Request for certified pre-owned status. This inventory carries no certification data, so results are reported as unconfirmed."),

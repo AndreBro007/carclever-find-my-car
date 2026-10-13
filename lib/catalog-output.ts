@@ -64,7 +64,7 @@ export const CATALOG_DESCRIPTION_EDITS: Array<[from: string, to: string]> = [
   ["Most direct criteria are matched against actual listing data; seating, certification, and history-related requests reflect available evidence, which may be confirmed, unconfirmed, or unreported rather than guaranteed.",
    "Make, model, price, year, mileage, location, body style, condition and color are matched against listing data. Drive type, transmission, engine, fuel type and seating come from the vehicle's VIN decode where available and may be unconfirmed; certification, ownership and accident-history requests cannot be matched from this inventory and are reported as unconfirmed rather than guaranteed."],
   ["An exact 17-character VIN refers to one specific listing; if unavailable, that outcome is reported rather than substituting a similar vehicle.",
-   "An exact 17-character VIN refers to one specific listing; if it is not listed, that outcome is reported with links to the exact VIN and to similar vehicles on Edmunds, rather than substituting a different vehicle."],
+   "An exact 17-character VIN refers to one specific listing; if it is not listed, that outcome is reported with a link to similar vehicles on Edmunds, rather than substituting a different vehicle."],
   ["Results include current matching listings, viewing links where available, and available evidence about confirmed, unconfirmed, or changed criteria.",
    "Results include current matching listings, viewing links where available, available evidence about confirmed, unconfirmed, or changed criteria, and, where available, NHTSA safety information for the model year (overall rating, recall campaign count, standard safety features)."],
 ];
