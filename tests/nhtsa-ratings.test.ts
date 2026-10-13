@@ -98,3 +98,28 @@ test("card pill: no rating -> no pill (unknown is not shown as bad)", async () =
   const doc = await renderCard(undefined);
   assert.equal(doc.querySelector(".cc-rate"), null);
 });
+
+// Real NHTSA response shapes, pasted by André on Oct 13, 2026 (2013 Acura RDX list + variant, 2020 Toyota RAV4 list).
+// The two RAV4 RATINGS below are SYNTHETIC (only their layout is real); the 2013 RDX variants really are "Not Rated".
+const realRdxList = { Count: 2, Message: "Results returned successfully", Results: [{ VehicleDescription: "2013 Acura RDX SUV 4WD", VehicleId: 7731 }, { VehicleDescription: "2013 Acura RDX SUV FWD", VehicleId: 7520 }] };
+const realVariant = (id: number, desc: string, overall: string) => ({ Count: 1, Message: "Results returned successfully", Results: [{
+  OverallRating: overall, OverallFrontCrashRating: "Not Rated", FrontCrashDriversideRating: "Not Rated", FrontCrashPassengersideRating: "Not Rated", OverallSideCrashRating: "Not Rated",
+  RolloverRating: "Not Rated", RolloverPossibility: 0.0, NHTSAElectronicStabilityControl: "Standard", NHTSAForwardCollisionWarning: "No", NHTSALaneDepartureWarning: "No",
+  ComplaintsCount: 162, RecallsCount: 3, InvestigationCount: 1, ModelYear: 2013, Make: "ACURA", Model: "RDX", VehicleDescription: desc, VehicleId: id }] });
+const realRavList = { Count: 2, Message: "Results returned successfully", Results: [{ VehicleDescription: "2020 Toyota RAV4 SUV FWD", VehicleId: 14726 }, { VehicleDescription: "2020 Toyota RAV4 SUV AWD", VehicleId: 14693 }] };
+
+test("real response shapes: a 'Not Rated' model year gives no label (2013 Acura RDX)", async () => {
+  const m = mockFetch((u) => u.includes("/modelyear/2013/make/ACURA/model/RDX") ? realRdxList : u.includes("VehicleId/7731") ? realVariant(7731, "2013 Acura RDX SUV 4WD", "Not Rated") : u.includes("VehicleId/7520") ? realVariant(7520, "2013 Acura RDX SUV FWD", "Not Rated") : null);
+  try {
+    assert.equal(await lookupOverallRating("2013", "ACURA", "RDX", "FWD"), null);
+    assert.equal(await lookupOverallRating("2013", "ACURA", "RDX", null), null);
+  } finally { one(m); }
+});
+test("real response shapes: 2020 RAV4 list (FWD and AWD variants) with the real field layout and string ratings", async () => {
+  const m = mockFetch((u) => u.includes("/modelyear/2020/make/TOYOTA/model/RAV4") ? realRavList : u.includes("VehicleId/14726") ? realVariant(14726, "2020 Toyota RAV4 SUV FWD", "5") : u.includes("VehicleId/14693") ? realVariant(14693, "2020 Toyota RAV4 SUV AWD", "4") : null);
+  try {
+    assert.deepEqual(await lookupOverallRating("2020", "TOYOTA", "RAV4", "FWD"), { overall: 5 });
+    assert.deepEqual(await lookupOverallRating("2020", "TOYOTA", "RAV4", "AWD"), { overall: 4 });
+    assert.equal(await lookupOverallRating("2020", "TOYOTA", "RAV4", null), null); // variants disagree, drive type unknown
+  } finally { one(m); }
+});
