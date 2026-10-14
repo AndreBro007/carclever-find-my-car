@@ -403,6 +403,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     var vinVerified = badges.indexOf("vin-verified") !== -1;
     var exteriorColor = c.detail && c.detail.exteriorColor;
     var carfaxUrl = c.detail && c.detail.carfaxUrl;
+    var nhtsaUrl = c.links && c.links.nhtsaRecallCheckUrl; // database app, used cars: NHTSA free VIN recall lookup (plain link)
     var photo = proxiedPhoto(media.cardImageUrl);
     // VIN Buyer Check UI (feature/vin-buyer-check): c.buyerCheck is present
     // ONLY on a direct-VIN-lookup result (see buildBuyerCheck() in
@@ -587,10 +588,11 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
           var extrasStr = extras.length ? " \\u00b7 " + extras.join(" \\u00b7 ") : "";
           return '<div class="cc-facts">' + (location ? esc(location) : "") + extrasStr + "</div>";
         })() +
-        (listing.dealer || carfaxUrl
+        (listing.dealer || carfaxUrl || nhtsaUrl
           ? '<div class="cc-dealer-row">' +
               (listing.dealer ? '<span class="cc-dealer">' + esc(listing.dealer) + "</span>" : "<span></span>") +
               (carfaxUrl ? '<button type="button" class="cc-carfax-link" data-url="' + esc(carfaxUrl) + '">Carfax report</button>' : "") +
+              (nhtsaUrl ? '<button type="button" class="cc-carfax-link" title="Free NHTSA lookup: does this car have an unrepaired recall?" data-url="' + esc(nhtsaUrl) + '">Recall check \\u2197</button>' : "") +
             "</div>"
           : "") +
         "" +

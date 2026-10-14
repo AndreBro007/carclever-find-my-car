@@ -109,6 +109,7 @@ export const CHECK_VEHICLE_DESCRIPTION_EDITS: Array<[from: string, to: string]> 
   ["(e.g. 'check option A', 'any recalls on the second one', 'is this Camry safe to buy')", "(e.g. 'check number 2', 'any recalls on the second one', 'is this Camry safe to buy')"],
   ["Returns a Buyer Check (identity verification, accident/CPO history, next steps) when a VIN is supplied,", "Returns a Buyer Check (identity verification and next steps; this inventory carries no accident or certification history) when a VIN is supplied,"],
   ["this tool is for one already-identified vehicle only.", "this tool is for one already-identified vehicle only; to compare two or more vehicles side by side use compare_vehicles."],
+  ["so 'status needs verification' is a normal, honest result, not an error).", "so 'status needs verification' is a normal, honest result, not an error). For a used car with a VIN the result also includes NHTSA's free VIN lookup link, which shows whether that specific car has an unrepaired recall."],
 ];
 export function catalogCheckVehicleDescription(base: string): string {
   if (!catalogOutputActive()) return base;

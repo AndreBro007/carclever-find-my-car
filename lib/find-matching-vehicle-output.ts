@@ -151,6 +151,7 @@ const RankingSchema = z.object({
 });
 
 const LinksSchema = z.object({
+  nhtsaRecallCheckUrl: z.string().optional(), // database app, used cars: NHTSA's free VIN recall lookup (plain link, not an affiliate link)
   affiliateUrl: z.string().nullable(),
   affiliateFallbackUrl: z.string().nullable(),
   dealerListingUrl: z.string().nullable(),

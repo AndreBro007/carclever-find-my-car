@@ -35,7 +35,8 @@ import { applyKnownHybridOverride, formatFuelTypeForDisplay } from "@/lib/fuel-t
 import { decodeNhtsaElectrification, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, type ElectrificationState, ELECTRIFICATION_POOL_SIZE, prioritizeElectrificationCandidates, electrificationStateSatisfies } from "@/lib/nhtsa-client";
 import { isAnomalousPrice, buildCpoSummary, buildHistorySummary, applyLocalBestForBudgetOrdering, applyLocalLowerRiskOrdering } from "@/lib/local-ranking";
 import { FindMatchingVehicleInput, FindMatchingVehicleInputCatalog } from "@/lib/find-matching-vehicle-input";
-import { fetchRecallStatus, type RecallInfo } from "@/lib/nhtsa-recalls-client";
+import { fetchRecallStatus, clipRecallText, type RecallInfo } from "@/lib/nhtsa-recalls-client";
+import { nhtsaLinkField, nhtsaRecallCheckUrl, recallCheckFootnote, recallCheckLine, addRecallCheckStep } from "@/lib/nhtsa-links";
 
 import { getCorpusCountForDescription, initCorpusCount } from "@/lib/corpus-count";
 import { CAPABILITIES } from "@/lib/capabilities";
@@ -493,6 +494,7 @@ async function buildResultCard(
       dealerListingUrl: links.dealerListingUrl,
       isCarvana: links.isCarvana,
       linkStatus: links.linkStatus,
+      ...nhtsaLinkField(listing.vin, rl?.used === true), // database app, used cars only: NHTSA's free VIN recall lookup (plain link)
       // Added 2026-09-03 (SYS-20260903-006) — was missing here the same way
       // it was briefly missing from ResolveDealerUrlOutput (SYS-20260903-005);
       // this is the OTHER place LinkResolution gets narrowed to a card-local
@@ -1018,7 +1020,7 @@ const handler = createMcpHandler((server) => {
                       : "") +
                     (buyerCheck.nextSteps.length > 0 ? `\n  Next steps: ${buyerCheck.nextSteps.join(" ")}` : "")
                   : "";
-                return `Found the exact vehicle for VIN ${rawVin}:\n\n${formatVehicleTitle(id)} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${violationNote}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${primaryLinkStr}${buyerCheckText}${nhtsaTextFootnote([c])}`;
+                return `Found the exact vehicle for VIN ${rawVin}:\n\n${formatVehicleTitle(id)} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${violationNote}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${primaryLinkStr}${buyerCheckText}${nhtsaTextFootnote([c])}${recallCheckLine(c)}`;
               })();
 
         return {
@@ -2343,7 +2345,7 @@ const handler = createMcpHandler((server) => {
                 const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
                 return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${linkStr}`;
               })
-              .join("\n\n") + nhtsaTextFootnote(cards) + closingExitLine(cards);
+              .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards);
 
       return {
         content: [{ type: "text" as const, text: summary }],
@@ -2438,11 +2440,12 @@ const handler = createMcpHandler((server) => {
                 `Recall details (NHTSA, ${standaloneRecall.count} total${standaloneRecall.severeCount ? `, ${standaloneRecall.severeCount} severity-flagged` : ""}): ` +
                   standaloneRecall.campaigns
                     .slice(0, 3)
-                    .map((c) => `${c.campaignNumber ?? "unknown campaign"} — ${c.component ?? "component unspecified"}: ${c.summary ?? "no summary available"}${c.remedy ? ` Remedy: ${c.remedy}` : ""}`)
+                    .map((c) => `${c.campaignNumber ?? "unknown campaign"} — ${c.component ?? "component unspecified"}: ${clipRecallText(c.summary, 240) ?? "no summary available"}${c.remedy ? ` Remedy: ${clipRecallText(c.remedy, 160)}` : ""}`)
                     .join(" | "),
               );
               lines.push(`NHTSA source: ${standaloneRecall.nhtsaSourceUrl}`);
             }
+            if (catalogOutputActive() && nhtsaRecallCheckUrl(rawVin)) lines.push(`Open recalls on this exact VIN: check it with NHTSA's free lookup, ${nhtsaRecallCheckUrl(rawVin)}. ${"NHTSA's lookup covers participating manufacturers and does not show recalls that were already repaired"}.`);
             lines.push(catalogOutputActive() ? "No Buyer Check available — that requires a listing to verify against, and none exists for this VIN here." : "No Buyer Check available — that requires a real listing (accident/ownership history) to verify against, which doesn't exist for this VIN here.");
             lines.push("Use \"Check avail.\" to look for this exact trim, or \"View similar\" for the broader make/model.");
 
@@ -2529,7 +2532,7 @@ const handler = createMcpHandler((server) => {
           // dataConflicts straight off the card buildResultCard() already
           // produced — same evidence, no second computation, matching the
           // existing find_matching_vehicle direct-VIN pattern exactly.
-          const buyerCheck = shapeBuyerCheckForCatalog(buildBuyerCheck(card, recall));
+          const buyerCheck = addRecallCheckStep(shapeBuyerCheckForCatalog(buildBuyerCheck(card, recall)), card);
           const cardWithBuyerCheck = { ...card, buyerCheck };
           const checkVehicleResults = shapeCardsForSource([cardWithBuyerCheck]);
 
@@ -2553,7 +2556,7 @@ const handler = createMcpHandler((server) => {
               `Recall details (NHTSA, ${recall.count} total${recall.severeCount ? `, ${recall.severeCount} severity-flagged` : ""}): ` +
                 recall.campaigns
                   .slice(0, 3)
-                  .map((c) => `${c.campaignNumber ?? "unknown campaign"} — ${c.component ?? "component unspecified"}: ${c.summary ?? "no summary available"}${c.remedy ? ` Remedy: ${c.remedy}` : ""}`)
+                  .map((c) => `${c.campaignNumber ?? "unknown campaign"} — ${c.component ?? "component unspecified"}: ${clipRecallText(c.summary, 240) ?? "no summary available"}${c.remedy ? ` Remedy: ${clipRecallText(c.remedy, 160)}` : ""}`)
                   .join(" | "),
             );
             lines.push(`NHTSA source: ${recall.nhtsaSourceUrl}`);
@@ -2621,7 +2624,7 @@ const handler = createMcpHandler((server) => {
             `Recall details (NHTSA, ${recall.count} total${recall.severeCount ? `, ${recall.severeCount} severity-flagged` : ""}): ` +
               recall.campaigns
                 .slice(0, 3)
-                .map((c) => `${c.campaignNumber ?? "unknown campaign"} — ${c.component ?? "component unspecified"}: ${c.summary ?? "no summary available"}${c.remedy ? ` Remedy: ${c.remedy}` : ""}`)
+                .map((c) => `${c.campaignNumber ?? "unknown campaign"} — ${c.component ?? "component unspecified"}: ${clipRecallText(c.summary, 240) ?? "no summary available"}${c.remedy ? ` Remedy: ${clipRecallText(c.remedy, 160)}` : ""}`)
                 .join(" | "),
           );
           lines.push(`NHTSA source: ${recall.nhtsaSourceUrl}`);
@@ -2730,7 +2733,7 @@ const handler = createMcpHandler((server) => {
         const text =
           `Comparing ${usable.length} vehicles from this inventory:\n\n${carLines.join("\n\n")}\n\n${comparisonText(rows)}` +
           (notFound.length > 0 ? `\n\nNot found in this inventory (left out): ${notFound.join(", ")}.` : "") +
-          nhtsaTextFootnote(cards);
+          nhtsaTextFootnote(cards) + recallCheckFootnote(cards);
 
         return {
           content: [{ type: "text" as const, text }],

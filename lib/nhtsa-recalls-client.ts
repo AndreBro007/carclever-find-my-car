@@ -195,3 +195,12 @@ export async function fetchRecallStatusForShortlist(
   entries.forEach(([key], i) => map.set(key, results[i]));
   return map;
 }
+
+/** Real NHTSA summaries run to several hundred characters (often long lists of models); keep the reply readable. Cuts at a word boundary. */
+export function clipRecallText(s: string | null | undefined, max = 240): string | null {
+  if (s == null) return null;
+  const t = String(s).replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max), i = cut.lastIndexOf(" ");
+  return (i > max * 0.6 ? cut.slice(0, i) : cut).replace(/[ ,;:.]+$/, "") + "…";
+}

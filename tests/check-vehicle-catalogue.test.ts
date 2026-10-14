@@ -26,7 +26,7 @@ test("description variant: the two Auto.dev-era phrases are replaced, nothing el
 });
 test("VIN note and result shaping are wired for database mode", () => {
   assert.match(block, /catalogOutputActive\(\) \? " and next steps" : ", accident\/CPO history"/);
-  assert.match(src, /const buyerCheck = shapeBuyerCheckForCatalog\(buildBuyerCheck\(card, recall\)\)/);
+  assert.match(src, /const buyerCheck = addRecallCheckStep\(shapeBuyerCheckForCatalog\(buildBuyerCheck\(card, recall\)\), card\)/);
   assert.match(src, /const checkVehicleResults = shapeCardsForSource\(\[cardWithBuyerCheck\]\)/);
   assert.match(src, /shapeCardsForSource\(\[identityCard\]\)/); assert.match(src, /shapeCardsForSource\(\[noVinCard\]\)/);
 });
