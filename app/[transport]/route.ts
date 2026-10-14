@@ -2554,7 +2554,11 @@ const handler = createMcpHandler((server) => {
             if (listingUrl) lines.push(`Listing: see the full details, photos and dealer contact on Edmunds: ${listingUrl}`);
           }
           lines.push(`Buyer Check: ${outcomeLabel[buyerCheck.outcome]}`);
-          lines.push(recall ? recall.label : "Recalls: Data unavailable");
+          // Catalogue: when the status needs checking, point the buyer to the dealer and the Edmunds listing instead.
+          const recallLine = recall
+            ? (catalogOutputActive() && /verify status/i.test(recall.label) ? "Recalls: confirm with the dealer" : recall.label)
+            : (catalogOutputActive() ? "Recalls: confirm with the dealer" : "Recalls: Data unavailable");
+          lines.push(recallLine);
           if (buyerCheck.goodSigns.length) lines.push(`Good signs: ${buyerCheck.goodSigns.join(" ")}`);
           if (catalogOutputActive() && nhtsaResult) {
             // Model and trim from the NHTSA VIN decode (the listing title already shows them; this confirms them).
