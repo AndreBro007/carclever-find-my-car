@@ -2549,12 +2549,16 @@ const handler = createMcpHandler((server) => {
           const lines: string[] = [];
           lines.push(`${formatVehicleTitle({ year: listing.vehicle?.year ?? null, make: listing.vehicle?.make ?? null, model: listing.vehicle?.model ?? null, trim: listing.vehicle?.trim ?? null })} — VIN ${listing.vin}`);
           if (catalogOutputActive()) lines[0] += nhtsaTextLines(card); // database app: fuel, drive, engine and standard safety features under the title
+          if (catalogOutputActive()) {
+            const listingUrl = card.links?.affiliateUrl ?? card.links?.affiliateFallbackUrl ?? null;
+            if (listingUrl) lines.push(`Listing: see the full details, photos and dealer contact on Edmunds: ${listingUrl}`);
+          }
           lines.push(`Buyer Check: ${outcomeLabel[buyerCheck.outcome]}`);
           lines.push(recall ? recall.label : "Recalls: Data unavailable");
           if (buyerCheck.goodSigns.length) lines.push(`Good signs: ${buyerCheck.goodSigns.join(" ")}`);
           if (buyerCheck.concerns.length) lines.push(`Concerns: ${buyerCheck.concerns.join(" ")}`);
           if (buyerCheck.needsVerification.length) lines.push(`Needs verification: ${buyerCheck.needsVerification.join(" ")}`);
-          if (recall && recall.campaigns.length > 0) {
+          if (recall && recall.campaigns.length > 0 && !catalogOutputActive()) {
             lines.push(
               `Recall details (NHTSA, ${recall.count} total${recall.severeCount ? `, ${recall.severeCount} severity-flagged` : ""}): ` +
                 recall.campaigns
@@ -2564,7 +2568,13 @@ const handler = createMcpHandler((server) => {
             );
             lines.push(`NHTSA source: ${recall.nhtsaSourceUrl}`);
           }
-          lines.push(`Next steps: ${buyerCheck.nextSteps.join(" ")}`);
+          if (catalogOutputActive()) {
+            lines.push("Accident and ownership history: not in our data. Check the Edmunds listing.");
+            lines.push(`Check this VIN for open recalls: https://www.nhtsa.gov/recalls?vymm=${listing.vin}`);
+            lines.push("Next steps: 1) Open the Edmunds listing to confirm price, photos and dealer details. 2) Ask the dealer to confirm any recall repair and show a vehicle history report, then get an independent inspection before buying.");
+          } else {
+            lines.push(`Next steps: ${buyerCheck.nextSteps.join(" ")}`);
+          }
 
           return {
             content: [{ type: "text" as const, text: lines.join("\n") }],
