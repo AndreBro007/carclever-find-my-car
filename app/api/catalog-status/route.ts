@@ -28,9 +28,17 @@ export async function GET() {
     try {
       searchLog = (await db.query("SELECT count(*)::int AS searches, max(day)::text AS last_day FROM search_log")).rows[0];
     } catch { /* table is created by the first logged search */ }
+    let searchByDay: unknown = [];
+    let topSearches: unknown = [];
+    try {
+      searchByDay = (await db.query("SELECT day::text AS day, count(*)::int AS searches, count(*) FILTER (WHERE found = 0)::int AS no_results FROM search_log GROUP BY day ORDER BY day DESC LIMIT 7")).rows;
+      topSearches = (await db.query("SELECT make, model, count(*)::int AS searches FROM search_log WHERE day >= current_date - 7 GROUP BY make, model ORDER BY searches DESC LIMIT 10")).rows;
+    } catch { /* table is created by the first logged search */ }
     return NextResponse.json({
       configured: true,
       search_log: searchLog,
+      search_by_day: searchByDay,
+      top_searches_last_7_days: topSearches,
       ...totals.rows[0],
       first_seen_by_day: seenByDay.rows,
       price_changes_by_day: changedByDay.rows,
