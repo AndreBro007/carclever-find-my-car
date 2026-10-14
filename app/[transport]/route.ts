@@ -4,7 +4,7 @@ import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
 // spike/edmunds-catalog-mode: same four functions, now routed through the source facade
 // (Auto.dev unchanged unless mode/breaker selects the Edmunds catalogue).
 import { catalogOutputActive, shapeCardsForSource, shapeBuyerCheckForCatalog, nhtsaTextLines, nhtsaTextFootnote, catalogCheckVehicleDescription, freshnessSignals, freshnessTextLine } from "@/lib/catalog-output";
-import { withNhtsaSpecs } from "@/lib/nhtsa-specs";
+import { withNhtsaSpecs, modelsAgree } from "@/lib/nhtsa-specs";
 import { notListedLinksText, titleCaseMake } from "@/lib/vin-not-listed";
 import { buildComparison, comparisonText, type CompareItem } from "@/lib/compare";
 import { closingExitLine, zeroResultsExitLine, sortByScoreThenDistance } from "@/lib/dead-end-links";
@@ -2541,7 +2541,7 @@ const handler = createMcpHandler((server) => {
 
           const outcomeLabel: Record<BuyerCheck["outcome"], string> = {
             promising: "Promising",
-            verify_before_proceeding: "Verify before proceeding",
+            verify_before_proceeding: catalogOutputActive() ? "Confirm with the dealer" : "Verify before proceeding",
             caution: "Caution",
             significant_concern: "Significant concern",
           };
@@ -2556,6 +2556,16 @@ const handler = createMcpHandler((server) => {
           lines.push(`Buyer Check: ${outcomeLabel[buyerCheck.outcome]}`);
           lines.push(recall ? recall.label : "Recalls: Data unavailable");
           if (buyerCheck.goodSigns.length) lines.push(`Good signs: ${buyerCheck.goodSigns.join(" ")}`);
+          if (catalogOutputActive() && nhtsaResult) {
+            // Model and trim from the NHTSA VIN decode (the listing title already shows them; this confirms them).
+            const listingModel = listing.vehicle?.model ?? null;
+            const listingTrim = listing.vehicle?.trim ?? null;
+            const modelMatch = !!(nhtsaResult.model && listingModel && modelsAgree(listingModel, nhtsaResult.model, listing.vehicle?.make));
+            const trimMatch = !!(listingTrim && (nhtsaResult.trimOptions ?? []).some((t) => t.trim().toLowerCase() === listingTrim.trim().toLowerCase()));
+            if (modelMatch && trimMatch) lines.push(`Model and trim confirmed by the NHTSA VIN decode (${nhtsaResult.model}, ${listingTrim}).`);
+            else if (modelMatch) lines.push(`Model confirmed by the NHTSA VIN decode (${nhtsaResult.model}). Confirm the trim on the Edmunds listing.`);
+            else lines.push("Confirm the model and trim on the Edmunds listing.");
+          }
           if (buyerCheck.concerns.length) lines.push(`Concerns: ${buyerCheck.concerns.join(" ")}`);
           if (buyerCheck.needsVerification.length) lines.push(`Needs verification: ${buyerCheck.needsVerification.join(" ")}`);
           if (recall && recall.campaigns.length > 0 && !catalogOutputActive()) {
@@ -2569,9 +2579,9 @@ const handler = createMcpHandler((server) => {
             lines.push(`NHTSA source: ${recall.nhtsaSourceUrl}`);
           }
           if (catalogOutputActive()) {
-            lines.push("Accident and ownership history: not in our data. Check the Edmunds listing.");
+            lines.push("Full vehicle history: see the Edmunds listing, and confirm it with the dealer.");
             lines.push(`Check this VIN for open recalls: https://www.nhtsa.gov/recalls?vymm=${listing.vin}`);
-            lines.push("Next steps: 1) Open the Edmunds listing to confirm price, photos and dealer details. 2) Ask the dealer to confirm any recall repair and show a vehicle history report, then get an independent inspection before buying.");
+            lines.push("Next steps: 1) Open the Edmunds listing for photos, price and dealer details. 2) Contact the dealer to confirm the recall status, ask for a vehicle history report and arrange an inspection.");
           } else {
             lines.push(`Next steps: ${buyerCheck.nextSteps.join(" ")}`);
           }

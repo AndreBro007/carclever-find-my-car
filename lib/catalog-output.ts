@@ -47,7 +47,7 @@ type BuyerCheckLike = { goodSigns: string[]; concerns: string[]; needsVerificati
 export function shapeBuyerCheckForCatalog<T extends BuyerCheckLike>(bc: T): T {
   if (!catalogOutputActive()) return bc;
   // Catalogue: the feed has no certification or history data, and the listing page on Edmunds is the place to check them.
-  const CATALOG_DROP = /Certified Pre-Owned|\bCPO\b|certif|history|Carfax|accident|cannot be confirmed from the VIN alone/i;
+  const CATALOG_DROP = /Certified Pre-Owned|\bCPO\b|certif|history|Carfax|accident|cannot be confirmed from the VIN alone|Recall reported|model\/year-level/i;
   const keep = (a: string[]) => a.filter((x) => !MISSING_DATA_LINE.test(x) && !CATALOG_DROP.test(x));
   // The next-steps advice stays, but without the Carfax brand name (this app has no Carfax data or link).
   const nextSteps = bc.nextSteps.map((x) => x.replace(/\bCarfax\b/gi, "a vehicle history report"));
