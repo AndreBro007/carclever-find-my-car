@@ -26,6 +26,9 @@ function getPool(): Pool {
   }
   return pool;
 }
+/** Shared pool for the search log and status page (server-side only). */
+export function getCatalogPool(): Pool { return getPool(); }
+
 /** Tests inject their own pool. */
 export function setCatalogDbPoolForTests(p: Pool | null): void { pool = p; }
 

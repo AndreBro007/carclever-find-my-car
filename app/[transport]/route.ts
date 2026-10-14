@@ -20,6 +20,8 @@ import { inferClassHint } from "@/lib/vehicle-class";
 // than the old call — see lib/loosening-ladder.ts header for exactly why.
 import { widenSearchIfThin, type StepName } from "@/lib/loosening-ladder";
 import { isConfirmedOutsideRadius } from "@/lib/geo-verification";
+import { seatUnknownFootnote } from "@/lib/seat-note";
+import { logSearchEvent } from "@/lib/search-log";
 import { verifyAgainstConstraints } from "@/lib/post-verify";
 import { parseIntent } from "@/lib/intent-parser";
 import { applyDiversity } from "@/lib/diversity";
@@ -2159,6 +2161,7 @@ const handler = createMcpHandler((server) => {
         dataNotes.push(`No specific ZIP or city was given, so this search covers all of ${baseQuery.state} rather than a specific area.`);
       }
 
+      void logSearchEvent({ make: input.make, model: input.model, priceMax: input.priceMax, state: input.state, found: typeof total === "number" ? total : cards.length, shown: cards.length }).catch(() => undefined);
       const response = {
         meta: {
           totalCandidatesConsidered: candidates.length,
@@ -2339,13 +2342,13 @@ const handler = createMcpHandler((server) => {
                 // that). Skip the history note here if it's already shown
                 // via historyLine above, so it isn't repeated twice.
                 const confirmedItems = c.intentConfirmations.filter(
-                  (x) => !(c.history.state === "known_issues" && x === c.history.note),
+                  (x) => !(c.history.state === "known_issues" && x === c.history.note) && !x.startsWith("Seating capacity not reported"),
                 );
                 const confirmedLine = confirmedItems.length > 0 ? `\n   Confirmed: ${confirmedItems.join(", ")}` : "";
                 const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
                 return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${linkStr}`;
               })
-              .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards);
+              .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards) + seatUnknownFootnote(cards);
 
       return {
         content: [{ type: "text" as const, text: summary }],

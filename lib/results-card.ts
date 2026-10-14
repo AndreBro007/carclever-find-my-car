@@ -251,7 +251,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
    divider color follows the SAME scheme, staying visible-but-subtle
    against whichever button color is actually showing. Still 1px. */
 .cc-cta-right{border-left:1px solid light-dark(rgba(255,255,255,.22),rgba(0,0,0,.18))}
-.cc-footer{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 14px 0;color:var(--cc-subtle);font-size:10.5px;line-height:1.3}
+.cc-footer{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;padding:8px 14px 0;color:var(--cc-subtle);font-size:10.5px;line-height:1.3}
 .cc-footer-right{text-align:right}
 .cc-loading{padding:20px 14px;font-size:12px;color:var(--cc-subtle)}
 .cc-loading-stage{padding:2px 14px 0;font-size:10px;color:#4c5f79}
@@ -635,7 +635,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
       // only ever reflected the first visible card) is redundant. Footer
       // is back to two items: swipe hint + affiliate disclosure.
       '<footer class="cc-footer">' +
-        "<span>Swipe \\u2192</span>" +
+        "<span>Swipe \\u2192</span>" + (hasAffiliate ? \'<span class="cc-footer-more">More: View similar \\u2197</span>\' : "") +
         '<span class="cc-footer-right">' + (hasAffiliate ? "Edmunds affiliate links" : "Current dealer listings") + "</span>" +
       "</footer>" +
       "</section>";
