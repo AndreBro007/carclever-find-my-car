@@ -24,8 +24,13 @@ export async function GET() {
     const changedByDay = await db.query(`
       SELECT price_changed_at::text AS day, count(*)::int AS cars FROM listing
       WHERE price_changed_at IS NOT NULL GROUP BY price_changed_at ORDER BY price_changed_at DESC LIMIT 7`);
+    let searchLog: unknown = "table not created yet (no search logged since switch-on)";
+    try {
+      searchLog = (await db.query("SELECT count(*)::int AS searches, max(day)::text AS last_day FROM search_log")).rows[0];
+    } catch { /* table is created by the first logged search */ }
     return NextResponse.json({
       configured: true,
+      search_log: searchLog,
       ...totals.rows[0],
       first_seen_by_day: seenByDay.rows,
       price_changes_by_day: changedByDay.rows,
