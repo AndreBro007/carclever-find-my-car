@@ -1,11 +1,11 @@
 import { getCatalogPool } from "./catalog-db-source";
 
 /**
- * Privacy-safe search log. OFF until André switches it on (recorded decision: default off).
+ * Privacy-safe search log. ON in test mode (André, Oct 15, 2026: switched on to test; production still to decide).
  * Stores only: day, make, model, price ceiling band, state, and how many cars were found and shown.
  * Never stores ZIP codes, names, IP addresses or VINs.
  */
-export const SEARCH_LOG_ENABLED = false;
+export const SEARCH_LOG_ENABLED = true;
 
 export function priceBand(p: number | null | undefined): string | null {
   if (p == null || !Number.isFinite(p)) return null;
