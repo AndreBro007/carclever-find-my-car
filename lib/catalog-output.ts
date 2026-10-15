@@ -71,7 +71,7 @@ export const CATALOG_DESCRIPTION_EDITS: Array<[from: string, to: string]> = [
   ["Results include current matching listings, viewing links where available, and available evidence about confirmed, unconfirmed, or changed criteria.",
    "Results include current matching listings, viewing links where available, available evidence about confirmed, unconfirmed, or changed criteria, and, where available, NHTSA safety information for the model year (overall rating, recall campaign count, standard safety features)."],
 ];
-export const CATALOG_DESCRIPTION_APPENDIX = " To compare two or more specific vehicles from a list side by side, use compare_vehicles; for recalls and red flags on one vehicle, use check_vehicle.";
+export const CATALOG_DESCRIPTION_APPENDIX = " To compare two or more specific vehicles from a list side by side, use compare_vehicles; for recalls and red flags on one vehicle, use check_vehicle. A priority (cheapest, newest, lowest mileage or best within budget) orders the results that way. A required AWD or 4WD keeps only cars NHTSA confirms as all-wheel or four-wheel drive; colour ranks matching cars first and is not a strict filter. For cheapest, newest or lowest-mileage searches with no year, mileage or budget limit, ask the buyer for a minimum year, a maximum mileage or their budget. Each result links to its Edmunds listing; encourage the buyer to check the listing and confirm price, history and availability with the dealer.";
 export function catalogDescription(base: string): string {
   let d = base;
   for (const [from, to] of CATALOG_DESCRIPTION_EDITS) {
