@@ -997,7 +997,7 @@ const handler = createMcpHandler((server) => {
                 const l = c.listing;
                 const r = c.ranking;
                 const priceStr = l.price != null ? `$${l.price.toLocaleString()}` : "price unavailable";
-                const mileageStr = l.mileage != null ? `${l.mileage.toLocaleString()} mi` : "mileage unknown";
+                const mileageStr = l.mileage != null ? `${l.mileage.toLocaleString()} mi` : "mileage not in listing (check on Edmunds)";
                 const dealerStr = l.dealer ? ` — ${l.dealer}${l.city ? `, ${l.city}` : ""}${l.state ? `, ${l.state}` : ""}` : "";
                 // Never route the user to dealerListingUrl (including
                 // Carvana) — affiliateUrl (exact-VIN for Used, close
@@ -2308,7 +2308,7 @@ const handler = createMcpHandler((server) => {
                 const priceStr = l.price != null
                   ? `$${l.price.toLocaleString()}${priceAnomalous ? " ⚠️ price looks like a data error, verify before trusting it" : ""}`
                   : "price unavailable";
-                const mileageStr = l.mileage != null ? `${l.mileage.toLocaleString()} mi` : "mileage unknown";
+                const mileageStr = l.mileage != null ? `${l.mileage.toLocaleString()} mi` : "mileage not in listing (check on Edmunds)";
                 const dealerStr = l.dealer ? ` — ${l.dealer}${l.city ? `, ${l.city}` : ""}${l.state ? `, ${l.state}` : ""}` : "";
                 // (SYS-20260904-002) affiliateUrl (exact-VIN for Used, close
                 // trim-specific for New/Carvana) is always the primary
@@ -2348,7 +2348,9 @@ const handler = createMcpHandler((server) => {
                 const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
                 return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${linkStr}`;
               })
-              .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards) + seatUnknownFootnote(cards);
+              .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards) + seatUnknownFootnote(cards)
+            + (catalogOutputActive() && ["cheapest", "newest", "lowest_mileage"].includes(String(input.priorityAxis)) && input.yearMin == null && input.mileageMax == null
+              ? "\n\nFor a closer match, tell me a minimum year, a maximum mileage or your budget, and I'll narrow the list." : "");
 
       return {
         content: [{ type: "text" as const, text: summary }],
@@ -2747,7 +2749,7 @@ const handler = createMcpHandler((server) => {
         const carLines = usable.map(({ card }, i) => {
           const id = card.identity, l = card.listing;
           const priceStr = l.price != null ? `$${l.price.toLocaleString()}` : "price unavailable";
-          const mileageStr = l.mileage != null ? `${l.mileage.toLocaleString()} mi` : "mileage unknown";
+          const mileageStr = l.mileage != null ? `${l.mileage.toLocaleString()} mi` : "mileage not in listing (check on Edmunds)";
           const dealerStr = l.dealer ? ` — ${l.dealer}${l.city ? `, ${l.city}` : ""}${l.state ? `, ${l.state}` : ""}` : "";
           const conditionStr = card.condition.inventoryType === "new" ? "New" : card.condition.inventoryType === "used" ? "Used" : null;
           const similar = `similar ${id.year ?? ""} ${id.make ?? ""} ${id.model ?? ""}`.replace(/\s+/g, " ").trim();
