@@ -61,16 +61,22 @@ function tokens(s: string): string[] {
  * correctly fails to satisfy trimRequired in practice, it just does so
  * without throwing.
  */
+/** Drivetrain words (AWD, 4WD, 4 WD, FWD, RWD, 4x4) are not trim words: strip them before tokenising, on both sides. */
+function stripDrivetrain(s: string): string {
+  return s
+    .replace(/\b4\s*x\s*4\b/gi, " ")
+    .replace(/\b[24]\s*wd\b/gi, " ")
+    .replace(/\b(awd|fwd|rwd)\b/gi, " ");
+}
+
 export function trimMatches(requested: string, actual: unknown): boolean {
-  const reqTokens = tokens(requested);
+  // 'Sport Touring Hybrid AWD' matches the same cars as 'Sport Touring Hybrid'; 'EX' does not match 'EX-L'.
+  const reqTokens = tokens(stripDrivetrain(requested));
   if (reqTokens.length === 0) return false;
   const actualStr = actual == null ? "" : String(actual);
   if (!actualStr) return false;
-  const actTokens = new Set(tokens(actualStr));
-  // Exact trim: every requested word must be present, and the reported trim must not carry extra trim words.
-  // Drivetrain descriptors (AWD, 4WD...) are ignored, so 'Sport Hybrid AWD' still matches 'Sport Hybrid'. 'EX' no longer matches 'EX-L'.
-  const DRIVETRAIN = new Set(["awd", "4wd", "fwd", "rwd", "2wd", "4x4"]);
+  const actTokens = new Set(tokens(stripDrivetrain(actualStr)));
   const reqSet = new Set(reqTokens);
-  const extra = [...actTokens].filter((t) => !reqSet.has(t) && !DRIVETRAIN.has(t));
+  const extra = [...actTokens].filter((t) => !reqSet.has(t));
   return reqTokens.every((t) => actTokens.has(t)) && extra.length === 0;
 }
