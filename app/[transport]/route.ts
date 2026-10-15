@@ -239,7 +239,7 @@ async function applyDrivetrainFilter(candidates: any[], wanted: string | undefin
 }
 
 function resolveSort(
-  priorityAxis: "best_for_budget" | "cheapest" | "lowest_mileage" | "newest" | "lower_risk" | undefined,
+  priorityAxis: "best_for_budget" | "cheapest" | "lowest_mileage" | "newest" | undefined,
   priceMax: number | undefined,
 ): string | undefined {
   switch (priorityAxis) {
@@ -2086,7 +2086,7 @@ const handler = createMcpHandler((server) => {
       // that way by the time they reached it.
       if (input.priorityAxis === "cheapest" || input.priorityAxis === "lowest_mileage" || input.priorityAxis === "newest") {
         // Leave cards in their already-correct fetched order — do not re-sort.
-      } else if (input.priorityAxis === "lower_risk") {
+      } else if ((input.priorityAxis as string) === "lower_risk") { // unreachable: the tool no longer accepts lower_risk; remove in the lean copy
         // Final-card risk sort (feature/lower-risk-mvp follow-up #2):
         // applyLocalLowerRiskOrdering() already ranked the LEAN candidates
         // by risk tier before stage-2, but that lean pre-ranking was
@@ -2110,7 +2110,7 @@ const handler = createMcpHandler((server) => {
       }
       // Database app, default ordering only: among equally good matches (same match score) the nearest dealer comes first. The distance comes
       // from the first-pass rows (the refetched copy has none). The priority axes above keep their own order.
-      if (catalogOutputActive() && input.priorityAxis !== "cheapest" && input.priorityAxis !== "lowest_mileage" && input.priorityAxis !== "newest" && input.priorityAxis !== "lower_risk") {
+      if (catalogOutputActive() && input.priorityAxis !== "cheapest" && input.priorityAxis !== "lowest_mileage" && input.priorityAxis !== "newest") {
         const miles = new Map<string, number>();
         for (const l of [...leanShortlist, ...spareLean]) { const d = (l as any).catalog?.distanceMiles; if (typeof d === "number") miles.set(l.vin, d); }
         const sorted = sortByScoreThenDistance(cards, miles);
