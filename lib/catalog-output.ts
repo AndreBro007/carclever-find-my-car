@@ -71,7 +71,7 @@ export const CATALOG_DESCRIPTION_EDITS: Array<[from: string, to: string]> = [
   ["Results include current matching listings, viewing links where available, and available evidence about confirmed, unconfirmed, or changed criteria.",
    "Results include current matching listings, viewing links where available, available evidence about confirmed, unconfirmed, or changed criteria, and, where available, NHTSA safety information for the model year (overall rating, recall campaign count, standard safety features)."],
 ];
-export const CATALOG_DESCRIPTION_APPENDIX = " To compare two or more specific vehicles from a list side by side, use compare_vehicles; for recalls and red flags on one vehicle, use check_vehicle. A priority (cheapest, newest, lowest mileage or best within budget) orders the results that way. A required AWD or 4WD keeps only cars NHTSA confirms as all-wheel or four-wheel drive; colour ranks matching cars first and is not a strict filter. For cheapest, newest or lowest-mileage searches with no year, mileage or budget limit, ask the buyer for a minimum year, a maximum mileage or their budget. Each result links to its Edmunds listing; encourage the buyer to check the listing and confirm price, history and availability with the dealer.";
+export const CATALOG_DESCRIPTION_APPENDIX = " To compare two or more specific vehicles from a list side by side, use compare_vehicles; for recalls and red flags on one vehicle, use check_vehicle. Each result links to its Edmunds listing, where the buyer can verify the details and contact the dealer.";
 export function catalogDescription(base: string): string {
   let d = base;
   for (const [from, to] of CATALOG_DESCRIPTION_EDITS) {
@@ -79,18 +79,6 @@ export function catalogDescription(base: string): string {
     d = d.replace(from, () => to);
   }
   return d.trimEnd() + CATALOG_DESCRIPTION_APPENDIX;
-}
-
-/**
- * Database app: one line with the lowest price and lowest mileage in the list shown, so the AI does not have to work them out.
- */
-export function priceMileageSummary(list: ReadonlyArray<{ price?: number | null; mileage?: number | null }>): string {
-  const prices = list.map((l) => l.price).filter((p): p is number => typeof p === "number");
-  const miles = list.map((l) => l.mileage).filter((m): m is number => typeof m === "number");
-  const parts: string[] = [];
-  if (prices.length) parts.push(`Lowest price in this list: $${Math.min(...prices).toLocaleString("en-US")}`);
-  if (miles.length) parts.push(`lowest mileage: ${Math.min(...miles).toLocaleString("en-US")} mi`);
-  return parts.length ? "\n" + parts.join(", ") + "." : "";
 }
 
 /**
@@ -107,7 +95,6 @@ export function nhtsaTextLines(c: any, active: boolean = catalogOutputActive()):
   if (d.nhtsaRecallCampaigns > 0) safety.push(`${d.nhtsaRecallCampaigns} recall campaign${d.nhtsaRecallCampaigns === 1 ? "" : "s"} for this model year`);
   const feats: string[] = Array.isArray(d.standardSafetyTech) ? d.standardSafetyTech : [];
   if (feats.length) safety.push(`NHTSA lists as standard: ${feats.slice(0, 4).join(", ")}${feats.length > 4 ? ` +${feats.length - 4} more` : ""}`);
-  if (Array.isArray(d.standardSafetyTech) && feats.length <= 1) safety.push("Other safety equipment is not in NHTSA data for this model year: check the Edmunds listing.");
   return (spec ? `\n   ${spec}` : "") + (safety.length ? `\n   ${safety.join(" · ")}` : "");
 }
 

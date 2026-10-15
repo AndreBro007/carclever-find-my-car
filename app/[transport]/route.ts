@@ -3,7 +3,7 @@ import { z } from "zod";
 import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
 // spike/edmunds-catalog-mode: same four functions, now routed through the source facade
 // (Auto.dev unchanged unless mode/breaker selects the Edmunds catalogue).
-import { catalogOutputActive, shapeCardsForSource, shapeBuyerCheckForCatalog, priceMileageSummary, nhtsaTextLines, nhtsaTextFootnote, catalogCheckVehicleDescription, freshnessSignals, freshnessTextLine } from "@/lib/catalog-output";
+import { catalogOutputActive, shapeCardsForSource, shapeBuyerCheckForCatalog, nhtsaTextLines, nhtsaTextFootnote, catalogCheckVehicleDescription, freshnessSignals, freshnessTextLine } from "@/lib/catalog-output";
 import { withNhtsaSpecs, modelsAgree } from "@/lib/nhtsa-specs";
 import { notListedLinksText, titleCaseMake } from "@/lib/vin-not-listed";
 import { buildComparison, comparisonText, type CompareItem } from "@/lib/compare";
@@ -2319,7 +2319,7 @@ const handler = createMcpHandler((server) => {
           ? disclosurePrefix + serviceFailureMessage
           : cards.length === 0
           ? disclosurePrefix + noResultsMessage + zeroResultsExitLine(input.make, input.model, input.used)
-          : disclosurePrefix + partialWideningNote + `Found ${cards.length} closely matching vehicle${cards.length === 1 ? "" : "s"}${totalPhrase}:${catalogOutputActive() ? priceMileageSummary(cards.map((c: any) => c.listing)) : ""}\n\n` +
+          : disclosurePrefix + partialWideningNote + `Found ${cards.length} closely matching vehicle${cards.length === 1 ? "" : "s"}${totalPhrase}:\n\n` +
             cards
               .map((c, i) => {                const id = c.identity;
                 const l = c.listing;
