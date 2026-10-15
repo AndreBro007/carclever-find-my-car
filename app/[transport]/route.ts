@@ -21,6 +21,9 @@ import { inferClassHint } from "@/lib/vehicle-class";
 import { widenSearchIfThin, type StepName } from "@/lib/loosening-ladder";
 import { isConfirmedOutsideRadius } from "@/lib/geo-verification";
 import { seatUnknownFootnote } from "@/lib/seat-note";
+import { rowByVin } from "@/lib/catalog-db/search";
+import { getCatalogPool } from "@/lib/catalog-db-source";
+import { buildTrackingUrl } from "@/lib/catalog-db/normalize";
 import { logSearchEvent } from "@/lib/search-log";
 import { verifyAgainstConstraints } from "@/lib/post-verify";
 import { parseIntent } from "@/lib/intent-parser";
@@ -2822,7 +2825,12 @@ const handler = createMcpHandler((server) => {
       // evaluates false via isCarvanaListing()'s dealer/vdp checks — moot
       // either way now, since dealerListingUrl is never routed to as the
       // resolved link regardless of Carvana status (see primary below).
-      const links = resolveLinks({ vin, vehicle: { make, model, year } } as AutoDevListing);
+      // Database mode: the same listing link as the card, so one car has one tracked link everywhere.
+      const catalogRow = catalogOutputActive() && vin ? await rowByVin(getCatalogPool(), vin).catch(() => null) : null;
+      const catalogTracking = catalogRow
+        ? buildTrackingUrl({ id: String((catalogRow as { id?: unknown }).id), vin, year: Number(year), make: String(make), model: String(model) })
+        : undefined;
+      const links = resolveLinks({ vin, vehicle: { make, model, year }, ...(catalogTracking ? { catalog: { trackingUrl: catalogTracking } } : {}) } as unknown as AutoDevListing);
 
       if (links.linkStatus === "none-available") {
         return {
