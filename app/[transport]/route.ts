@@ -68,6 +68,18 @@ initCorpusCount();
 // (Sky redesign, approved July 26, 2026) — same architecture principle
 // Find My Car already uses (calling LLM owns intent, server stays thin and
 // deterministic), just with more explicit coaching for known data quirks.
+const CATALOG_FIND_MATCHING_VEHICLE_DESCRIPTION = `Finds current vehicles for sale in the United States and returns a concise shortlist matching a user's stated requirements. Appropriate for listing requests with explicit criteria, optimization goals such as lowest price, newest, lowest mileage, or best within a stated budget, practical needs such as a large family SUV or commuter vehicle, or an exact current listing by VIN.
+
+Direct filter fields should reflect requirements the user stated or clearly implied; leave unstated restrictions unset.
+
+Search inputs include make, model, price, year, mileage, location, body style, drivetrain, transmission, trim, seating, color, condition, electrification, and purchase priority. Most direct criteria are matched against actual listing data; seating, certification, and history-related requests reflect available evidence, which may be confirmed, unconfirmed, or unreported rather than guaranteed. Practical needs such as a large family SUV, a teen-driver car, or a vehicle for towing are interpreted before the search runs to identify relevant candidates; this tool then searches and ranks them using actual listing data — it does not independently establish reliability, safety, running cost, towing suitability, condition, accident-free history, or certification. When a practical need implies a vehicle class, resolve it into real matching model names yourself and include them in model before calling this tool, every time, alongside the related need stated in vehicleNeeds. For a broad hybrid, plug-in hybrid, or electric request, likewise resolve suitable real model or variant names and include them in model before calling the tool. For required hybrid or plug-in hybrid searches, use electrified variants only; for preferred searches, acceptable base-model alternatives may also be included.
+
+An exact 17-character VIN refers to one specific listing; if unavailable, that outcome is reported rather than substituting a similar vehicle, with a link to similar vehicles. Electrification requests state accepted types — hybrid (including mild hybrid), plug-in hybrid, electric — and whether required or preferred. A vehicle's primary fuel label alone does not determine hybrid or plug-in-hybrid status. For an unambiguous city-only request, a representative ZIP may be supplied as the local search anchor; results disclose the overall local, state-wide, or nationwide scope.
+
+Results include current matching listings, viewing links where available, and available evidence about confirmed, unconfirmed, or changed criteria. Each result links to its Edmunds listing for current details. Missing history, ownership, certification, or specification data remains unknown and is never treated as proof a vehicle satisfies or fails a request.
+
+This tool is for vehicle-listing searches — not general automotive education, maintenance, financing, leasing, unsupported categories, or comparisons not requiring current listings.`;
+
 const FIND_MATCHING_VEHICLE_DESCRIPTION = () => `Finds current vehicles for sale in the United States and returns a concise shortlist matching a user's stated requirements. Appropriate for listing requests with explicit criteria, optimization goals such as lowest price, newest, lowest mileage, or best within a stated budget, practical needs such as a large family SUV or commuter vehicle, or an exact current listing by VIN.
 
 Direct filter fields should reflect requirements the user stated or clearly implied; leave unstated restrictions unset.
@@ -791,7 +803,7 @@ const handler = createMcpHandler((server) => {
     "find_matching_vehicle",
     {
       title: "Find Matching Vehicle",
-      description: catalogOutputActive() ? catalogDescription(FIND_MATCHING_VEHICLE_DESCRIPTION()) : FIND_MATCHING_VEHICLE_DESCRIPTION(),
+      description: catalogOutputActive() ? CATALOG_FIND_MATCHING_VEHICLE_DESCRIPTION : FIND_MATCHING_VEHICLE_DESCRIPTION(),
       inputSchema: catalogOutputActive() ? FindMatchingVehicleInputCatalog : FindMatchingVehicleInput,
       outputSchema: catalogOutputActive() ? CatalogDbOutputSchema : FindMatchingVehicleOutputSchema,
       // Canonical output contract. All live structuredContent construction paths
@@ -2736,8 +2748,7 @@ const handler = createMcpHandler((server) => {
     "compare_vehicles",
     {
       title: "Compare Vehicles",
-      description:
-        "Compares 2 to 4 specific vehicles side by side (price, mileage, year, trim, fuel, drive, engine, NHTSA safety rating, recall campaign count and, with a ZIP code, distance) for vehicles already identified by VIN, for example after a find_matching_vehicle search: 'compare 1 and 3', 'which of these two is the better deal'. Self-contained: pass the actual VINs, never references like 'the second result'. Every vehicle that is in this inventory is shown with its own Edmunds link; VINs that are not in this inventory are listed as not found. The comparison states differences only: it does not rank vehicles or judge safety, and missing data is shown as unknown, never guessed. For cars similar to one already listed (for example 'compare this one with similar cars'), first call find_matching_vehicle to find similar cars, then pass their VINs here. Do NOT use this for a broad search by itself (use find_matching_vehicle) or for recalls and red flags on one vehicle (use check_vehicle).",
+      description: catalogOutputActive() ? "Compares 2 to 4 vehicles side by side on price, mileage, year, trim, fuel, drive, engine, NHTSA safety rating, recall campaign count and distance (with a ZIP). Takes VINs. When the user refers to results by number, use the VINs from the earlier search." : "Compares 2 to 4 specific vehicles side by side (price, mileage, year, trim, fuel, drive, engine, NHTSA safety rating, recall campaign count and, with a ZIP code, distance) for vehicles already identified by VIN, for example after a find_matching_vehicle search: 'compare 1 and 3', 'which of these two is the better deal'. Self-contained: pass the actual VINs, never references like 'the second result'. Every vehicle that is in this inventory is shown with its own Edmunds link; VINs that are not in this inventory are listed as not found. The comparison states differences only: it does not rank vehicles or judge safety, and missing data is shown as unknown, never guessed. For cars similar to one already listed (for example 'compare this one with similar cars'), first call find_matching_vehicle to find similar cars, then pass their VINs here. Do NOT use this for a broad search by itself (use find_matching_vehicle) or for recalls and red flags on one vehicle (use check_vehicle).",
       inputSchema: {
         vins: z.array(z.string()).min(2).max(4).describe("2 to 4 different exact 17-character VINs to compare, for example the VINs of cars 1 and 3 from a search list. Pass the actual VINs, not references like 'the second result'."),
         zip: z.string().optional().describe("Optional 5-digit ZIP code: adds each dealer's distance from it to the comparison."),
@@ -2825,8 +2836,7 @@ const handler = createMcpHandler((server) => {
     "resolve_dealer_url",
     {
       title: "Resolve Dealer Link",
-      description:
-        "Resolves a usable link for viewing or purchasing a specific vehicle, given its VIN, make, model, and year. Prefers the Edmunds VIN-specific pricing link; when that's unavailable (including for Carvana-sourced vehicles, which are never on Edmunds by VIN), falls back to affiliateFallbackUrl, a live Edmunds category-search link for the same make/model that never dead-ends. Never returns the dealer's own listing URL (dealerListingUrl) as the resolved link, even for Carvana — that field is still present on structuredContent for internal/diagnostic use, just never the text response.",
+      description: catalogOutputActive() ? "Resolves a usable link for viewing or purchasing a specific vehicle, given its VIN, make, model, and year. Returns the Edmunds VIN-specific link to the vehicle's current listing; otherwise a similar-vehicles link for the same make and model. Never returns the dealer's own listing URL." : "Resolves a usable link for viewing or purchasing a specific vehicle, given its VIN, make, model, and year. Prefers the Edmunds VIN-specific pricing link; when that's unavailable (including for Carvana-sourced vehicles, which are never on Edmunds by VIN), falls back to affiliateFallbackUrl, a live Edmunds category-search link for the same make/model that never dead-ends. Never returns the dealer's own listing URL (dealerListingUrl) as the resolved link, even for Carvana — that field is still present on structuredContent for internal/diagnostic use, just never the text response.",
       inputSchema: {
         vin: z.string().describe("The vehicle's 17-character VIN."),
         make: z.string().describe("Vehicle manufacturer, e.g. Toyota."),

@@ -116,6 +116,7 @@ export const CHECK_VEHICLE_DESCRIPTION_EDITS: Array<[from: string, to: string]> 
 ];
 export function catalogCheckVehicleDescription(base: string): string {
   if (!catalogOutputActive()) return base;
+  return "A VIN check for one known vehicle: identity, recall and listing details, for a VIN, or for a make, model and year. For a used car with a VIN, it includes NHTSA's recall lookup link. Use it for a known vehicle, including follow-ups to a search. For a broad search, use Find Matching Vehicle.";
   let d = base;
   for (const [from, to] of CHECK_VEHICLE_DESCRIPTION_EDITS) {
     if (!d.includes(from)) console.error("[catalog-output] check_vehicle description sentence not found, left unchanged:", from.slice(0, 60));
