@@ -97,6 +97,7 @@ export function buildBuyerCheck(
   } else if (card.history.state === "known_issues") {
     concerns.push(card.history.note);
   } else {
+    if (card.listing?.mileage == null) needsVerification.push("Mileage is not in the listing: confirm it with the dealer before buying.");
     needsVerification.push(card.history.note);
   }
 

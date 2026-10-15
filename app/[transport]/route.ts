@@ -2564,7 +2564,9 @@ const handler = createMcpHandler((server) => {
           const decodeModelOk = !!(catalogOutputActive() && nhtsaResult?.model && listing.vehicle?.model && modelsAgree(listing.vehicle.model, nhtsaResult.model, listing.vehicle?.make));
           const decodeTrimOk = !!(decodeModelOk && listing.vehicle?.trim && (nhtsaResult?.trimOptions ?? []).some((t) => t.trim().toLowerCase() === String(listing.vehicle?.trim).trim().toLowerCase()));
           const stillUnknown = ((card as any).verification?.unknownAttributes ?? []).filter((a: string) => !((a === "model" && decodeModelOk) || (a === "trim" && decodeTrimOk)));
-          const cardWithBuyerCheck = { ...card, buyerCheck, verification: { ...(card as any).verification, unknownAttributes: stillUnknown } };
+          const confirmedByDecode = [...(decodeModelOk ? ["model"] : []), ...(decodeTrimOk ? ["trim"] : [])];
+          const verifiedNow = [...new Set([...(((card as any).verification?.verifiedAttributes ?? []) as string[]), ...confirmedByDecode])];
+          const cardWithBuyerCheck = { ...card, buyerCheck, verification: { ...(card as any).verification, unknownAttributes: stillUnknown, verifiedAttributes: verifiedNow } };
           const checkVehicleResults = shapeCardsForSource([cardWithBuyerCheck]);
 
           const outcomeLabel: Record<BuyerCheck["outcome"], string> = {

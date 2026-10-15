@@ -238,7 +238,7 @@ export function buildConstraintChecks(
     }
   }
 
-  push(checkStringField("drivetrain", requested.drivetrain, actual.drivetrain, relaxedFields.has("drivetrain"), anyListValueMatches));
+  push(checkStringField("drivetrain", normDrivetrain(requested.drivetrain), normDrivetrain(actual.drivetrain), relaxedFields.has("drivetrain"), anyListValueMatches));
   push(checkStringField("transmission", requested.transmission, actual.transmission, relaxedFields.has("transmission"), anyListValueMatches));
   push(checkStringField("exteriorColor", requested.exteriorColor, actual.exteriorColor, relaxedFields.has("exteriorColor"), colorLikeMatches));
   push(checkStringField("interiorColor", requested.interiorColor, actual.interiorColor, relaxedFields.has("interiorColor"), colorLikeMatches));
@@ -281,4 +281,10 @@ export function aggregateSearchConstraintStatus(checks: ConstraintCheck[]): Sear
   if (checks.some((c) => c.status === "relaxed")) return "relaxed";
   if (checks.some((c) => c.status === "unknown")) return "partial";
   return "verified";
+}
+
+/** AWD and 4WD are the same drive system for matching purposes (general rule, not a model-specific case). */
+function normDrivetrain(v: string | null | undefined): string | null | undefined {
+  if (typeof v !== "string") return v;
+  return /\b(AWD|4WD|4X4|all-wheel|four-wheel)\b/i.test(v) ? "AWD" : v;
 }
