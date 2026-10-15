@@ -2319,7 +2319,7 @@ const handler = createMcpHandler((server) => {
           ? disclosurePrefix + serviceFailureMessage
           : cards.length === 0
           ? disclosurePrefix + noResultsMessage + zeroResultsExitLine(input.make, input.model, input.used)
-          : disclosurePrefix + partialWideningNote + `Found ${cards.length} closely matching vehicle${cards.length === 1 ? "" : "s"}${totalPhrase}:${catalogOutputActive() ? priceMileageSummary(leanShortlist as any[]) : ""}\n\n` +
+          : disclosurePrefix + partialWideningNote + `Found ${cards.length} closely matching vehicle${cards.length === 1 ? "" : "s"}${totalPhrase}:${catalogOutputActive() ? priceMileageSummary(cards.map((c: any) => c.listing)) : ""}\n\n` +
             cards
               .map((c, i) => {                const id = c.identity;
                 const l = c.listing;
