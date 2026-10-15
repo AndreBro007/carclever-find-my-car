@@ -24,8 +24,7 @@ const MAX_LIMIT = 300;
 const TOTAL_CAP = 10_000;
 export const DEFAULT_RADIUS_MILES = 50;
 export const MIN_LOCAL_RESULTS = 3;
-export const MAX_LOCAL_FALLBACK = 12;
-const MAX_RADIUS = 1000;
+export const MAX_RADIUS = 1000;
 
 const COLOUR_WORDS: Record<string, string[]> = {
   gray: ["gray", "grey", "charcoal", "graphite", "gunmetal"], grey: ["gray", "grey", "charcoal", "graphite", "gunmetal"], silver: ["silver"], white: ["white", "ivory"],
@@ -165,15 +164,10 @@ async function localSearch(db: Queryable, q: ListingsQuery, models: string[] | n
     const rows = await db.query(`SELECT * FROM (${inner}) x ${r != null ? `WHERE x.distance <= ${p.add(r)}` : ""} ORDER BY x.colour_rank ASC, ${localSortFor(q.sort)}x.distance ASC, x.price ASC NULLS LAST LIMIT ${limit}`, p.values);
     return rows.rows as unknown as DbRow[];
   };
-  let rows = await run(radius, lim);
-  let used = radius;
-  if (rows.length < MIN_LOCAL_RESULTS && radius < MAX_RADIUS) {
-    const wider = Math.min(radius * 4, MAX_RADIUS);
-    rows = await run(wider, lim); used = wider;
-  }
+  // Only the radius the buyer asked for. Never widened here: a thin result is reported, and widening is offered in the reply.
+  const rows = await run(radius, lim);
   if (strict) return { rows, total: rows.length < lim ? rows.length : null, localApplied: true }; // strict colour: no "nearest anywhere" fallback, the caller decides
-  if (rows.length < MIN_LOCAL_RESULTS) rows = await run(null, MAX_LOCAL_FALLBACK); // nearest anywhere, never nothing
-  if (rows.length === 0) return plainSearch(db, q, models); // no coordinates for any match: fall back to nationwide order
+  if (rows.length === 0) return { rows: [], total: 0, localApplied: true }; // nothing within the radius: say so; never show remote cars
   return { rows, total: rows.length < lim ? rows.length : null, localApplied: true };
 }
 

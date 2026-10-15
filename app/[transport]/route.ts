@@ -97,6 +97,8 @@ const ResolveDealerUrlOutput = z.object({
 });
 
 const SHORTLIST_SIZE = 5;
+// Automatic widening is off: a thin result is reported and widening is offered in the reply (SYS-20261015-016).
+const AUTO_WIDEN = false;
 
 
 /**
@@ -1399,7 +1401,7 @@ const handler = createMcpHandler((server) => {
       // falling short of the larger broad-search target: that would fire on
       // most broad searches and spend an upstream call for a marginal gain.
       // A real service error is not "thin results" and must never widen.
-      if (!rawResult.error && usableCount(candidates, effectiveQuery) < SHORTLIST_SIZE) {
+      if (AUTO_WIDEN && !rawResult.error && usableCount(candidates, effectiveQuery) < SHORTLIST_SIZE) {
         // Deadline is anchored HERE, when widening actually starts — not at
         // request start (real bug, confirmed by code + measurement 2026-08-17,
         // SYS-20260817-003). Anchoring at request start meant the primary
@@ -2368,7 +2370,7 @@ const handler = createMcpHandler((server) => {
                 const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
                 return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel}${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${linkStr}`;
               })
-              .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards) + seatUnknownFootnote(cards) + (catalogOutputActive() && cards.length ? "\n\nCheck each Edmunds listing, then contact the dealer to confirm price, history and availability." : "")
+              .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards) + seatUnknownFootnote(cards) + (catalogOutputActive() && input.zip && cards.length < SHORTLIST_SIZE ? `\n\nOnly ${cards.length} within ${input.radiusMiles ?? 50} miles. Ask me to widen to 100 miles to see more.` : "") + (catalogOutputActive() && cards.length ? "\n\nCheck each Edmunds listing, then contact the dealer to confirm price, history and availability." : "")
             + (catalogOutputActive() && ["cheapest", "newest", "lowest_mileage"].includes(String(input.priorityAxis)) && input.yearMin == null && input.mileageMax == null
               ? "\n\nFor a closer match, tell me a minimum year, a maximum mileage or your budget, and I'll narrow the list." : "");
 
