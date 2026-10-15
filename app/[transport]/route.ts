@@ -2157,9 +2157,8 @@ const handler = createMcpHandler((server) => {
       }
       if (electrificationShortfall) {
         dataNotes.push(
-          `Only ${electrificationShortfall.confirmed} of the usual ${electrificationShortfall.requested} results could be ` +
-            `confirmed by NHTSA as matching the required electrification type — fewer results are shown rather than ` +
-            `including any vehicle whose electrification status couldn't be verified.`,
+          `Only ${electrificationShortfall.confirmed} of the usual ${electrificationShortfall.requested} results matched your electric or hybrid requirement, as confirmed by NHTSA. ` +
+            `Cars that could not be confirmed are left out. Check each listing, or ask the dealer about any others.`,
         );
       }
       if (electrificationPreferredNoMatch) {
