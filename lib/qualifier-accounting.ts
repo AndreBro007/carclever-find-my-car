@@ -217,7 +217,7 @@ export function buildQualifierAccounting(input: CardIntentInput): QualifierAccou
   for (const [key, label] of structural) {
     const value = input[key];
     if (value != null && value !== "") {
-      entries.push({ requested: label, tier: "structural_filter", applied: `filtered on ${label} = ${value}` });
+      entries.push({ requested: label, tier: "structural_filter", applied: (input as any).vin ? `checked against this listing: ${label} = ${value}` : `filtered on ${label} = ${value}` });
     }
   }
 

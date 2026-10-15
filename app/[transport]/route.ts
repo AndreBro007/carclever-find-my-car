@@ -2390,7 +2390,7 @@ const handler = createMcpHandler((server) => {
                 const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
                 return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel}${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${linkStr}`;
               })
-              .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards) + seatUnknownFootnote(cards) + (catalogOutputActive() && Array.isArray(input.vehicleNeeds) && input.vehicleNeeds.length && cards.length ? `\n\nBefore you buy, ask the dealer about: ${input.vehicleNeeds.join(", ")}.` : "") + (catalogOutputActive() && input.zip && cards.length < SHORTLIST_SIZE ? `\n\nOnly ${cards.length} within ${input.radiusMiles ?? 50} miles. Ask me to widen to 100 miles to see more.` : "") + (catalogOutputActive() && cards.length ? "\n\nCheck each Edmunds listing, then contact the dealer to confirm price, history and availability." : "")
+              .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards) + seatUnknownFootnote(cards) + (catalogOutputActive() && Array.isArray(input.vehicleNeeds) && input.vehicleNeeds.length && cards.length ? `\n\nBefore you buy, ask the dealer about: ${input.vehicleNeeds.join(", ")}. These are not in our data, so ask for service and history records.` : "") + (catalogOutputActive() && input.zip && cards.length < SHORTLIST_SIZE ? `\n\nOnly ${cards.length} within ${input.radiusMiles ?? 50} miles. Ask me to widen to 100 miles to see more.` : "") + (catalogOutputActive() && cards.length ? "\n\nCheck each Edmunds listing, then contact the dealer to confirm price, history and availability." : "")
             + (catalogOutputActive() && ["cheapest", "newest", "lowest_mileage"].includes(String(input.priorityAxis)) && input.yearMin == null && input.mileageMax == null
               ? "\n\nFor a closer match, tell me a minimum year, a maximum mileage or your budget, and I'll narrow the list." : "");
 
@@ -2494,7 +2494,6 @@ const handler = createMcpHandler((server) => {
             }
             if (catalogOutputActive() && nhtsaRecallCheckUrl(rawVin)) lines.push(`Open recalls on this exact VIN: check it with NHTSA's free lookup, ${nhtsaRecallCheckUrl(rawVin)}. ${"NHTSA's lookup covers participating manufacturers and does not show recalls that were already repaired"}.`);
             lines.push(catalogOutputActive() ? "No Buyer Check available — that requires a listing to verify against, and none exists for this VIN here." : "No Buyer Check available — that requires a real listing (accident/ownership history) to verify against, which doesn't exist for this VIN here.");
-            lines.push("Use \"Check avail.\" to look for this exact trim, or \"View similar\" for the broader make/model.");
 
             const standaloneVinResults = shapeCardsForSource([identityCard]);
             return {
@@ -2707,7 +2706,6 @@ const handler = createMcpHandler((server) => {
           );
           lines.push(`NHTSA source: ${recall.nhtsaSourceUrl}`);
         }
-        lines.push("Use \"Check avail.\" to look for this exact trim, or \"View similar\" for the broader make/model.");
 
         const noVinResults = shapeCardsForSource([noVinCard]);
         return {
