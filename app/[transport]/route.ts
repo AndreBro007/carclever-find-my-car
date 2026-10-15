@@ -2556,7 +2556,7 @@ const handler = createMcpHandler((server) => {
           lines.push(`Buyer Check: ${outcomeLabel[buyerCheck.outcome]}`);
           // Catalogue: when the status needs checking, point the buyer to the dealer and the Edmunds listing instead.
           const recallLine = recall
-            ? (catalogOutputActive() && /verify status/i.test(recall.label) ? "Recalls: confirm with the dealer" : recall.label)
+            ? (catalogOutputActive() && recall.count === 0 ? "Recalls: none found for this model year. Check this VIN with NHTSA (link below)." : catalogOutputActive() && /verify status/i.test(recall.label) ? "Recalls: confirm with the dealer" : recall.label)
             : (catalogOutputActive() ? "Recalls: confirm with the dealer" : "Recalls: Data unavailable");
           lines.push(recallLine);
           if (buyerCheck.goodSigns.length) lines.push(`Good signs: ${buyerCheck.goodSigns.join(" ")}`);

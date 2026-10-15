@@ -107,6 +107,16 @@ function colourRank(q: ListingsQuery, p: Params): string {
   return parts.length ? parts.join(" + ") : "0";
 }
 
+/** The requested priority (cheapest, lowest mileage, newest) goes first in the local search; distance is the tie-break. */
+function localSortFor(sort: string | undefined): string {
+  switch ((sort ?? "").toLowerCase()) {
+    case "price.asc": return "x.price ASC NULLS LAST, ";
+    case "mileage.asc": case "miles.asc": return "x.odometer ASC NULLS LAST, ";
+    case "year.desc": return "x.year DESC NULLS LAST, ";
+    default: return "";
+  }
+}
+
 function orderFor(sort: string | undefined): string {
   switch ((sort ?? "").toLowerCase()) {
     case "price.asc": return "l.price ASC NULLS LAST, l.year DESC NULLS LAST";
@@ -152,7 +162,7 @@ async function localSearch(db: Queryable, q: ListingsQuery, models: string[] | n
     }
     const cr = colourRank(q, p);
     const inner = `SELECT ${SELECT_COLS}, ${dist} AS distance, ${cr} AS colour_rank ${FROM} WHERE ${w.join(" AND ")}`;
-    const rows = await db.query(`SELECT * FROM (${inner}) x ${r != null ? `WHERE x.distance <= ${p.add(r)}` : ""} ORDER BY x.colour_rank ASC, x.distance ASC, x.price ASC NULLS LAST LIMIT ${limit}`, p.values);
+    const rows = await db.query(`SELECT * FROM (${inner}) x ${r != null ? `WHERE x.distance <= ${p.add(r)}` : ""} ORDER BY x.colour_rank ASC, ${localSortFor(q.sort)}x.distance ASC, x.price ASC NULLS LAST LIMIT ${limit}`, p.values);
     return rows.rows as unknown as DbRow[];
   };
   let rows = await run(radius, lim);
