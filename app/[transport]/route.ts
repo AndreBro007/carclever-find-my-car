@@ -1697,8 +1697,6 @@ const handler = createMcpHandler((server) => {
           ? applyConfigurationVarietyPass(
               applyLocalBestForBudgetOrdering(electrificationFilteredCandidates, intent.semantic.trimPreference, electrificationMatchOf),
             )
-          : input.priorityAxis === "lower_risk"
-          ? applyLocalLowerRiskOrdering(electrificationFilteredCandidates, electrificationMatchOf)
           : electrificationFilteredCandidates,
         targetCount * 2,
       );
