@@ -216,6 +216,23 @@ function buildSeatsSummary(
 // imported at the top of this file.
 
 
+/**
+ * Required AWD or 4WD (database mode): keep only candidates that NHTSA's VIN decode reports as all-wheel or four-wheel drive.
+ * Unknown or two-wheel drive stays out of the main list rather than being shown as a match. The decode is cached, so this adds no extra calls on repeat searches.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function applyDrivetrainFilter(candidates: any[], wanted: string | undefined): Promise<any[]> {
+  if (!wanted || !catalogOutputActive()) return candidates;
+  const want = wanted.toUpperCase();
+  if (!want.includes("AWD") && !want.includes("4WD")) return candidates;
+  const pool = candidates.slice(0, ELECTRIFICATION_POOL_SIZE);
+  const decoded = await Promise.all(
+    pool.map((c) => decodeNhtsaElectrification(c.vin, c.vehicle?.make, c.vehicle?.model, c.vehicle?.cylinders)),
+  );
+  const keep = new Set(pool.filter((_, i) => /AWD|4WD|4X4/i.test(String(decoded[i]?.driveType ?? ""))).map((c) => c.vin));
+  return candidates.filter((c) => keep.has(c.vin));
+}
+
 function resolveSort(
   priorityAxis: "best_for_budget" | "cheapest" | "lowest_mileage" | "newest" | "lower_risk" | undefined,
   priceMax: number | undefined,
@@ -1618,7 +1635,7 @@ const handler = createMcpHandler((server) => {
             shortfall: null as { requested: number; confirmed: number } | null,
             matchedVins: null as Set<string> | null,
           };
-      const electrificationFilteredCandidates = electrificationResult.candidates;
+      const electrificationFilteredCandidates = await applyDrivetrainFilter(electrificationResult.candidates, input.drivetrain);
       const electrificationShortfall = electrificationResult.shortfall;
       // Predicate form for the ordering functions below. Deliberately
       // undefined (not a function that always returns false) when
