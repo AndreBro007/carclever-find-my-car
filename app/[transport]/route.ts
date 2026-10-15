@@ -318,7 +318,17 @@ async function buildResultCard(
 ) {
   // Database mode: fill blank drivetrain/transmission/engine/cylinders/seats from the NHTSA decode already made for this car (never overrides the listing).
   if (catalogOutputActive()) listing = withNhtsaSpecs(listing, nhtsa);
-  const verification = crossCheckVin(listing); // now local/synchronous — no API call
+  let verification = crossCheckVin(listing); // now local/synchronous — no API call
+  // Database mode: when the NHTSA decode confirms the model (and trim), the verified list says so, matching the reply text.
+  if (catalogOutputActive() && nhtsa?.model && listing.vehicle?.model && modelsAgree(listing.vehicle.model, nhtsa.model, listing.vehicle?.make)) {
+    const trimOk = !!(listing.vehicle?.trim && (nhtsa.trimOptions ?? []).some((x: string) => x.trim().toLowerCase() === String(listing.vehicle?.trim).trim().toLowerCase()));
+    const confirmed = ["model", ...(trimOk ? ["trim"] : [])];
+    verification = {
+      ...verification,
+      verifiedAttributes: [...verification.verifiedAttributes, ...confirmed.filter((a) => !verification.verifiedAttributes.includes(a))],
+      unknownAttributes: verification.unknownAttributes.filter((a) => !confirmed.includes(a)),
+    };
+  }
   const { matchScore, matchScoreLabel, breakdown } = computeMatchScore(listing, intent, verification, intentInput);
 
   // Trim fill from NHTSA (SYS-20260904-004): only when Auto.dev's own
