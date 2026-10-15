@@ -131,15 +131,15 @@ export function buildResultsCardHtml(): string {
   /* Tiered match-quality colors — score-driven internally, not shown as a
      raw number (see .cc-match variants below and cardHtml's tier logic).
      Green >=90, amber 80-89, red/rose <80. */
-  --cc-match-strong-bg: light-dark(rgba(15,157,88,.14), rgba(52,211,153,.14));
-  --cc-match-strong-border: light-dark(rgba(15,157,88,.26), rgba(52,211,153,.32));
-  --cc-match-strong-text: light-dark(#0f7a45, #6ee7b7);
-  --cc-match-good-bg: light-dark(rgba(244,201,107,.22), rgba(244,201,107,.14));
-  --cc-match-good-border: light-dark(rgba(165,103,10,.30), rgba(244,201,107,.35));
-  --cc-match-good-text: light-dark(#a5670a, #f4c96b);
-  --cc-match-fair-bg: light-dark(rgba(225,87,87,.14), rgba(248,113,113,.14));
-  --cc-match-fair-border: light-dark(rgba(190,50,50,.26), rgba(248,113,113,.32));
-  --cc-match-fair-text: light-dark(#b23b3b, #fca5a5);
+  --cc-match-strong-bg: light-dark(rgba(30,90,200,.18), rgba(96,165,250,.18));
+  --cc-match-strong-border: light-dark(rgba(30,90,200,.36), rgba(96,165,250,.42));
+  --cc-match-strong-text: light-dark(#1e4fa8, #93c5fd);
+  --cc-match-good-bg: light-dark(rgba(30,90,200,.10), rgba(96,165,250,.10));
+  --cc-match-good-border: light-dark(rgba(30,90,200,.22), rgba(96,165,250,.26));
+  --cc-match-good-text: light-dark(#3b6fc4, #bfdbfe);
+  --cc-match-fair-bg: light-dark(rgba(100,116,139,.12), rgba(148,163,184,.12));
+  --cc-match-fair-border: light-dark(rgba(100,116,139,.24), rgba(148,163,184,.28));
+  --cc-match-fair-text: light-dark(#55657d, #cbd5e1);
   --cc-button-bg: light-dark(#0b1320, #f8fafc);
   --cc-button-text: light-dark(#f8fafc, #0b1320);
   --cc-photo-bg: light-dark(#e5e9f0, #1a2638);
@@ -429,6 +429,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
       var ordinaryRiskTier = c.risk && c.risk.tier;
       if (ordinaryRiskTier === "amber" || ordinaryRiskTier === "red") riskTier = ordinaryRiskTier;
     }
+    if (c.hideRiskPill) riskTier = null; // database results: no history or risk data behind the badge
     var riskPill = riskTier ? '<span class="cc-risk is-' + riskTier + '">RISK</span>' : "";
     var nhtsaStars = c.detail && c.detail.nhtsaOverallRating;
     var ratePill = nhtsaStars >= 1 && nhtsaStars <= 5

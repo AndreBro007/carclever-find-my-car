@@ -24,6 +24,7 @@ export function shapeCardForCatalog<T>(card: T): T {
   const c = { ...(card as Record<string, any>) };
   const historyNote: string | undefined = c.history?.note;
   delete c.risk;
+  c.hideRiskPill = true; // no evidence behind the RISK badge in database mode
   delete c.history;
   c.identity = without(c.identity, ["series", "squishVin", "bodyStyleConfig"]);
   c.condition = without(c.condition, ["cpo", "cpoEvidenceState"]);

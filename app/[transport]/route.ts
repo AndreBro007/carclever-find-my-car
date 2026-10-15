@@ -1042,7 +1042,7 @@ const handler = createMcpHandler((server) => {
                       : "") +
                     (buyerCheck.nextSteps.length > 0 ? `\n  Next steps: ${buyerCheck.nextSteps.join(" ")}` : "")
                   : "";
-                return `Found the exact vehicle for VIN ${rawVin}:\n\n${formatVehicleTitle(id)} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${violationNote}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${primaryLinkStr}${buyerCheckText}${nhtsaTextFootnote([c])}${recallCheckLine(c)}`;
+                return `Found the exact vehicle for VIN ${rawVin}:\n\n${formatVehicleTitle(id)} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel}${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${violationNote}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${primaryLinkStr}${buyerCheckText}${nhtsaTextFootnote([c])}${recallCheckLine(c)}`;
               })();
 
         return {
@@ -2366,7 +2366,7 @@ const handler = createMcpHandler((server) => {
                 );
                 const confirmedLine = confirmedItems.length > 0 ? `\n   Confirmed: ${confirmedItems.join(", ")}` : "";
                 const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
-                return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel} (${r.matchScore}%)${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${linkStr}`;
+                return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel}${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${linkStr}`;
               })
               .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards) + seatUnknownFootnote(cards)
             + (catalogOutputActive() && ["cheapest", "newest", "lowest_mileage"].includes(String(input.priorityAxis)) && input.yearMin == null && input.mileageMax == null
@@ -2558,7 +2558,11 @@ const handler = createMcpHandler((server) => {
           // produced — same evidence, no second computation, matching the
           // existing find_matching_vehicle direct-VIN pattern exactly.
           const buyerCheck = addRecallCheckStep(shapeBuyerCheckForCatalog(buildBuyerCheck(card, recall)), card);
-          const cardWithBuyerCheck = { ...card, buyerCheck };
+          // Database mode: model and trim confirmed by the NHTSA VIN decode are no longer listed as unknown, so text and structured data agree.
+          const decodeModelOk = !!(catalogOutputActive() && nhtsaResult?.model && listing.vehicle?.model && modelsAgree(listing.vehicle.model, nhtsaResult.model, listing.vehicle?.make));
+          const decodeTrimOk = !!(decodeModelOk && listing.vehicle?.trim && (nhtsaResult?.trimOptions ?? []).some((t) => t.trim().toLowerCase() === String(listing.vehicle?.trim).trim().toLowerCase()));
+          const stillUnknown = ((card as any).verification?.unknownAttributes ?? []).filter((a: string) => !((a === "model" && decodeModelOk) || (a === "trim" && decodeTrimOk)));
+          const cardWithBuyerCheck = { ...card, buyerCheck, verification: { ...(card as any).verification, unknownAttributes: stillUnknown } };
           const checkVehicleResults = shapeCardsForSource([cardWithBuyerCheck]);
 
           const outcomeLabel: Record<BuyerCheck["outcome"], string> = {
