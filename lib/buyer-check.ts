@@ -154,7 +154,7 @@ export function buildBuyerCheck(
     nextSteps.push("Do not delay on the recall above — contact the dealer/manufacturer about remedy availability before proceeding.");
   } else if (recall?.state === "routine") {
     needsVerification.push(recall.detail);
-  } else if (recall?.state === "unavailable" && (recall as { count?: number }).count !== 0) {
+  } else if (recall?.state === "unavailable") {
     needsVerification.push("Recall status could not be retrieved for this vehicle — check manually via NHTSA before purchase.");
   }
 

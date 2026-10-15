@@ -238,7 +238,7 @@ export function buildConstraintChecks(
     }
   }
 
-  push(checkStringField("drivetrain", normDrivetrain(requested.drivetrain), normDrivetrain(actual.drivetrain), relaxedFields.has("drivetrain"), anyListValueMatches));
+  push(checkStringField("drivetrain", normDrivetrain(requested.drivetrain) ?? undefined, normDrivetrain(actual.drivetrain) ?? undefined, relaxedFields.has("drivetrain"), anyListValueMatches));
   push(checkStringField("transmission", requested.transmission, actual.transmission, relaxedFields.has("transmission"), anyListValueMatches));
   push(checkStringField("exteriorColor", requested.exteriorColor, actual.exteriorColor, relaxedFields.has("exteriorColor"), colorLikeMatches));
   push(checkStringField("interiorColor", requested.interiorColor, actual.interiorColor, relaxedFields.has("interiorColor"), colorLikeMatches));
