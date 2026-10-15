@@ -36,7 +36,11 @@ async function collect(): Promise<Record<string, unknown>> {
       searchByDay = (await db.query("SELECT day::text AS day, count(*)::int AS searches, count(*) FILTER (WHERE found = 0)::int AS no_results FROM search_log GROUP BY day ORDER BY day DESC LIMIT 7")).rows;
       topSearches = (await db.query("SELECT make, model, count(*)::int AS searches FROM search_log WHERE day >= current_date - 7 GROUP BY make, model ORDER BY searches DESC LIMIT 10")).rows;
     } catch { /* the search log table is created by the first logged search */ }
-    return { configured: true, ...totals, first_seen_by_day: seenByDay, price_changes_by_day: changedByDay,
+    let loadRuns: Record<string, unknown>[] = [];
+    try {
+      loadRuns = (await db.query("SELECT started_at::text AS started_at, trigger, run_id FROM load_log ORDER BY started_at DESC LIMIT 5")).rows;
+    } catch { /* load_log is written by the daily job; empty until the first run */ }
+    return { configured: true, ...totals, load_runs: loadRuns, first_seen_by_day: seenByDay, price_changes_by_day: changedByDay,
       search_totals: searchTotals, search_by_day: searchByDay, top_searches_last_7_days: topSearches };
   } catch {
     return { configured: true, error: "status unavailable (schema not yet migrated or database unreachable)" };
@@ -76,6 +80,8 @@ function html(d: Record<string, unknown>): string {
 ${table(["Day", "Cars"], (d.first_seen_by_day as Rows) ?? [], ["day", "cars"])}
 <h3>Price changes, by day</h3>
 ${table(["Day", "Cars"], (d.price_changes_by_day as Rows) ?? [], ["day", "cars"])}
+<h2>Daily job runs (latest 5)</h2>
+${table(["Started (UTC)", "Trigger", "Run ID"], (d.load_runs as Rows) ?? [], ["started_at", "trigger", "run_id"])}
 <h2>Searches (search log, test mode)</h2>
 <p>${typeof d.search_totals === "string" ? esc(d.search_totals) : `Total: ${num((d.search_totals as Record<string, unknown>)?.searches)}, last day: ${esc((d.search_totals as Record<string, unknown>)?.last_day)}`}</p>
 <h3>By day</h3>
