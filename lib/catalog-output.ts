@@ -82,6 +82,18 @@ export function catalogDescription(base: string): string {
 }
 
 /**
+ * Database app: one line with the lowest price and lowest mileage in the list shown, so the AI does not have to work them out.
+ */
+export function priceMileageSummary(list: ReadonlyArray<{ price?: number | null; mileage?: number | null }>): string {
+  const prices = list.map((l) => l.price).filter((p): p is number => typeof p === "number");
+  const miles = list.map((l) => l.mileage).filter((m): m is number => typeof m === "number");
+  const parts: string[] = [];
+  if (prices.length) parts.push(`Lowest price in this list: $${Math.min(...prices).toLocaleString("en-US")}`);
+  if (miles.length) parts.push(`lowest mileage: ${Math.min(...miles).toLocaleString("en-US")} mi`);
+  return parts.length ? "\n" + parts.join(", ") + "." : "";
+}
+
+/**
  * Database app: the per-car text the AI reads (many AI hosts rely mostly on the text, not the structured data). Adds one line of vehicle
  * details (fuel, drive, engine, transmission, seats) and one line of NHTSA safety information (rating, model-year recall count, up to 4
  * standard features). Returns "" for other apps and for cars with nothing to show.
@@ -95,6 +107,7 @@ export function nhtsaTextLines(c: any, active: boolean = catalogOutputActive()):
   if (d.nhtsaRecallCampaigns > 0) safety.push(`${d.nhtsaRecallCampaigns} recall campaign${d.nhtsaRecallCampaigns === 1 ? "" : "s"} for this model year`);
   const feats: string[] = Array.isArray(d.standardSafetyTech) ? d.standardSafetyTech : [];
   if (feats.length) safety.push(`NHTSA lists as standard: ${feats.slice(0, 4).join(", ")}${feats.length > 4 ? ` +${feats.length - 4} more` : ""}`);
+  if (Array.isArray(d.standardSafetyTech) && feats.length <= 1) safety.push("Other safety equipment is not in NHTSA data for this model year: check the Edmunds listing.");
   return (spec ? `\n   ${spec}` : "") + (safety.length ? `\n   ${safety.join(" · ")}` : "");
 }
 
