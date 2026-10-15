@@ -109,7 +109,7 @@ function colourRank(q: ListingsQuery, p: Params): string {
 /** The requested priority (cheapest, lowest mileage, newest) goes first in the local search; distance is the tie-break. */
 function localSortFor(sort: string | undefined): string {
   switch ((sort ?? "").toLowerCase()) {
-    case "price.asc": return "x.price ASC NULLS LAST, ";
+    case "price.asc": return "(x.odometer IS NULL) ASC, x.price ASC NULLS LAST, ";
     case "mileage.asc": case "miles.asc": return "x.odometer ASC NULLS LAST, ";
     case "year.desc": return "x.year DESC NULLS LAST, ";
     default: return "";

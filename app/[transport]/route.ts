@@ -255,7 +255,6 @@ function resolveSort(
     // best_for_budget. Provider retrieval falls back to the same
     // price-aware default best_for_budget already uses.
     case "best_for_budget":
-    case "lower_risk":
     default:
       return priceMax != null ? "price.desc" : "year.desc";
   }
@@ -2113,7 +2112,7 @@ const handler = createMcpHandler((server) => {
       const dataNotes: string[] = [];
       if (lowestMileageDefaultedToUsed && !servedByCatalog) {
         dataNotes.push(
-          "Searched used vehicles only — \"lowest mileage\" defaults to used, not new or dealer-demo inventory, since a new car's low mileage isn't a meaningful comparison. Ask for new vehicles specifically if that's what you want.",
+          "Showing used cars only, so the lowest mileage is a fair comparison. Ask for new cars if you want them.",
         );
       }
       if (priceDriftDetected) {
