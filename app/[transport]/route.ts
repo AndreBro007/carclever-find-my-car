@@ -887,7 +887,7 @@ const handler = createMcpHandler((server) => {
                 resultsShown: 0,
                 corpusSizeApprox: getCorpusCountForDescription(),
                 relaxations: [],
-                dataNotes: [],
+                dataNotes: notListedLinks ? [`VIN ${rawVin} is not listed. Similar vehicles on Edmunds: ${(notListedLinks.match(/https?:\/\/\S+/) ?? [""])[0]}`] : [],
                 scopeNote: "vin_lookup",
                 serviceError: null,
                 interpretationNotes: [`Exact VIN lookup for ${rawVin} found no matching live listing.`],
@@ -2592,7 +2592,7 @@ const handler = createMcpHandler((server) => {
           lines.push(`Buyer Check: ${outcomeLabel[buyerCheck.outcome]}`);
           // Catalogue: when the status needs checking, point the buyer to the dealer and the Edmunds listing instead.
           const recallLine = recall
-            ? (catalogOutputActive() && recall.state === "none" ? "Recalls: none found for this model year. Check this VIN with NHTSA (link below)." : catalogOutputActive() && /verify status/i.test(recall.label) ? "Recalls: confirm with the dealer" : recall.label)
+            ? (catalogOutputActive() && recall.state === "none" ? "Recalls: none found for this model year. Check this VIN with NHTSA (link below)." : catalogOutputActive() && recall.count > 0 ? `Recalls: ${recall.count} campaign${recall.count === 1 ? "" : "s"} for this model year (${recall.campaigns.map((c) => c.campaignNumber).filter(Boolean).slice(0, 3).join(", ") || "numbers not listed"}). Check this VIN with NHTSA (link below).` : catalogOutputActive() && /verify status/i.test(recall.label) ? "Recalls: confirm with the dealer" : recall.label)
             : (catalogOutputActive() ? "Recalls: confirm with the dealer" : "Recalls: Data unavailable");
           lines.push(recallLine);
           if (buyerCheck.goodSigns.length) lines.push(`Good signs: ${buyerCheck.goodSigns.join(" ")}`);
@@ -2606,6 +2606,7 @@ const handler = createMcpHandler((server) => {
             else if (modelMatch) lines.push(`Model confirmed by the NHTSA VIN decode (${nhtsaResult.model}). Confirm the trim on the Edmunds listing.`);
             else lines.push("Confirm the model and trim on the Edmunds listing.");
           }
+          if (catalogOutputActive()) { const fresh = freshnessTextLine(card); if (fresh && fresh.trim()) lines.push(fresh.trim()); }
           if (buyerCheck.concerns.length) lines.push(`Concerns: ${buyerCheck.concerns.join(" ")}`);
           if (buyerCheck.needsVerification.length) lines.push(`Needs verification: ${buyerCheck.needsVerification.join(" ")}`);
           if (recall && recall.campaigns.length > 0 && !catalogOutputActive()) {

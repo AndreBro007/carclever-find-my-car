@@ -85,7 +85,7 @@ function buildUnavailable(make: string, model: string, year: number): RecallInfo
     state: "unavailable",
     label: LABELS.unavailable.label,
     detail: LABELS.unavailable.detail,
-    count: 0,
+    count: null as unknown as number, // unknown: the lookup failed, so this is not a zero count
     severeCount: 0,
     campaigns: [],
     nhtsaSourceUrl: buildNhtsaSourceUrl(make, model, year),

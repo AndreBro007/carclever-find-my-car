@@ -67,5 +67,10 @@ export function trimMatches(requested: string, actual: unknown): boolean {
   const actualStr = actual == null ? "" : String(actual);
   if (!actualStr) return false;
   const actTokens = new Set(tokens(actualStr));
-  return reqTokens.every((t) => actTokens.has(t));
+  // Exact trim: every requested word must be present, and the reported trim must not carry extra trim words.
+  // Drivetrain descriptors (AWD, 4WD...) are ignored, so 'Sport Hybrid AWD' still matches 'Sport Hybrid'. 'EX' no longer matches 'EX-L'.
+  const DRIVETRAIN = new Set(["awd", "4wd", "fwd", "rwd", "2wd", "4x4"]);
+  const reqSet = new Set(reqTokens);
+  const extra = [...actTokens].filter((t) => !reqSet.has(t) && !DRIVETRAIN.has(t));
+  return reqTokens.every((t) => actTokens.has(t)) && extra.length === 0;
 }
