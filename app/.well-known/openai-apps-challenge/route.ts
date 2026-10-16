@@ -1,5 +1,5 @@
 export async function GET() {
-  return new Response('QLFTwhKpAAuCPGb4pQplnAOOj2S4njK-GU77rFQdUeo', {
+  return new Response('R9B8EK3aBdSJImgRJTEnKe4P4zV7j0qa7AL-LPuJKfc', {
     headers: {
       'Content-Type': 'text/plain',
       'Cache-Control': 'public, max-age=3600',
