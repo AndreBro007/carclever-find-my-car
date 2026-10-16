@@ -1083,7 +1083,7 @@ const handler = createMcpHandler((server) => {
               scopeNote: "vin_lookup",
               serviceError: null,
               interpretationNotes: [`Direct VIN lookup for ${rawVin} — identifies exactly one vehicle; no broader search was run.`],
-              qualifierAccounting: buildQualifierAccounting(vinIntentInput),
+              qualifierAccounting: buildQualifierAccounting({ ...(vinIntentInput as any), vin: rawVin } as CardIntentInput),
             },
             results: shapeCardsForSource(vinCardsWithBuyerCheck),
           } satisfies FindMatchingVehicleOutput,
@@ -2494,6 +2494,7 @@ const handler = createMcpHandler((server) => {
             }
             if (catalogOutputActive() && nhtsaRecallCheckUrl(rawVin)) lines.push(`Open recalls on this exact VIN: check it with NHTSA's free lookup, ${nhtsaRecallCheckUrl(rawVin)}. ${"NHTSA's lookup covers participating manufacturers and does not show recalls that were already repaired"}.`);
             lines.push(catalogOutputActive() ? "No Buyer Check available — that requires a listing to verify against, and none exists for this VIN here." : "No Buyer Check available — that requires a real listing (accident/ownership history) to verify against, which doesn't exist for this VIN here.");
+            if (catalogOutputActive() && (identityCard as any).links?.affiliateFallbackUrl) lines.push(`Similar used vehicles on Edmunds: ${(identityCard as any).links.affiliateFallbackUrl}`);
 
             const standaloneVinResults = shapeCardsForSource([identityCard]);
             return {
