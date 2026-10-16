@@ -2834,7 +2834,7 @@ const handler = createMcpHandler((server) => {
   server.registerTool(
     "resolve_dealer_url",
     {
-      title: "Resolve Dealer Link",
+      title: "Get Edmunds Link for a Vehicle",
       description: catalogOutputActive() ? "Resolves a usable link for viewing or purchasing a specific vehicle, given its VIN, make, model, and year. Returns the Edmunds VIN-specific link to the vehicle's current listing; otherwise a similar-vehicles link for the same make and model. Never returns the dealer's own listing URL." : "Resolves a usable link for viewing or purchasing a specific vehicle, given its VIN, make, model, and year. Prefers the Edmunds VIN-specific pricing link; when that's unavailable (including for Carvana-sourced vehicles, which are never on Edmunds by VIN), falls back to affiliateFallbackUrl, a live Edmunds category-search link for the same make/model that never dead-ends. Never returns the dealer's own listing URL (dealerListingUrl) as the resolved link, even for Carvana — that field is still present on structuredContent for internal/diagnostic use, just never the text response.",
       inputSchema: {
         vin: z.string().describe("The vehicle's 17-character VIN."),
@@ -2843,7 +2843,7 @@ const handler = createMcpHandler((server) => {
         year: z.number().describe("Model year."),
       },
       outputSchema: ResolveDealerUrlOutput,
-      annotations: { title: "Resolve Dealer Link", readOnlyHint: true, openWorldHint: true, destructiveHint: false },
+      annotations: { title: "Get Edmunds Link for a Vehicle", readOnlyHint: true, openWorldHint: true, destructiveHint: false },
     },
     async ({ vin, make, model, year }) => {
       // No retailListing data available in this call path (only VIN/make/
