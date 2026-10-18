@@ -8,7 +8,7 @@ const card = (make: string, model: string, inv = "used", vin = "V1", score = 99)
 
 test("closing line: model-level similar-vehicles link for the best match, used by default and new when the top match is new", () => {
   const u = closingExitLine([card("Toyota", "RAV4")]);
-  assert.match(u, /^\n\nNot seeing the right one\? More Toyota RAV4 near you on Edmunds: https:\/\/edmunds\.sjv\.io\//);
+  assert.match(u, /^\n\nNot seeing the right one\? More Toyota RAV4 on Edmunds \(this page is not filtered to your area or price\): https:\/\/edmunds\.sjv\.io\//);
   assert.ok(dec(u).includes("/used-toyota-rav4/")); assert.ok(!dec(u).includes("used-toyota-rav4-")); // model level, not one trim
   assert.ok(dec(closingExitLine([card("Toyota", "RAV4", "new")])).includes("/new-toyota-rav4-for-sale/"));
   assert.equal((u.match(/https:\/\//g) ?? []).length, 1);
@@ -20,7 +20,7 @@ test("closing line: nothing in other apps, with no cars, or without a make and m
 });
 test("zero results: the same exit when one make and one model are named, otherwise nothing", () => {
   const t = zeroResultsExitLine("Toyota", "Supra", undefined);
-  assert.match(t, /^\n\nSee Toyota Supra near you on Edmunds: https:\/\/edmunds\.sjv\.io\//); assert.ok(dec(t).includes("/used-toyota-supra/"));
+  assert.match(t, /^\n\nSee all used Toyota Supra on Edmunds \(this page is not filtered to your area, price\): https:\/\/edmunds\.sjv\.io\//); assert.ok(dec(t).includes("/used-toyota-supra/"));
   assert.ok(dec(zeroResultsExitLine("Toyota", "Supra", false)).includes("/new-toyota-supra-for-sale/"));
   assert.equal(zeroResultsExitLine("Toyota", "Supra, RAV4", undefined), ""); assert.equal(zeroResultsExitLine(undefined, "Supra", undefined), "");
   assert.equal(zeroResultsExitLine("Toyota", "", undefined), "");

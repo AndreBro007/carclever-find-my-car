@@ -34,3 +34,10 @@ export function addRecallCheckStep<T extends { nextSteps: string[] }>(bc: T, car
   const u = card?.links?.nhtsaRecallCheckUrl;
   return u ? { ...bc, nextSteps: [...bc.nextSteps, `Check this VIN for open (unrepaired) recalls with NHTSA's free lookup (${u}), ${ADVICE}.`] } : bc;
 }
+
+/** Reply for a VIN whose check digit does not calculate: a clear "invalid" message and NHTSA's free lookup, no vehicle card. */
+export function invalidVinMessage(vin: string): string {
+  const url = nhtsaRecallCheckUrl(vin);
+  return `Invalid VIN: ${vin} fails the check-digit test (the 9th character does not calculate), which usually means a typo. Please double-check the VIN.` +
+    (url ? ` If you want to try it as typed, NHTSA's free recall lookup is here: ${url}` : "");
+}

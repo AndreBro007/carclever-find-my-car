@@ -87,7 +87,7 @@ test("database mode: a VIN lookup finds the car; an unknown VIN gets the catalog
   const found = await call(4, { vin: vinFor(6) });
   assert.notEqual(found.result.isError, true);
   assert.ok(JSON.stringify(found.result).includes(vinFor(6)), "the requested VIN is in the answer");
-  const missing = await call(5, { vin: "1HGCV1F3999Z99999" });
+  const missing = await call(5, { vin: "1HGCV1F39MZ999999" }); // a valid VIN that is simply not in the catalogue
   const txt = JSON.stringify(missing.result);
   assert.ok(/No listing found for VIN/.test(txt));
   assert.ok(!/current live inventory/.test(txt), "uses the catalogue wording, not the Auto.dev wording");
@@ -103,4 +103,52 @@ test("database mode: a database outage becomes the quiet service error, never a 
   assert.ok(sc.meta.serviceError, "the service error is reported");
   setCatalogDbPoolForTests(pool); await broken.end().catch(() => {});
   assert.equal(autoDev, 0);
+});
+
+const callTool = (id: number, name: string, args: Record<string, unknown>) => rpc({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+const textOf = (out: { result: { content: Array<{ text: string }> } }): string => out.result.content.map((c) => c.text).join("\n");
+
+test("a VIN that is not listed and fails its check digit gets an Invalid VIN message with an NHTSA link and no card, in both tools", opts, async () => {
+  const bad = "1HGCV1F3999Z99999";
+  for (const name of ["find_matching_vehicle", "check_vehicle"]) {
+    const out = await callTool(20, name, { vin: bad });
+    const txt = textOf(out);
+    assert.match(txt, /Invalid VIN/);
+    assert.ok(txt.includes(`nhtsa.gov/recalls?vymm=${bad}`), "NHTSA recall link");
+    assert.equal((out.result.structuredContent?.results ?? []).length, 0, `${name}: no card`);
+  }
+  const listed = await call(21, { vin: vinFor(6) }); // a listed car stays findable even if its VIN data is odd
+  assert.ok(JSON.stringify(listed.result).includes(vinFor(6)));
+});
+
+test("no results: the closest options over budget are listed with links; nothing is added to the result list", opts, async () => {
+  const txt = textOf(await call(22, { make: "Honda", model: "Civic", priceMax: 1000, zip: "90210" }));
+  assert.match(txt, /No vehicles matched Honda Civic at up to \$1,000 within 50 miles of 90210/);
+  assert.match(txt, /Closest Honda Civic options near ZIP 90210, lowest price first\. These are over your budget:/);
+  assert.ok((txt.match(/https:\/\/edmunds\.sjv\.io/g) ?? []).length >= 2, "alternatives carry links");
+  assert.ok(!/would likely surface options/.test(txt));
+  const out = await call(22, { make: "Honda", model: "Civic", priceMax: 1000, zip: "90210" });
+  assert.equal(out.result.structuredContent.results.length, 0);
+});
+
+test("no results: a model with no listings gets other models from the same make", opts, async () => {
+  const txt = textOf(await call(23, { make: "Toyota", model: "Supra" }));
+  assert.match(txt, /Other Toyota models inside your filters:/);
+  assert.match(txt, /RAV4/);
+});
+
+test("a thin local result puts the offer to search wider at the top, not at the end", opts, async () => {
+  const txt = textOf(await call(24, { make: "Honda", model: "Civic", zip: "90210", radiusMiles: 50 }));
+  assert.ok(txt.indexOf("Want me to search wider?") !== -1 && txt.indexOf("Want me to search wider?") < txt.indexOf("Found "), "offer comes before the list");
+  assert.ok(!txt.includes("Ask me to widen"));
+});
+
+test("cylinders and transmission are reported as not applied, never as filtered", opts, async () => {
+  const out = await call(25, { make: "Honda", model: "Civic", cylinders: 4, transmission: "Manual", zip: "90210" });
+  const acc = out.result.structuredContent.meta.qualifierAccounting as Array<{ requested: string; tier: string; applied: string }>;
+  for (const label of ["cylinder count", "transmission"]) {
+    const e = acc.find((x) => x.requested === label);
+    assert.ok(e, `${label} accounted for`); assert.equal(e!.tier, "disclosed_not_filtered"); assert.match(e!.applied, /not applied as a filter/);
+  }
+  assert.ok(!acc.some((x) => /filtered on (cylinder|transmission)/.test(x.applied)));
 });

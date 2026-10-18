@@ -160,3 +160,9 @@ export function analyzeVin(rawVin: string | undefined): VinAnatomy {
     country: countryFromFirstChar(vin[0]),
   };
 }
+
+/** True only for a well-formed North American VIN whose check digit (9th character) does not calculate. */
+export function vinCheckDigitFails(vin: string): boolean {
+  const a = analyzeVin(vin);
+  return a.formatValid && a.checkDigitValid === false;
+}

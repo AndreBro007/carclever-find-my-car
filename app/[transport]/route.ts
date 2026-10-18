@@ -9,7 +9,6 @@ import { buildComparison, comparisonText, type CompareItem } from "@/lib/compare
 import { closingExitLine, zeroResultsExitLine, sortByScoreThenDistance } from "@/lib/dead-end-links";
 import { attachNhtsaRatings } from "@/lib/nhtsa-ratings";
 import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets } from "@/lib/listing-source";
-import { inferClassHint } from "@/lib/vehicle-class";
 // Widening ladder re-enabled 2026-08-16 (SYS-20260816-008). It was bypassed on
 // Aug 13 per André's request — "search itself needs to work correctly before any
 // widening logic runs on top of it." That precondition is now met: the stage-2
@@ -39,7 +38,10 @@ import { decodeNhtsaElectrification, nhtsaIndicatesElectrified, type NhtsaElectr
 import { isAnomalousPrice, buildCpoSummary, buildHistorySummary, applyLocalBestForBudgetOrdering } from "@/lib/local-ranking";
 import { FindMatchingVehicleInputCatalog } from "@/lib/find-matching-vehicle-input";
 import { fetchRecallStatus, clipRecallText, type RecallInfo } from "@/lib/nhtsa-recalls-client";
-import { nhtsaLinkField, nhtsaRecallCheckUrl, recallCheckFootnote, recallCheckLine, addRecallCheckStep } from "@/lib/nhtsa-links";
+import { nhtsaLinkField, nhtsaRecallCheckUrl, recallCheckFootnote, recallCheckLine, addRecallCheckStep, invalidVinMessage } from "@/lib/nhtsa-links";
+import { vinCheckDigitFails } from "@/lib/vin-anatomy";
+import { buildNoResultsAlternatives } from "@/lib/no-results-alternatives";
+import { classSizeNote, inferClassHint } from "@/lib/vehicle-class";
 
 import { getCorpusCountForDescription } from "@/lib/corpus-count";
 import { CAPABILITIES } from "@/lib/capabilities";
@@ -61,13 +63,13 @@ const CATALOG_FIND_MATCHING_VEHICLE_DESCRIPTION = `Finds current vehicles for sa
 
 Direct filter fields should reflect requirements the user stated or clearly implied; leave unstated restrictions unset.
 
-Search inputs include make, model, price, year, mileage, location, body style, drivetrain, transmission, trim, seating, color, condition, electrification, and purchase priority. Most direct criteria are matched against actual listing data; seating, certification, and history-related requests reflect available evidence, which may be confirmed, unconfirmed, or unreported rather than guaranteed. Practical needs such as a large family SUV, a teen-driver car, or a vehicle for towing are interpreted before the search runs to identify relevant candidates; this tool then searches and ranks them using actual listing data — it does not independently establish reliability, safety, running cost, towing suitability, condition, accident-free history, or certification. When a practical need implies a vehicle class, resolve it into real matching model names yourself and include them in model before calling this tool, every time, alongside the related need stated in vehicleNeeds. For a broad hybrid, plug-in hybrid, or electric request, likewise resolve suitable real model or variant names and include them in model before calling the tool. For required hybrid or plug-in hybrid searches, use electrified variants only; for preferred searches, acceptable base-model alternatives may also be included.
+Search inputs include make, model, price, year, mileage, location, body style, drivetrain, trim, seating, color, condition, electrification, and purchase priority. Most direct criteria are matched against actual listing data; seating, certification, and history-related requests reflect available evidence, which may be confirmed, unconfirmed, or unreported rather than guaranteed. Practical needs such as a large family SUV, a teen-driver car, or a vehicle for towing are interpreted before the search runs to identify relevant candidates; this tool then searches and ranks them using actual listing data — it does not independently establish reliability, safety, running cost, towing suitability, condition, accident-free history, or certification. When a practical need implies a vehicle class, resolve it into real matching model names yourself and include them in model before calling this tool, every time, alongside the related need stated in vehicleNeeds. For a broad hybrid, plug-in hybrid, or electric request, likewise resolve suitable real model or variant names and include them in model before calling the tool. For required hybrid or plug-in hybrid searches, use electrified variants only; for preferred searches, acceptable base-model alternatives may also be included.
 
 An exact 17-character VIN refers to one specific listing; if unavailable, that outcome is reported rather than substituting a similar vehicle, with a link to similar vehicles. Electrification requests state accepted types — hybrid (including mild hybrid), plug-in hybrid, electric — and whether required or preferred. A vehicle's primary fuel label alone does not determine hybrid or plug-in-hybrid status. For an unambiguous city-only request, a representative ZIP may be supplied as the local search anchor; results disclose the overall local, state-wide, or nationwide scope.
 
 Results include current matching listings, viewing links where available, and available evidence about confirmed, unconfirmed, or changed criteria. Each result links to its Edmunds listing for current details. Missing history, ownership, certification, or specification data remains unknown and is never treated as proof a vehicle satisfies or fails a request.
 
-This tool is for vehicle-listing searches — not general automotive education, maintenance, financing, leasing, unsupported categories, or comparisons not requiring current listings.`;
+This tool is for vehicle-listing searches — not general automotive education, maintenance, financing, leasing, unsupported categories, or comparisons not requiring current listings. Report only what this reply says: do not add claims from memory about what a manufacturer sells or has sold, model availability, or specifications.`;
 
 const ResolveDealerUrlOutput = z.object({
   affiliateUrl: z.string().nullable(),
@@ -846,12 +848,34 @@ const handler = createMcpHandler((server) => {
           };
         }
 
+
         const [fullListing, exactSearchRow] = await Promise.all([
           getListingByVin(rawVin),
           searchListingByVinExact(rawVin),
         ]);
 
         if (!fullListing) {
+          // A VIN that is not in the catalogue AND fails its check digit is almost certainly a typo: say so instead of "not listed".
+          if (vinCheckDigitFails(rawVin)) {
+            return {
+              content: [{ type: "text" as const, text: invalidVinMessage(rawVin) }],
+              structuredContent: {
+                meta: {
+                  totalCandidatesConsidered: 0,
+                  totalMatches: 0,
+                  resultsShown: 0,
+                  corpusSizeApprox: getCorpusCountForDescription(),
+                  relaxations: [],
+                  dataNotes: [],
+                  scopeNote: "vin_lookup",
+                  serviceError: null,
+                  interpretationNotes: [`"${input.vin}" fails the VIN check-digit test.`],
+                  qualifierAccounting: [],
+                },
+                results: [],
+              } satisfies FindMatchingVehicleOutput,
+            };
+          }
           // Database app: a VIN we do not list still gets the exact-VIN and similar-vehicle Edmunds links (end of funnel: dealer contact).
           const notListedLinks = await notListedLinksText(rawVin);
           return {
@@ -1668,7 +1692,7 @@ const handler = createMcpHandler((server) => {
         // (default).
         input.priorityAxis === "best_for_budget" || input.priorityAxis == null
           ? applyConfigurationVarietyPass(
-              applyLocalBestForBudgetOrdering(electrificationFilteredCandidates, intent.semantic.trimPreference, electrificationMatchOf),
+              applyLocalBestForBudgetOrdering(electrificationFilteredCandidates, intent.semantic.trimPreference, electrificationMatchOf, input.priceMax),
             )
           : electrificationFilteredCandidates,
         targetCount * 2,
@@ -2068,6 +2092,7 @@ const handler = createMcpHandler((server) => {
       }
 
       const dataNotes: string[] = [];
+      { const sizeNote = classSizeNote(input); if (sizeNote) dataNotes.push(sizeNote); }
       if (lowestMileageDefaultedToUsed) {
         dataNotes.push(
           "Showing used cars only, so the lowest mileage is a fair comparison. Ask for new cars if you want them.",
@@ -2233,7 +2258,7 @@ const handler = createMcpHandler((server) => {
           ? `No vehicles matched these criteria, even after automatically trying to widen the ${uniqueAttemptedSteps
               .map((s) => STEP_LABELS[s])
               .join(", ")} — this looks like a genuine inventory gap for this exact combination, not something more widening on those same dimensions would fix. A different location, a broader model list, or (if the budget allows) some price flexibility may help instead.`
-          : "No vehicles matched these criteria. Widening the price range, location radius, or year range would likely surface options.";
+          : `No vehicles matched ${[input.used === true ? "used" : input.used === false ? "new" : "", input.make ?? "", input.model ?? ""].filter(Boolean).join(" ") || "these criteria"}${input.priceMax != null ? ` at up to $${Number(input.priceMax).toLocaleString("en-US")}` : ""}${rawZip ? ` within ${input.radiusMiles ?? 50} miles of ${rawZip}` : ""}. Nothing was widened or substituted.`;
 
       // Partial-success disclosure gap (SYS-20260816-049, real bug found live
       // 2026-08-16): a widening step can be genuinely attempted and fail to
@@ -2264,12 +2289,23 @@ const handler = createMcpHandler((server) => {
                 .join(", ")}, but that didn't turn up any additional matches.\n\n`
             : "";
 
+      const alternativesText =
+        cards.length === 0 && !serviceFailureMessage && !zipLikelyInvalid && !rawResult.error
+          ? await buildNoResultsAlternatives(effectiveQuery, searchListingsLean, { trim: typeof input.trimRequired === "string" ? input.trimRequired : undefined, unmet: input.electrificationRequirement === "required" ? "as the electric or hybrid car you asked for" : undefined })
+          : "";
+
+      const thinAreaRadius = input.radiusMiles ?? 50;
+      const thinAreaOffer =
+        input.zip && cards.length > 0 && cards.length < SHORTLIST_SIZE
+          ? `Only ${cards.length} within ${thinAreaRadius} miles of ${input.zip}. Want me to search wider? Ask for ${thinAreaRadius < 100 ? "100 miles" : "the whole state or nationwide"} and I'll look again.\n\n`
+          : "";
+
       const summary =
         serviceFailureMessage
           ? disclosurePrefix + serviceFailureMessage
           : cards.length === 0
-          ? disclosurePrefix + noResultsMessage + zeroResultsExitLine(input.make, input.model, input.used)
-          : disclosurePrefix + partialWideningNote + `Found ${cards.length} closely matching vehicle${cards.length === 1 ? "" : "s"}${totalPhrase}:\n\n` +
+          ? disclosurePrefix + noResultsMessage + alternativesText + zeroResultsExitLine(input.make, input.model, input.used, input.trimRequired ?? input.trimPreference)
+          : disclosurePrefix + thinAreaOffer + partialWideningNote + `Found ${cards.length} closely matching vehicle${cards.length === 1 ? "" : "s"}${totalPhrase}:\n\n` +
             cards
               .map((c, i) => {                const id = c.identity;
                 const l = c.listing;
@@ -2318,7 +2354,7 @@ const handler = createMcpHandler((server) => {
                 const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
                 return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel}${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${linkStr}`;
               })
-              .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards) + seatUnknownFootnote(cards) + (Array.isArray(input.vehicleNeeds) && input.vehicleNeeds.length && cards.length ? `\n\nBefore you buy, ask the dealer about: ${input.vehicleNeeds.join(", ")}. These are not in our data, so ask for service and history records.` : "") + (input.zip && cards.length < SHORTLIST_SIZE ? `\n\nOnly ${cards.length} within ${input.radiusMiles ?? 50} miles. Ask me to widen to 100 miles to see more.` : "") + (cards.length ? "\n\nCheck each Edmunds listing, then contact the dealer to confirm price, history and availability." : "")
+              .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards) + seatUnknownFootnote(cards) + (Array.isArray(input.vehicleNeeds) && input.vehicleNeeds.length && cards.length ? `\n\nBefore you buy, ask the dealer about: ${input.vehicleNeeds.join(", ")}. These are not in our data, so ask for service and history records.` : "") + (cards.length ? "\n\nCheck each Edmunds listing, then contact the dealer to confirm price, history and availability." : "")
             + (["cheapest", "newest", "lowest_mileage"].includes(String(input.priorityAxis)) && input.yearMin == null && input.mileageMax == null
               ? "\n\nFor a closer match, tell me a minimum year, a maximum mileage or your budget, and I'll narrow the list." : "");
 
@@ -2380,6 +2416,9 @@ const handler = createMcpHandler((server) => {
 
           const listing = await getListingByVin(rawVin);
           if (!listing) {
+            if (vinCheckDigitFails(rawVin)) {
+              return { content: [{ type: "text" as const, text: invalidVinMessage(rawVin) }] }; // not in the catalogue and the check digit fails: a typo, no card
+            }
             // V3.3 standalone VIN, no listing found: still decode the VIN
             // itself (NHTSA vPIC, zero cost either way — same free call
             // used elsewhere) so the card can show real identity fields

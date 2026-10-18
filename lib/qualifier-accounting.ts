@@ -207,8 +207,6 @@ export function buildQualifierAccounting(input: CardIntentInput): QualifierAccou
     ["exteriorColor", "exterior color"],
     ["interiorColor", "interior color"],
     ["drivetrain", "drivetrain"],
-    ["transmission", "transmission"],
-    ["cylinders", "cylinder count"],
     ["doors", "door count"],
     ["vehicleType", "vehicle type"],
     ["used", "new/used"],
@@ -219,6 +217,20 @@ export function buildQualifierAccounting(input: CardIntentInput): QualifierAccou
     if (value != null && value !== "") {
       entries.push({ requested: label, tier: "structural_filter", applied: (input as any).vin ? `checked against this listing: ${label} = ${value}` : `filtered on ${label} = ${value}` });
     }
+  }
+
+  // The catalogue has no transmission or cylinder-count field, so these are never used to filter a search. Say so
+  // plainly (each result still shows what the VIN decode confirms) instead of claiming a filter that did not run.
+  const notApplied: Array<[keyof CardIntentInput, string, string]> = [
+    ["transmission", "transmission", "the listing data has no transmission field; each result shows it when known"],
+    ["cylinders", "cylinder count", "the listing data has no cylinder-count field; each result shows its confirmed engine when known"],
+  ];
+  for (const [key, label, why] of notApplied) {
+    const value = input[key];
+    if (value == null || value === "") continue;
+    entries.push((input as any).vin
+      ? { requested: label, tier: "structural_filter", applied: `checked against this listing: ${label} = ${value}` }
+      : { requested: label, tier: "disclosed_not_filtered", applied: `not applied as a filter: ${why}` });
   }
 
   if (input.cpo === true) {

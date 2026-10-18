@@ -108,6 +108,7 @@ export function applyLocalBestForBudgetOrdering(
   candidates: VehicleListing[],
   trimPreference: string | undefined,
   electrificationMatchOf?: (c: VehicleListing) => boolean,
+  priceCap?: number,
 ): VehicleListing[] {
   if (candidates.length === 0) return candidates;
 
@@ -137,8 +138,19 @@ export function applyLocalBestForBudgetOrdering(
     if (p == null || priceMin == null || priceMax == null || priceMax === priceMin) return 0.5;
     return (priceMax - p) / (priceMax - priceMin);
   };
+  // With a stated price ceiling the buyer wants the best car UP TO that ceiling, not the cheapest one: year and mileage
+  // carry most of the weight, and a price closer to the ceiling scores higher (cheaper is not better by itself).
+  // Without a ceiling the earlier equal-weight score (cheaper ranks higher) is unchanged.
+  const hasCap = priceCap != null && Number.isFinite(priceCap) && priceCap > 0;
+  const budgetUseRank = (c: VehicleListing): number => {
+    const p = c.retailListing?.price;
+    if (p == null || isAnomalousPrice(p)) return 0.5;
+    return Math.min(Math.max(p / (priceCap as number), 0), 1);
+  };
   const balancedScore = (c: VehicleListing): number =>
-    (yearRank(c.vehicle?.year) + mileageRank(c.retailListing?.miles) + priceRank(c)) / 3;
+    hasCap
+      ? 0.4 * yearRank(c.vehicle?.year) + 0.4 * mileageRank(c.retailListing?.miles) + 0.2 * budgetUseRank(c)
+      : (yearRank(c.vehicle?.year) + mileageRank(c.retailListing?.miles) + priceRank(c)) / 3;
   const trimMatchRank = (c: VehicleListing): number =>
     trimPreference && trimMatches(trimPreference, c.vehicle?.trim) ? 0 : 1;
   const anomalyRank = (c: VehicleListing): number => (isAnomalousPrice(c.retailListing?.price) ? 1 : 0);

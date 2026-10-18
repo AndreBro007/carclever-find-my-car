@@ -116,13 +116,13 @@ function localSortFor(sort: string | undefined): string {
   }
 }
 
-function orderFor(sort: string | undefined): string {
+function orderFor(sort: string | undefined, hasCeiling = false): string {
   switch ((sort ?? "").toLowerCase()) {
     case "price.asc": return "l.price ASC NULLS LAST, l.year DESC NULLS LAST";
     case "price.desc": return "l.price DESC NULLS LAST, l.year DESC NULLS LAST";
     case "year.desc": return "l.year DESC NULLS LAST, l.price ASC NULLS LAST";
     case "mileage.asc": case "miles.asc": return "l.odometer ASC NULLS LAST, l.price ASC NULLS LAST";
-    default: return "l.year DESC NULLS LAST, l.price ASC NULLS LAST";
+    default: return hasCeiling ? "l.year DESC NULLS LAST, l.price DESC NULLS LAST" : "l.year DESC NULLS LAST, l.price ASC NULLS LAST";
   }
 }
 
@@ -143,7 +143,7 @@ async function plainSearch(db: Queryable, q: ListingsQuery, models: string[] | n
   const whereSql = w.length ? `WHERE ${w.join(" AND ")}` : "";
   const nWhere = p.values.length; // the count query uses only the filter parameters, not the ranking ones added below
   const cr = colourRank(q, p);
-  const rows = await db.query(`SELECT ${SELECT_COLS}, NULL::float AS distance ${FROM} ${whereSql} ORDER BY ${cr === "0" ? "" : cr + ", "}${orderFor(q.sort)} LIMIT ${limitOf(q)}`, p.values);
+  const rows = await db.query(`SELECT ${SELECT_COLS}, NULL::float AS distance ${FROM} ${whereSql} ORDER BY ${cr === "0" ? "" : cr + ", "}${orderFor(q.sort, q.priceMax != null)} LIMIT ${limitOf(q)}`, p.values);
   const total = await countCapped(db, whereSql, p.values.slice(0, nWhere));
   return { rows: rows.rows as unknown as DbRow[], total, localApplied: false };
 }

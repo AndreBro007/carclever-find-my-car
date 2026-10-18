@@ -96,7 +96,7 @@ export interface ListingsQuery {
   sort?: string; // e.g. "price.asc"
   includeFacets?: boolean;
   /** Set by the route when a class (e.g. large 3-row SUV) was described without model names; used by the catalogue source only. */
-  classHint?: "large_suv_3row";
+  classHint?: import("./vehicle-class").ClassHint;
 }
 
 export interface ListingsResponse {

@@ -460,7 +460,7 @@ function buyerCheckTests() {
   check("Diversified-ordering dispatch block located", dispatch.length > 0);
   check(
     "best_for_budget branch still calls applyConfigurationVarietyPass(applyLocalBestForBudgetOrdering(...)) unchanged (now fed by electrificationFilteredCandidates + electrificationMatchOf, DECISIONS.md SYS-20260909-001)",
-    /applyConfigurationVarietyPass\(\s*\n\s*applyLocalBestForBudgetOrdering\(electrificationFilteredCandidates, intent\.semantic\.trimPreference, electrificationMatchOf\),\s*\n\s*\)/.test(dispatch),
+    /applyConfigurationVarietyPass\(\s*\n\s*applyLocalBestForBudgetOrdering\(electrificationFilteredCandidates, intent\.semantic\.trimPreference, electrificationMatchOf, input\.priceMax\),\s*\n\s*\)/.test(dispatch),
   );
 }
 

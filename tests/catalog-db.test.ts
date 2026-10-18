@@ -144,9 +144,11 @@ describe("catalogue db: load and search (real PostgreSQL)", { skip: DB ? false :
     assert.equal(r.data[0].retailListing?.zip, "90210");
   });
 
-  test("when too few are nearby the search widens, and never returns nothing", async () => {
+  test("when too few are nearby the search does NOT widen on its own (SYS-20261015-016): only cars inside the asked radius, the reply offers the wider search", async () => {
     const r = await searchCatalogDbListings({ make: "Ford", model: "F-150", zip: "90210", radius: 25 });
-    assert.ok(r.data.length >= 2); assert.ok(r.data.every((l) => l.vehicle?.model === "F-150"));
+    assert.equal(r.localApplied, true);
+    assert.ok(r.data.every((l) => l.vehicle?.model === "F-150"));
+    assert.ok(r.data.every((l) => (l.catalog?.distanceMiles ?? 0) <= 25), "never a car from outside the asked radius");
   });
 
   test("a leading-zero ZIP (Boston) works", async () => {
