@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { vinCheckDigitFails } from "../lib/vin-anatomy";
 import { invalidVinMessage } from "../lib/nhtsa-links";
-import { inferClassHint, classModels, classSizeNote } from "../lib/vehicle-class";
+import { broadBodyTypeHint, unappliedFilterNote } from "../lib/broad-search-hint";
 import { applyLocalBestForBudgetOrdering } from "../lib/local-ranking";
 import { buildQualifierAccounting } from "../lib/qualifier-accounting";
 import { zeroResultsExitLine, closingExitLine } from "../lib/dead-end-links";
@@ -17,20 +17,21 @@ test("check digit: the bad VINs fail, a valid VIN and a non-North-American VIN d
   assert.match(invalidVinMessage("1C4RJFBG3KC123456"), /^Invalid VIN: 1C4RJFBG3KC123456 .*nhtsa\.gov\/recalls\?vymm=1C4RJFBG3KC123456/);
 });
 
-test("SUV size classes: midsize and compact map to different model lists; a named model wins; other body styles get an honest note", () => {
-  assert.equal(inferClassHint({ bodyType: "SUV", vehicleNeeds: ["midsize SUV"] }), "midsize_suv");
-  assert.equal(inferClassHint({ bodyType: "SUV", vehicleNeeds: ["compact crossover"] }), "compact_suv");
-  assert.equal(inferClassHint({ bodyType: "SUV", vehicleNeeds: ["subcompact SUV"] }), "subcompact_suv");
-  assert.equal(inferClassHint({ bodyType: "SUV", vehicleNeeds: ["large family SUV"] }), "large_suv_3row");
-  assert.equal(inferClassHint({ bodyType: "SUV" }), undefined);
-  assert.equal(inferClassHint({ model: "RAV4", bodyType: "SUV", vehicleNeeds: ["midsize"] }), undefined);
-  const mid = classModels("midsize_suv"), compact = classModels("compact_suv");
-  assert.ok(mid.includes("Highlander") && mid.includes("Santa Fe") && !mid.includes("Escape") && !mid.includes("Equinox"));
-  assert.ok(compact.includes("Escape") && compact.includes("Equinox") && !compact.includes("Highlander"));
-  assert.ok(classModels("large_suv_3row").includes("Tahoe"));
-  assert.match(classSizeNote({ bodyType: "SUV", vehicleNeeds: ["midsize SUV"] }), /matched against a list of models.*no size field/);
-  assert.match(classSizeNote({ bodyType: "Sedan", vehicleNeeds: ["midsize sedan"] }), /no size field.*could not be applied/);
-  assert.equal(classSizeNote({ bodyType: "SUV" }), "");
+test("broad body-type hint: only for a body type with no model and no make; no tables, the AI does the classifying", () => {
+  assert.match(broadBodyTypeHint({ bodyType: "SUV" }), /broad SUV search with no model names.*resend with the real model names for that class in "model": the catalogue has no size data/);
+  assert.equal(broadBodyTypeHint({ bodyType: "SUV", model: "Highlander, Pilot" }), "");
+  assert.equal(broadBodyTypeHint({ bodyType: "Sedan", make: "Honda" }), "");
+  assert.equal(broadBodyTypeHint({}), "");
+});
+
+test("not-applied note: names the field, shows what the results are, tells the AI to state only that", () => {
+  const cards = [{ detail: { cylinders: 6 } }, { detail: { cylinders: 6 } }, { detail: { cylinders: null } }];
+  const n = unappliedFilterNote({ cylinders: 4 }, cards);
+  assert.match(n, /^cylinder count could not be applied as a filter because the catalogue has no such field\. Cylinder count in these results: 6-cylinder \(2 of 3\), unknown \(1 of 3\)\. State only what is shown here/);
+  const t = unappliedFilterNote({ transmission: "Manual" }, [{ powertrain: { transmission: "Automatic" } }]);
+  assert.match(t, /Transmission in these results: Automatic \(1 of 1\)\./);
+  assert.match(unappliedFilterNote({ cylinders: 4, transmission: "Manual" }, []), /^cylinder count and transmission could not be applied/);
+  assert.equal(unappliedFilterNote({}, cards), "");
 });
 
 const car = (vin: string, year: number, miles: number, price: number): any => ({ vin, vehicle: { year, make: "X", model: "Y" }, retailListing: { price, miles } });
@@ -50,10 +51,10 @@ test("accounting: cylinders and transmission are never reported as filtered in a
   assert.equal(vin[0].tier, "structural_filter"); assert.match(vin[0].applied, /checked against this listing/);
 });
 
-test("Edmunds labels say what the page is: not filtered to area, price or trim; no 'near you'", () => {
+test("Edmunds labels are short and claim nothing about area: all trims, not filtered to the asked trim; no 'near you'", () => {
   const z = zeroResultsExitLine("Mercedes-Benz", "GLA", true, "AMG");
-  assert.match(z, /^\n\nSee all used Mercedes-Benz GLA on Edmunds \(this page is not filtered to your area, price or AMG trim\): https:\/\/edmunds\.sjv\.io\//);
+  assert.match(z, /^\n\nSee all used Mercedes-Benz GLA on Edmunds \(all trims, not filtered to AMG\): https:\/\/edmunds\.sjv\.io\//);
   assert.ok(!/near you/.test(z));
   const c = closingExitLine([{ identity: { make: "Honda", model: "Civic" }, condition: { inventoryType: "used" } }]);
-  assert.match(c, /on Edmunds \(this page is not filtered to your area or price\)/); assert.ok(!/near you/.test(c));
+  assert.match(c, /on Edmunds \(all trims\): https:/); assert.ok(!/near you/.test(c));
 });

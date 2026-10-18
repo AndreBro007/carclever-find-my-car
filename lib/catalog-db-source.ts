@@ -7,7 +7,6 @@
  */
 import { Pool } from "pg";
 import type { VehicleListing, ListingsQuery, ListingsResponse } from "./listing-types";
-import { classModels } from "./vehicle-class";
 import { buildTrackingUrl, type BodyClass } from "./catalog-db/normalize";
 import { modelFacets, rowByVin, searchRows, type DbRow, type Queryable } from "./catalog-db/search";
 import { cleanConnectionString } from "./catalog-db/conn";
@@ -76,7 +75,6 @@ export function rowToListing(r: DbRow): VehicleListing {
 function modelsFor(q: ListingsQuery): string[] | null {
   const given = (q.model ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   if (given.length) return given;
-  if (q.classHint) return classModels(q.classHint, { make: q.make, priceMax: q.priceMax, priceMin: q.priceMin });
   return null;
 }
 

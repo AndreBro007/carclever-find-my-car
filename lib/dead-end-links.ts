@@ -18,7 +18,7 @@ export function closingExitLine(cards: any[]): string {
   const top = cards.find((c) => c?.identity?.make && c?.identity?.model);
   if (!top) return "";
   const url = modelLevelLink(String(top.identity.make), String(top.identity.model), top.condition?.inventoryType === "new");
-  return url ? `\n\nNot seeing the right one? More ${label(top.identity.make, top.identity.model)} on Edmunds (this page is not filtered to your area or price): ${url}` : "";
+  return url ? `\n\nNot seeing the right one? More ${label(top.identity.make, top.identity.model)} on Edmunds (all trims): ${url}` : "";
 }
 
 /** Dead end 2: no results for a named make and model. The same exit instead of nothing. "" when one make and one model are not named. */
@@ -27,7 +27,7 @@ export function zeroResultsExitLine(make: unknown, model: unknown, used: unknown
   if (!mk || !md || md.includes(",") || mk.includes(",")) return "";
   const url = modelLevelLink(mk, md, used === false);
   const tr = typeof trim === "string" ? trim.trim() : "";
-  return url ? `\n\nSee all ${used === false ? "new" : "used"} ${label(mk, md)} on Edmunds (this page is not filtered to your area, price${tr ? ` or ${tr} trim` : ""}): ${url}` : "";
+  return url ? `\n\nSee all ${used === false ? "new" : "used"} ${label(mk, md)} on Edmunds (all trims${tr ? `, not filtered to ${tr}` : ""}): ${url}` : "";
 }
 
 /** Highest match score first; among equal scores the nearest dealer first (unknown distance last). Returns a new array. */

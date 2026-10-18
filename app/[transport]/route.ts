@@ -41,7 +41,7 @@ import { fetchRecallStatus, clipRecallText, type RecallInfo } from "@/lib/nhtsa-
 import { nhtsaLinkField, nhtsaRecallCheckUrl, recallCheckFootnote, recallCheckLine, addRecallCheckStep, invalidVinMessage } from "@/lib/nhtsa-links";
 import { vinCheckDigitFails } from "@/lib/vin-anatomy";
 import { buildNoResultsAlternatives } from "@/lib/no-results-alternatives";
-import { classSizeNote, inferClassHint } from "@/lib/vehicle-class";
+import { broadBodyTypeHint, unappliedFilterNote } from "@/lib/broad-search-hint";
 
 import { getCorpusCountForDescription } from "@/lib/corpus-count";
 import { CAPABILITIES } from "@/lib/capabilities";
@@ -63,7 +63,7 @@ const CATALOG_FIND_MATCHING_VEHICLE_DESCRIPTION = `Finds current vehicles for sa
 
 Direct filter fields should reflect requirements the user stated or clearly implied; leave unstated restrictions unset.
 
-Search inputs include make, model, price, year, mileage, location, body style, drivetrain, trim, seating, color, condition, electrification, and purchase priority. Most direct criteria are matched against actual listing data; seating, certification, and history-related requests reflect available evidence, which may be confirmed, unconfirmed, or unreported rather than guaranteed. Practical needs such as a large family SUV, a teen-driver car, or a vehicle for towing are interpreted before the search runs to identify relevant candidates; this tool then searches and ranks them using actual listing data — it does not independently establish reliability, safety, running cost, towing suitability, condition, accident-free history, or certification. When a practical need implies a vehicle class, resolve it into real matching model names yourself and include them in model before calling this tool, every time, alongside the related need stated in vehicleNeeds. For a broad hybrid, plug-in hybrid, or electric request, likewise resolve suitable real model or variant names and include them in model before calling the tool. For required hybrid or plug-in hybrid searches, use electrified variants only; for preferred searches, acceptable base-model alternatives may also be included.
+Search inputs include make, model, price, year, mileage, location, body style, drivetrain, trim, seating, color, condition, electrification, and purchase priority. Most direct criteria are matched against actual listing data; seating, certification, and history-related requests reflect available evidence, which may be confirmed, unconfirmed, or unreported rather than guaranteed. Practical needs such as a large family SUV, a teen-driver car, or a vehicle for towing are interpreted before the search runs to identify relevant candidates; this tool then searches and ranks them using actual listing data — it does not independently establish reliability, safety, running cost, towing suitability, condition, accident-free history, or certification. When a practical need implies a vehicle class, resolve it into real matching model names yourself and include them in model before calling this tool, every time, alongside the related need stated in vehicleNeeds. This includes plain size or class wording such as midsize SUV, compact sedan or full-size truck: the catalogue has no size data and the tool will not guess, so always pass the real model names for that class in model. For a broad hybrid, plug-in hybrid, or electric request, likewise resolve suitable real model or variant names and include them in model before calling the tool. For required hybrid or plug-in hybrid searches, use electrified variants only; for preferred searches, acceptable base-model alternatives may also be included.
 
 An exact 17-character VIN refers to one specific listing; if unavailable, that outcome is reported rather than substituting a similar vehicle, with a link to similar vehicles. Electrification requests state accepted types — hybrid (including mild hybrid), plug-in hybrid, electric — and whether required or preferred. A vehicle's primary fuel label alone does not determine hybrid or plug-in-hybrid status. For an unambiguous city-only request, a representative ZIP may be supplied as the local search anchor; results disclose the overall local, state-wide, or nationwide scope.
 
@@ -1159,7 +1159,6 @@ const handler = createMcpHandler((server) => {
         // cpo NOT sent as a filter — CPO-001 forbids treating cpo=false as
         // definitive. input.cpo still collected, used for disclosure below.
         state: input.state,
-        classHint: inferClassHint(input), // catalogue source only: expands a described class when no model names were given
         // accidentCount/ownerCount NOT sent as query filters — history is null
         // in 53% of real listings, so hard-filtering would violate "unknown != false".
         sort: resolveSort(input.priorityAxis, intent.hardConstraints.priceMax),
@@ -2092,11 +2091,8 @@ const handler = createMcpHandler((server) => {
       }
 
       const dataNotes: string[] = [];
-      { const sizeNote = classSizeNote(input); if (sizeNote) dataNotes.push(sizeNote); }
-      {
-        const unapplied = [input.cylinders != null ? "cylinder count" : "", input.transmission ? "transmission" : ""].filter(Boolean);
-        if (unapplied.length) dataNotes.push(`${unapplied.join(" and ")} could not be applied as a filter because the catalogue has no such field; each result shows it when known.`);
-      }
+      { const hint = broadBodyTypeHint(input); if (hint) dataNotes.push(hint); }
+      { const note = unappliedFilterNote(input, cards); if (note) dataNotes.push(note); }
       if (lowestMileageDefaultedToUsed) {
         dataNotes.push(
           "Showing used cars only, so the lowest mileage is a fair comparison. Ask for new cars if you want them.",

@@ -44,20 +44,23 @@ export async function buildNoResultsAlternatives(query: ListingsQuery, search: A
   if (!make) return "";
   const single = model && !model.includes(",") && !make.includes(",");
   const condition = query.used === false ? "new " : query.used === true ? "used " : "";
+  let failed = false;
   const items = (rows: VehicleListing[], distinct: boolean): string => pick(rows, 3, distinct).map((l, i) => describe(l, i + 1)).join("\n");
   /** Nearest area first (when a ZIP was given), then the whole country; says which one it used. */
   const nearThenNationwide = async (q: ListingsQuery): Promise<{ rows: VehicleListing[]; scope: string }> => {
     let r = await search(q);
+    if (r.error) failed = true;
     let rows = r.error ? [] : r.data;
     if (rows.length || !query.zip) return { rows, scope: query.zip ? `near ZIP ${query.zip}` : "in the catalogue" };
     r = await search({ ...q, zip: undefined, radius: undefined, state: undefined });
+    if (r.error) failed = true;
     rows = r.error ? [] : r.data;
     return { rows, scope: `anywhere in the country (none near ZIP ${query.zip})` };
   };
   try {
     if (single) {
       // 1. Same model and condition with the price limit removed.
-      const open: ListingsQuery = { ...query, priceMin: undefined, priceMax: undefined, classHint: undefined, sort: "price.asc", limit: 60 };
+      const open: ListingsQuery = { ...query, priceMin: undefined, priceMax: undefined, sort: "price.asc", limit: 60 };
       const a = await nearThenNationwide(open);
       const shown = pick(a.rows, 3, false);
       if (shown.length) {
@@ -77,16 +80,23 @@ export async function buildNoResultsAlternatives(query: ListingsQuery, search: A
       }
     }
     // 3. The model has no listings at all: other models from the same make inside the buyer's own filters.
-    const wide: ListingsQuery = { ...query, model: undefined, classHint: undefined, sort: "price.asc", limit: 60 };
+    const wide: ListingsQuery = { ...query, model: undefined, sort: "price.asc", limit: 60 };
     const r3 = await search(wide);
+    if (r3.error) failed = true;
     const top3 = r3.error ? [] : pick(r3.data, 3, true);
     if (top3.length) return `\n\nNo ${condition}${make} ${model || "vehicles"} listings matched. Other ${make} models inside your filters:\n` + top3.map((l, i) => describe(l, i + 1)).join("\n");
     // 4. Still nothing: other models of the make with the price limit and condition removed, clearly labelled.
     const r4 = await search({ ...wide, priceMin: undefined, priceMax: undefined, used: undefined });
+    if (r4.error) failed = true;
     const top4 = r4.error ? [] : pick(r4.data, 3, true);
     if (top4.length) return `\n\nNo ${condition}${make} ${model || "vehicles"} listings matched. Other ${make} models, lowest price first (these do not match your price limit or condition):\n` + top4.map((l, i) => describe(l, i + 1)).join("\n");
-  } catch {
-    /* alternatives are a courtesy; never let them break the reply */
+  } catch (e) {
+    failed = true;
+    console.error("[no-results-alternatives] failed:", e instanceof Error ? e.message : String(e)); // a courtesy, never allowed to break the reply, but never silent either
+  }
+  if (failed) {
+    console.error("[no-results-alternatives] no alternatives shown because a search failed");
+    return "\n\n(Similar-vehicle options could not be loaded just now; trying again in a moment may show them.)";
   }
   return "";
 }

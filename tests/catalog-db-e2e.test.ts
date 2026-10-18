@@ -165,10 +165,30 @@ test("no results because of the trim: the alternatives say so, and are never cal
   assert.match(txt, /No vehicles matched Honda Civic Type R at up to \$90,000/);
   assert.match(txt, /None is the Type R trim you asked for:/);
   assert.ok(!/over your budget/.test(txt), "all of them cost less than the limit");
-  assert.match(txt, /this page is not filtered to your area, price or Type R trim/);
+  assert.match(txt, /on Edmunds \(all trims, not filtered to Type R\)/);
 });
 
 test("a cylinder or transmission request adds a plain not-applied line to the reply", opts, async () => {
   const txt = textOf(await call(29, { make: "Honda", model: "Civic", cylinders: 4, transmission: "Manual", zip: "90210" }));
   assert.match(txt, /cylinder count and transmission could not be applied as a filter because the catalogue has no such field/);
+});
+
+test("a broad body-type search gets the hint on how to ask for a class; a search with model names does not", opts, async () => {
+  const broad = textOf(await call(30, { bodyType: "SUV", priceMax: 40000 }));
+  assert.match(broad, /broad SUV search with no model names, so the results span all sizes/);
+  const named = textOf(await call(31, { model: "RAV4", bodyType: "SUV", priceMax: 40000 }));
+  assert.ok(!/broad SUV search/.test(named));
+});
+
+test("a cylinder request shows what the results are and tells the AI to state only that", opts, async () => {
+  const txt = textOf(await call(32, { make: "Honda", model: "Civic", cylinders: 4, zip: "90210" }));
+  assert.match(txt, /Cylinder count in these results: unknown \(\d of \d\)\. State only what is shown here: the catalogue has no data on what a manufacturer sells or has sold\./);
+});
+
+test("when a search behind the alternatives fails, the reply says so instead of silently showing nothing", opts, async () => {
+  const broken = new Pool({ connectionString: "postgres://nobody:none@127.0.0.1:1/none", max: 1, connectionTimeoutMillis: 500 });
+  const { buildNoResultsAlternatives } = await import("../lib/no-results-alternatives");
+  const out = await buildNoResultsAlternatives({ make: "Honda", model: "Civic" }, async () => ({ data: [], error: "boom" }));
+  assert.match(out, /Similar-vehicle options could not be loaded just now/);
+  await broken.end().catch(() => {});
 });
