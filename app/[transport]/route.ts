@@ -8,7 +8,7 @@ import { notListedLinksText, titleCaseMake } from "@/lib/vin-not-listed";
 import { buildComparison, comparisonText, type CompareItem } from "@/lib/compare";
 import { closingExitLine, zeroResultsExitLine, sortByScoreThenDistance } from "@/lib/dead-end-links";
 import { attachNhtsaRatings } from "@/lib/nhtsa-ratings";
-import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets } from "@/lib/listing-source";
+import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, getTrimFacets } from "@/lib/listing-source";
 // Widening ladder re-enabled 2026-08-16 (SYS-20260816-008). It was bypassed on
 // Aug 13 per André's request — "search itself needs to work correctly before any
 // widening logic runs on top of it." That precondition is now met: the stage-2
@@ -41,14 +41,14 @@ import { fetchRecallStatus, clipRecallText, type RecallInfo } from "@/lib/nhtsa-
 import { nhtsaLinkField, nhtsaRecallCheckUrl, recallCheckFootnote, recallCheckLine, addRecallCheckStep, invalidVinMessage } from "@/lib/nhtsa-links";
 import { vinCheckDigitFails } from "@/lib/vin-anatomy";
 import { buildNoResultsAlternatives } from "@/lib/no-results-alternatives";
-import { broadBodyTypeHint, unappliedFilterNote } from "@/lib/broad-search-hint";
+import { broadBodyTypeHint, unappliedFilterNote, vehicleTypeNote } from "@/lib/broad-search-hint";
 
 import { getCorpusCountForDescription } from "@/lib/corpus-count";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting, type CardIntentInput } from "@/lib/qualifier-accounting";
 import { RESULTS_CARD_RESOURCE_URI, buildResultsCardHtml, getAppOrigin } from "@/lib/results-card";
 import { signImageUrl } from "@/lib/image-proxy-sign";
-import { trimMatches } from "@/lib/trim-match";
+import { trimMatches, trimMatchesAny } from "@/lib/trim-match";
 import { formatVehicleTitle } from "@/lib/vehicle-title";
 import { CatalogDbOutputSchema, type FindMatchingVehicleOutput } from "@/lib/find-matching-vehicle-output";
 import { buildConstraintChecks, aggregateSearchConstraintStatus, type ConstraintEvidenceRequest } from "@/lib/constraint-evidence";
@@ -63,7 +63,7 @@ const CATALOG_FIND_MATCHING_VEHICLE_DESCRIPTION = `Finds current vehicles for sa
 
 Direct filter fields should reflect requirements the user stated or clearly implied; leave unstated restrictions unset.
 
-Search inputs include make, model, price, year, mileage, location, body style, drivetrain, trim, seating, color, condition, electrification, and purchase priority. Most direct criteria are matched against actual listing data; seating, certification, and history-related requests reflect available evidence, which may be confirmed, unconfirmed, or unreported rather than guaranteed. Practical needs such as a large family SUV, a teen-driver car, or a vehicle for towing are interpreted before the search runs to identify relevant candidates; this tool then searches and ranks them using actual listing data — it does not independently establish reliability, safety, running cost, towing suitability, condition, accident-free history, or certification. When a practical need implies a vehicle class, resolve it into real matching model names yourself and include them in model before calling this tool, every time, alongside the related need stated in vehicleNeeds. This includes plain size or class wording such as midsize SUV, compact sedan or full-size truck: the catalogue has no size data and the tool will not guess, so always pass the real model names for that class in model. For a broad hybrid, plug-in hybrid, or electric request, likewise resolve suitable real model or variant names and include them in model before calling the tool. For required hybrid or plug-in hybrid searches, use electrified variants only; for preferred searches, acceptable base-model alternatives may also be included.
+Search inputs include make, model, price, year, mileage, location, body style, drivetrain, trim, seating, color, condition, electrification, and purchase priority. Most direct criteria are matched against actual listing data; seating, certification, and history-related requests reflect available evidence, which may be confirmed, unconfirmed, or unreported rather than guaranteed. Practical needs such as a large family SUV, a teen-driver car, or a vehicle for towing are interpreted before the search runs to identify relevant candidates; this tool then searches and ranks them using actual listing data — it does not independently establish reliability, safety, running cost, towing suitability, condition, accident-free history, or certification. When a practical need implies a vehicle class, resolve it into real matching model names yourself and include them in model before calling this tool, every time, alongside the related need stated in vehicleNeeds. This includes plain size or class wording such as midsize SUV, compact sedan or full-size truck: the catalogue has no size data and the tool will not guess, so always pass the real model names for that class in model. For example: for a midsize SUV pass Highlander, Pilot, Santa Fe, Sorento, Passport, Blazer; for a compact sedan pass Civic, Corolla, Elantra, Mazda3; for a full-size pickup pass F-150, Silverado, Ram 1500, Tundra. For a broad hybrid, plug-in hybrid, or electric request, likewise resolve suitable real model or variant names and include them in model before calling the tool. For required hybrid or plug-in hybrid searches, use electrified variants only; for preferred searches, acceptable base-model alternatives may also be included.
 
 An exact 17-character VIN refers to one specific listing; if unavailable, that outcome is reported rather than substituting a similar vehicle, with a link to similar vehicles. Electrification requests state accepted types — hybrid (including mild hybrid), plug-in hybrid, electric — and whether required or preferred. A vehicle's primary fuel label alone does not determine hybrid or plug-in-hybrid status. For an unambiguous city-only request, a representative ZIP may be supplied as the local search anchor; results disclose the overall local, state-wide, or nationwide scope.
 
@@ -867,7 +867,7 @@ const handler = createMcpHandler((server) => {
                   corpusSizeApprox: getCorpusCountForDescription(),
                   relaxations: [],
                   dataNotes: [],
-                  scopeNote: "vin_lookup",
+                  scopeNote: "vin_invalid",
                   serviceError: null,
                   interpretationNotes: [`"${input.vin}" fails the VIN check-digit test.`],
                   qualifierAccounting: [],
@@ -1094,15 +1094,15 @@ const handler = createMcpHandler((server) => {
         if (!trimRequired) return true;
         const reported = c.vehicle?.trim;
         if (reported == null || reported === "") return true; // provisional — stage 2 may resolve it
-        return trimMatches(trimRequired, reported);
+        return trimMatchesAny(trimRequired, reported);
       };
       const trimIsConfirmedMatch = (c: VehicleListing): boolean =>
-        !!trimRequired && trimMatches(trimRequired, c.vehicle?.trim);
+        !!trimRequired && trimMatchesAny(trimRequired, c.vehicle?.trim);
       const trimRequiredFullFilter = (c: VehicleListing): boolean => {
         if (!trimRequired) return true;
         // Full detail is the last word — a still-missing or non-matching
         // trim can no longer stay provisional here.
-        return trimMatches(trimRequired, c.vehicle?.trim);
+        return trimMatchesAny(trimRequired, c.vehicle?.trim);
       };
 
       // "Lowest mileage" almost always means "lowest mileage used car" in
@@ -2093,6 +2093,7 @@ const handler = createMcpHandler((server) => {
       const dataNotes: string[] = [];
       { const hint = broadBodyTypeHint(input); if (hint) dataNotes.push(hint); }
       { const note = unappliedFilterNote(input, cards); if (note) dataNotes.push(note); }
+      { const vt = vehicleTypeNote(input); if (vt) dataNotes.push(vt); }
       if (lowestMileageDefaultedToUsed) {
         dataNotes.push(
           "Showing used cars only, so the lowest mileage is a fair comparison. Ask for new cars if you want them.",
@@ -2115,7 +2116,7 @@ const handler = createMcpHandler((server) => {
       }
       if (trimDriftDetected) {
         dataNotes.push(
-          `One or more listings turned out not to be a genuine ${trimRequired} at the detailed lookup stage, despite passing the initial search — excluded rather than shown as a mismatch, since ${trimRequired} was a specific requirement, not a preference.`,
+          `Some listings have no trim recorded, so they could not be confirmed as ${trimRequired} and were left out of the results.`,
         );
       }
       if (geoDriftDetected) {
@@ -2151,7 +2152,7 @@ const handler = createMcpHandler((server) => {
       if (scopeNote === "nationwide" && rawZip != null) {
         dataNotes.push("The requested location wasn't recognized, so this search was widened to nationwide.");
       } else if (scopeNote === "nationwide") {
-        dataNotes.push("No location was specified, so this search covers listings nationwide rather than a specific area.");
+        dataNotes.push("No location was specified, so this search covers listings nationwide rather than a specific area. Tell me a ZIP code for local results.");
       } else if (scopeNote === "statewide") {
         dataNotes.push(`No specific ZIP or city was given, so this search covers all of ${baseQuery.state} rather than a specific area.`);
       }
@@ -2258,7 +2259,7 @@ const handler = createMcpHandler((server) => {
           ? `No vehicles matched these criteria, even after automatically trying to widen the ${uniqueAttemptedSteps
               .map((s) => STEP_LABELS[s])
               .join(", ")} — this looks like a genuine inventory gap for this exact combination, not something more widening on those same dimensions would fix. A different location, a broader model list, or (if the budget allows) some price flexibility may help instead.`
-          : `No vehicles matched ${[input.used === true ? "used" : input.used === false ? "new" : "", input.make ?? "", input.model ?? "", typeof input.trimRequired === "string" ? input.trimRequired : ""].filter(Boolean).join(" ") || "these criteria"}${input.priceMax != null ? ` at up to $${Number(input.priceMax).toLocaleString("en-US")}` : ""}${rawZip ? ` within ${input.radiusMiles ?? 50} miles of ${rawZip}` : ""}. Nothing was widened or substituted.`;
+          : `No vehicles matched ${[input.used === true ? "used" : input.used === false ? "new" : "", input.make ?? "", input.model ?? "", typeof input.trimRequired === "string" ? input.trimRequired : ""].filter(Boolean).join(" ") || "these criteria"}${input.priceMax != null ? ` at up to $${Number(input.priceMax).toLocaleString("en-US")}` : ""}${rawZip ? ` within ${input.radiusMiles ?? 50} miles of ${rawZip}` : ""}. Nothing was widened or substituted. This covers our catalogue only and says nothing about the wider market.`;
 
       // Partial-success disclosure gap (SYS-20260816-049, real bug found live
       // 2026-08-16): a widening step can be genuinely attempted and fail to
@@ -2291,7 +2292,7 @@ const handler = createMcpHandler((server) => {
 
       const alternativesText =
         cards.length === 0 && !serviceFailureMessage && !zipLikelyInvalid && !rawResult.error
-          ? await buildNoResultsAlternatives(effectiveQuery, searchListingsLean, { trim: typeof input.trimRequired === "string" ? input.trimRequired : undefined, unmet: input.electrificationRequirement === "required" ? "as the electric or hybrid car you asked for" : undefined })
+          ? await buildNoResultsAlternatives(effectiveQuery, searchListingsLean, { trim: typeof input.trimRequired === "string" ? input.trimRequired : undefined, trimFacets: () => getTrimFacets(effectiveQuery), unmet: input.electrificationRequirement === "required" ? "as the electric or hybrid car you asked for" : undefined })
           : "";
 
       const thinAreaRadius = input.radiusMiles ?? 50;

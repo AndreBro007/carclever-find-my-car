@@ -80,3 +80,9 @@ export function trimMatches(requested: string, actual: unknown): boolean {
   const extra = [...actTokens].filter((t) => !reqSet.has(t));
   return reqTokens.every((t) => actTokens.has(t)) && extra.length === 0;
 }
+
+/** A required trim may name several acceptable trims, comma-separated (for example "AMG GLA 35, AMG GLA 45"); any one may match. */
+export function trimMatchesAny(required: string | undefined | null, actual: string | undefined | null): boolean {
+  const parts = String(required ?? "").split(/[,|]/).map((x) => x.trim()).filter(Boolean);
+  return parts.some((p) => trimMatches(p, actual));
+}

@@ -8,7 +8,7 @@
 import { Pool } from "pg";
 import type { VehicleListing, ListingsQuery, ListingsResponse } from "./listing-types";
 import { buildTrackingUrl, type BodyClass } from "./catalog-db/normalize";
-import { modelFacets, rowByVin, searchRows, type DbRow, type Queryable } from "./catalog-db/search";
+import { modelFacets, trimFacets, rowByVin, searchRows, type DbRow, type Queryable } from "./catalog-db/search";
 import { cleanConnectionString } from "./catalog-db/conn";
 
 export function catalogDbConfigured(): boolean {
@@ -104,6 +104,15 @@ export async function catalogDbModelFacets(q: ListingsQuery): Promise<Array<{ va
   if (!catalogDbConfigured() && !pool) return [];
   try {
     return await modelFacets(getPool() as unknown as Queryable, q);
+  } catch {
+    return [];
+  }
+}
+
+export async function catalogDbTrimFacets(q: ListingsQuery): Promise<Array<{ value: string; count: number }>> {
+  if (!catalogDbConfigured() && !pool) return [];
+  try {
+    return await trimFacets(getPool() as unknown as Queryable, q, modelsFor(q));
   } catch {
     return [];
   }

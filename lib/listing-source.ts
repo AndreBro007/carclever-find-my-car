@@ -3,7 +3,7 @@
  * Thin facade so the route keeps its function names.
  */
 import type { VehicleListing, ListingsQuery, ListingsResponse } from "./listing-types";
-import { catalogDbModelFacets, getCatalogDbListing, searchCatalogDbListings } from "./catalog-db-source";
+import { catalogDbModelFacets, catalogDbTrimFacets, getCatalogDbListing, searchCatalogDbListings } from "./catalog-db-source";
 
 export function searchListingsLean(query: ListingsQuery): Promise<ListingsResponse> {
   return searchCatalogDbListings(query);
@@ -19,4 +19,8 @@ export function searchListingByVinExact(vin: string): Promise<VehicleListing | n
 
 export function getModelFacets(query: ListingsQuery): Promise<Array<{ value: string; count: number }>> {
   return catalogDbModelFacets(query);
+}
+
+export function getTrimFacets(query: ListingsQuery): Promise<Array<{ value: string; count: number }>> {
+  return catalogDbTrimFacets(query);
 }

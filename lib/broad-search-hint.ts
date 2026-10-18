@@ -3,6 +3,8 @@
  * tool only tells it, in the reply it reads, what it did and did not apply.
  */
 
+import { bodyClassesFor } from "./catalog-db/normalize";
+
 type Card = { detail?: { cylinders?: number | null }; powertrain?: { transmission?: string | null } };
 const one = (s: unknown): string => (typeof s === "string" ? s.trim() : "");
 
@@ -10,7 +12,7 @@ const one = (s: unknown): string => (typeof s === "string" ? s.trim() : "");
 export function broadBodyTypeHint(input: { make?: string; model?: string; bodyType?: string; vehicleType?: string }): string {
   const body = one(input.bodyType) || one(input.vehicleType);
   if (!body || one(input.model) || one(input.make)) return "";
-  return `This is a broad ${body} search with no model names, so the results span all sizes. If the buyer asked for a size or class (for example midsize, compact or full-size), resend with the real model names for that class in "model": the catalogue has no size data.`;
+  return `This is a broad ${body} search with no model names, so the results span all sizes. If the buyer asked for a size or class (for example midsize, compact or full-size), next step: resend with the real model names for that class in "model": the catalogue has no size data.`;
 }
 
 function counts(values: string[]): string {
@@ -35,4 +37,16 @@ export function unappliedFilterNote(input: { cylinders?: number | null; transmis
   }
   if (!names.length) return "";
   return `${names.join(" and ")} could not be applied as a filter because the catalogue has no such field. ${cards.length ? shown.join(" ") + " " : ""}State only what is shown here: the catalogue has no data on what a manufacturer sells or has sold.`;
+}
+
+/** vehicleType is only ever used as a body style. Say so, instead of letting a size or class word in it pass as applied. "" when none was sent. */
+export function vehicleTypeNote(input: { bodyType?: string; vehicleType?: string }): string {
+  const vt = one(input.vehicleType);
+  if (!vt) return "";
+  const body = one(input.bodyType);
+  if (body) return `Vehicle type "${vt}" was not applied as a separate filter: body style "${body}" was already used, and the catalogue has no size or class field.`;
+  const classes = bodyClassesFor(vt);
+  return classes
+    ? `Vehicle type "${vt}" was used only as body style ${classes.join(" or ")}; any size or class wording in it could not be applied (the catalogue has no size field).`
+    : `Vehicle type "${vt}" could not be applied: the catalogue has no such field.`;
 }

@@ -208,7 +208,6 @@ export function buildQualifierAccounting(input: CardIntentInput): QualifierAccou
     ["interiorColor", "interior color"],
     ["drivetrain", "drivetrain"],
     ["doors", "door count"],
-    ["vehicleType", "vehicle type"],
     ["used", "new/used"],
     ["trimRequired", "trim/variant"],
   ];
@@ -224,6 +223,7 @@ export function buildQualifierAccounting(input: CardIntentInput): QualifierAccou
   const notApplied: Array<[keyof CardIntentInput, string, string]> = [
     ["transmission", "transmission", "the listing data has no transmission field; each result shows it when known"],
     ["cylinders", "cylinder count", "the listing data has no cylinder-count field; each result shows its confirmed engine when known"],
+    ["vehicleType", "vehicle type", "it is used only as a body style; any size or class wording in it could not be applied"],
   ];
   for (const [key, label, why] of notApplied) {
     const value = input[key];

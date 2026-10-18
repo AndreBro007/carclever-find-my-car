@@ -39,7 +39,7 @@ function pick(rows: VehicleListing[], max: number, distinctModels: boolean): Veh
   return out;
 }
 
-export async function buildNoResultsAlternatives(query: ListingsQuery, search: AlternativesSearch, opts: { trim?: string; unmet?: string } = {}): Promise<string> {
+export async function buildNoResultsAlternatives(query: ListingsQuery, search: AlternativesSearch, opts: { trim?: string; unmet?: string; trimFacets?: () => Promise<Array<{ value: string; count: number }>> } = {}): Promise<string> {
   const make = one(query.make), model = one(query.model);
   if (!make) return "";
   const single = model && !model.includes(",") && !make.includes(",");
@@ -58,6 +58,11 @@ export async function buildNoResultsAlternatives(query: ListingsQuery, search: A
     return { rows, scope: `anywhere in the country (none near ZIP ${query.zip})` };
   };
   try {
+    let trimList = "";
+    if (single && opts.trim && opts.trimFacets) {
+      const f = await opts.trimFacets().catch(() => []);
+      if (f.length) trimList = `\n\nTrims we have for ${make} ${model}: ${f.map((x) => `${x.value} (${x.count})`).join(", ")}. If you meant one of these, ask for it by that exact name.`;
+    }
     if (single) {
       // 1. Same model and condition with the price limit removed.
       const open: ListingsQuery = { ...query, priceMin: undefined, priceMax: undefined, sort: "price.asc", limit: 60 };
@@ -67,7 +72,7 @@ export async function buildNoResultsAlternatives(query: ListingsQuery, search: A
         // Say WHY nothing matched: only call them "over budget" when every one really is; otherwise it is the trim or the electric/hybrid requirement.
         const over = query.priceMax != null && shown.every((l) => (l.retailListing?.price as number) > (query.priceMax as number));
         const why = over ? ` These are over your budget:` : opts.trim ? ` None is the ${opts.trim} trim you asked for:` : opts.unmet ? ` None is confirmed ${opts.unmet}:` : "";
-        return `\n\nClosest ${condition}${make} ${model} options ${a.scope}, lowest price first.${why}\n` + items(a.rows, false) + (over ? `\n(Shown for comparison only: they are above your price limit.)` : "");
+        return trimList + `\n\nClosest ${condition}${make} ${model} options ${a.scope}, lowest price first.${why}\n` + items(a.rows, false) + (over ? `\n(Shown for comparison only: they are above your price limit.)` : "");
       }
       // 2. None in that condition at all: the same model in the other condition.
       if (query.used !== undefined) {

@@ -57,7 +57,7 @@ const MetaSchema = z.object({
   corpusSizeApprox: z.string(),
   relaxations: z.array(RelaxationSchema),
   dataNotes: z.array(z.string()),
-  scopeNote: z.enum(["local", "statewide", "nationwide", "vin_lookup"]),
+  scopeNote: z.enum(["local", "statewide", "nationwide", "vin_lookup", "vin_invalid"]),
   serviceError: z.string().nullable(),
   interpretationNotes: z.array(z.string()),
   qualifierAccounting: z.array(QualifierAccountingEntrySchema),

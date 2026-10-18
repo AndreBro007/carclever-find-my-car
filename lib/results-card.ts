@@ -607,7 +607,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     var results = (structuredContent && structuredContent.results) || [];
     var meta = structuredContent && structuredContent.meta;
     if (!results.length) {
-      root.innerHTML = '<div class="cc-loading">No matching vehicles to show.</div>';
+      root.innerHTML = meta && meta.scopeNote === "vin_invalid" ? '<div class="cc-loading">Invalid VIN. Check the characters and try again.</div>' : '<div class="cc-loading">No matching vehicles to show.</div>';
       return;
     }
     var visible = results.slice(0, 8);

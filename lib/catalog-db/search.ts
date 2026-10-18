@@ -107,12 +107,12 @@ function colourRank(q: ListingsQuery, p: Params): string {
 }
 
 /** The requested priority (cheapest, lowest mileage, newest) goes first in the local search; distance is the tie-break. */
-function localSortFor(sort: string | undefined): string {
+export function localSortFor(sort: string | undefined, priceCap?: number | null): string {
   switch ((sort ?? "").toLowerCase()) {
     case "price.asc": return "(x.odometer IS NULL) ASC, x.price ASC NULLS LAST, ";
     case "mileage.asc": case "miles.asc": return "x.odometer ASC NULLS LAST, ";
     case "year.desc": return "x.year DESC NULLS LAST, ";
-    default: return "";
+    default: return priceCap != null && Number.isFinite(priceCap) && priceCap > 0 ? `(x.price >= ${Math.floor(priceCap * 0.75)}) DESC, ` : ""; // with a ceiling, cars in the top quarter of the budget enter the candidate pool first (nearest first), so cheap nearby cars cannot crowd them out
   }
 }
 
@@ -161,7 +161,7 @@ async function localSearch(db: Queryable, q: ListingsQuery, models: string[] | n
     }
     const cr = colourRank(q, p);
     const inner = `SELECT ${SELECT_COLS}, ${dist} AS distance, ${cr} AS colour_rank ${FROM} WHERE ${w.join(" AND ")}`;
-    const rows = await db.query(`SELECT * FROM (${inner}) x ${r != null ? `WHERE x.distance <= ${p.add(r)}` : ""} ORDER BY x.colour_rank ASC, ${localSortFor(q.sort)}x.distance ASC, x.price ASC NULLS LAST LIMIT ${limit}`, p.values);
+    const rows = await db.query(`SELECT * FROM (${inner}) x ${r != null ? `WHERE x.distance <= ${p.add(r)}` : ""} ORDER BY x.colour_rank ASC, ${localSortFor(q.sort, q.priceMax)}x.distance ASC, x.price ASC NULLS LAST LIMIT ${limit}`, p.values);
     return rows.rows as unknown as DbRow[];
   };
   // Only the radius the buyer asked for. Never widened here: a thin result is reported, and widening is offered in the reply.
@@ -196,5 +196,14 @@ export async function modelFacets(db: Queryable, q: ListingsQuery): Promise<Arra
   const p = new Params();
   const w = whereFor(q, null, p, { skipModel: true });
   const r = await db.query(`SELECT l.model AS value, count(*)::int AS count ${FROM} ${w.length ? `WHERE ${w.join(" AND ")}` : ""} GROUP BY l.model ORDER BY count DESC, l.model LIMIT 30`, p.values);
+  return r.rows.map((x) => ({ value: String(x.value), count: Number(x.count) }));
+}
+
+/** The trim names that exist for the asked make and model (any price, nationwide), with counts: lets the AI retry with a real trim name. */
+export async function trimFacets(db: Queryable, q: ListingsQuery, models: string[] | null): Promise<Array<{ value: string; count: number }>> {
+  const p = new Params();
+  const w = whereFor({ ...q, priceMin: undefined, priceMax: undefined, zip: undefined, state: undefined }, models, p);
+  w.push("l.trim IS NOT NULL AND l.trim <> ''");
+  const r = await db.query(`SELECT l.trim AS value, count(*)::int AS count ${FROM} WHERE ${w.join(" AND ")} GROUP BY l.trim ORDER BY count DESC, l.trim LIMIT 12`, p.values);
   return r.rows.map((x) => ({ value: String(x.value), count: Number(x.count) }));
 }

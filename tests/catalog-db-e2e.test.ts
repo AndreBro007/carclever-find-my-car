@@ -116,6 +116,7 @@ test("a VIN that is not listed and fails its check digit gets an Invalid VIN mes
     assert.match(txt, /Invalid VIN/);
     assert.ok(txt.includes(`nhtsa.gov/recalls?vymm=${bad}`), "NHTSA recall link");
     assert.equal((out.result.structuredContent?.results ?? []).length, 0, `${name}: no card`);
+    if (name === "find_matching_vehicle") assert.equal(out.result.structuredContent.meta.scopeNote, "vin_invalid");
   }
   const listed = await call(21, { vin: vinFor(6) }); // a listed car stays findable even if its VIN data is odd
   assert.ok(JSON.stringify(listed.result).includes(vinFor(6)));
@@ -191,4 +192,33 @@ test("when a search behind the alternatives fails, the reply says so instead of 
   const out = await buildNoResultsAlternatives({ make: "Honda", model: "Civic" }, async () => ({ data: [], error: "boom" }));
   assert.match(out, /Similar-vehicle options could not be loaded just now/);
   await broken.end().catch(() => {});
+});
+
+test("no results: the reply says it covers the catalogue only and nothing about the wider market", opts, async () => {
+  const txt = textOf(await call(33, { make: "Honda", model: "Civic", priceMax: 1000, zip: "90210" }));
+  assert.match(txt, /Nothing was widened or substituted\. This covers our catalogue only and says nothing about the wider market\./);
+});
+
+test("a trim that matches nothing: the reply lists the trims that do exist, with counts", opts, async () => {
+  const txt = textOf(await call(34, { make: "Honda", model: "Civic", trimRequired: "Type R", zip: "90210" }));
+  assert.match(txt, /Trims we have for Honda Civic: .*Sport \(2\).*If you meant one of these, ask for it by that exact name\./);
+});
+
+test("several required trims, comma-separated, are all accepted", opts, async () => {
+  const out = await call(35, { make: "Honda", model: "Civic", trimRequired: "Sport, EX-L", zip: "90210" });
+  const trims = new Set((out.result.structuredContent.results as Array<{ identity: { trim: string } }>).map((c) => c.identity.trim));
+  assert.ok(trims.size >= 1 && [...trims].every((t) => t === "Sport" || t === "EX-L"), `got ${[...trims].join(", ")}`);
+  assert.ok(trims.has("Sport"));
+});
+
+test("no ZIP: the reply says it searched nationwide and asks for a ZIP for local results", opts, async () => {
+  const txt = textOf(await call(36, { make: "Honda", model: "Civic" }));
+  assert.match(txt, /No location was specified, so this search covers listings nationwide rather than a specific area\. Tell me a ZIP code for local results\./);
+});
+
+test("vehicle type: the reply says it was used only as a body style", opts, async () => {
+  const a = textOf(await call(37, { bodyType: "SUV", vehicleType: "Midsize SUV", priceMax: 50000 }));
+  assert.match(a, /Vehicle type "Midsize SUV" was not applied as a separate filter/);
+  const b = textOf(await call(38, { vehicleType: "Hatchback" }));
+  assert.match(b, /Vehicle type "Hatchback" was used only as body style hatchback/);
 });
