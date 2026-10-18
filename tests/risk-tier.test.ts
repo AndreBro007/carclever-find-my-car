@@ -187,10 +187,6 @@ function evidence(overrides: Partial<RiskEvidence>): RiskEvidence {
   );
   const block = finalSortBlock ? finalSortBlock[0] : "";
   check("Final-card sort dispatch block located in route.ts", block.length > 0, block || "regex may need updating if reshaped");
-  check(
-    "route.ts's final-card sort has a dedicated lower_risk branch using cards.sort by riskTierRank(a.risk.tier)",
-    /\} else if \(input\.priorityAxis === "lower_risk"\) \{[\s\S]*?cards\.sort\(\(a, b\) => riskTierRank\(a\.risk\.tier\) - riskTierRank\(b\.risk\.tier\)\);\s*\n\s*\} else \{/.test(block),
-  );
 }
 
 // ===========================================================================
@@ -478,29 +474,17 @@ function buyerCheckTests() {
     !combinedSource.includes("pushed known accident/data concerns lower"),
   );
   check(
-    "19d. priorityAxis field still includes the base 'lower_risk' enum value and a purchase-risk-evidence, not-a-guarantee description (exact v8 wording)",
-    /ranks available purchase-risk evidence and is not a guarantee/.test(combinedSource) &&
-      /"lower_risk"/.test(schemaSource),
-  );
-  check(
-    "19e. Data conflicts are once again explained as separate verification notes, not purchase-risk evidence (narrowly-scoped restoration, not the old long-form section)",
-    /Data conflicts remain separate verification notes, not purchase-risk evidence/.test(schemaSource),
+    "19d. priorityAxis description no longer mentions lower_risk or purchase-risk wording (the tool does not accept it)",
+    !/lower_risk|purchase-risk evidence/.test(schemaSource),
   );
   check(
     "19f. The old long-form LOWER RISK RANKING description section was NOT restored -- this phrase list lives only in priorityAxis's own field description, not in the main tool description",
     !/LOWER RISK RANKING\n\nlower_risk is ranking guidance/.test(routeSource),
   );
-  const requiredPhrases = ["lower-risk", "low risk", "safer-looking", "cleanest-looking history", "lower-risk buys"];
-  for (const phrase of requiredPhrases) {
-    check(`20. priorityAxis field description teaches the phrase "${phrase}" -> lower_risk`, schemaSource.includes(phrase));
-  }
+  check("20. priorityAxis description teaches no lower_risk phrases (the feature is not offered)", !["lower-risk", "low risk", "safer-looking", "cleanest-looking history"].some((ph) => schemaSource.includes(ph)));
   check(
-    "20b. The restored phrase list lives in the field-level schema only, not the main tool description",
-    schemaSource.includes("safer-looking") && !routeSource.includes("safer-looking"),
-  );
-  check(
-    "20c. priorityAxis Zod enum still includes lower_risk (now in lib/find-matching-vehicle-input.ts)",
-    /z\.enum\(\["best_for_budget", "cheapest", "lowest_mileage", "newest", "lower_risk"\]\)/.test(schemaSource),
+    "20c. priorityAxis Zod enum is best_for_budget, cheapest, lowest_mileage, newest (lower_risk removed)",
+    /z\.enum\(\["best_for_budget", "cheapest", "lowest_mileage", "newest"\]\)/.test(schemaSource) && !/"lower_risk"/.test(schemaSource),
   );
 }
 
@@ -510,10 +494,6 @@ function buyerCheckTests() {
 // ===========================================================================
 {
   const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
-  check(
-    "applyLocalLowerRiskOrdering(electrificationFilteredCandidates, electrificationMatchOf) still runs on the already-hard-filtered candidate list (now also electrification-filtered/preferred, DECISIONS.md SYS-20260909-001)",
-    routeSource.includes("applyLocalLowerRiskOrdering(electrificationFilteredCandidates, electrificationMatchOf)"),
-  );
   check(
     "trimOrderedCandidates is still derived from the already-hard-filtered pipeline",
     /const trimFilteredCandidates = trimRequired\s*\n\s*\? bodyStyleFilteredCandidates\.filter\(trimRequiredLeanFilter\)/.test(routeSource),

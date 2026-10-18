@@ -1,8 +1,6 @@
-import { configuredMode } from "./source-mode";
-
-/** True when the app answers from our own catalogue database (LISTING_SOURCE=catalog_db). */
+/** This edition always answers from our own catalogue database, so database output is always on. */
 export function catalogOutputActive(): boolean {
-  return configuredMode() === "catalog_db";
+  return true;
 }
 
 const DETAIL_DROP = ["carfaxUrl", "cpoNote", "ownerHistoryNote", "seatsNote", "dataConfidence", "historyUsageType", "historyPersonalUse", "titleStatus"];

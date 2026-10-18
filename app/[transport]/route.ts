@@ -10,7 +10,7 @@ import { buildComparison, comparisonText, type CompareItem } from "@/lib/compare
 import { closingExitLine, zeroResultsExitLine, sortByScoreThenDistance } from "@/lib/dead-end-links";
 import { catalogDescription } from "@/lib/catalog-output";
 import { attachNhtsaRatings } from "@/lib/nhtsa-ratings";
-import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, activeSource } from "@/lib/listing-source";
+import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets } from "@/lib/listing-source";
 import { inferClassHint } from "@/lib/vehicle-class";
 // Widening ladder re-enabled 2026-08-16 (SYS-20260816-008). It was bypassed on
 // Aug 13 per André's request — "search itself needs to work correctly before any
@@ -883,14 +883,12 @@ const handler = createMcpHandler((server) => {
 
         if (!fullListing) {
           // Database app: a VIN we do not list still gets the exact-VIN and similar-vehicle Edmunds links (end of funnel: dealer contact).
-          const notListedLinks = activeSource() === "catalog_db" ? await notListedLinksText(rawVin) : "";
+          const notListedLinks = await notListedLinksText(rawVin);
           return {
             content: [
               {
                 type: "text" as const,
-                text: activeSource() === "edmunds_catalog" || activeSource() === "catalog_db"
-                  ? `No listing found for VIN ${rawVin} right now. Not substituting a different vehicle since a specific VIN was requested.${notListedLinks}`
-                  : `No listing found for VIN ${rawVin} in current live inventory — this exact vehicle isn't currently available (or was already sold/delisted). Not substituting a similar vehicle since a specific VIN was requested.`,
+                text: `No listing found for VIN ${rawVin} right now. Not substituting a different vehicle since a specific VIN was requested.${notListedLinks}`,
               },
             ],
             structuredContent: {
@@ -1215,9 +1213,8 @@ const handler = createMcpHandler((server) => {
       // diversity, Match Score, hard filters, and UI are untouched.
       const useFairPool =
         baseQuery.used == null &&
-        activeSource() !== "edmunds_catalog" && // catalogue cannot split new/used: one query, no duplicate pool
         (input.priorityAxis === "best_for_budget" || input.priorityAxis == null);
-      let rawResult: { data: VehicleListing[]; total: number | null; error?: string; degraded?: string; source?: "edmunds_catalog" | "catalog_db"; localApplied?: boolean };
+      let rawResult: { data: VehicleListing[]; total: number | null; error?: string; degraded?: string; source?: "catalog_db"; localApplied?: boolean };
       if (useFairPool) {
         const [newResult, usedResult] = await Promise.all([
           searchListingsLean({ ...baseQuery, used: false }),
@@ -1275,11 +1272,8 @@ const handler = createMcpHandler((server) => {
       // reason the user got an honest caveat was the host model choosing to
       // add one unprompted, not this tool. Same "don't rely on the caller's
       // good behavior" principle as the invalid-ZIP fix.
-      const servedByCatalog = rawResult.source === "edmunds_catalog";
       const scopeNote: "local" | "statewide" | "nationwide" =
-        servedByCatalog && !rawResult.localApplied && (rawZip != null || baseQuery.state)
-        ? "nationwide" // catalogue has no ZIP/radius search: never claim local
-        : rawZip != null && !zipIsValid
+        rawZip != null && !zipIsValid
           ? "nationwide"
           : rawZip == null && baseQuery.state
           ? "statewide"
@@ -2131,7 +2125,7 @@ const handler = createMcpHandler((server) => {
       }
 
       const dataNotes: string[] = [];
-      if (lowestMileageDefaultedToUsed && !servedByCatalog) {
+      if (lowestMileageDefaultedToUsed) {
         dataNotes.push(
           "Showing used cars only, so the lowest mileage is a fair comparison. Ask for new cars if you want them.",
         );
@@ -2192,9 +2186,7 @@ const handler = createMcpHandler((server) => {
           )} — showing the best matches by other criteria instead.`,
         );
       }
-      if (servedByCatalog && !rawResult.localApplied && (rawZip != null || baseQuery.state)) {
-        // Silent by design (owner decision): no user-visible note about the listing source.
-      } else if (scopeNote === "nationwide" && rawZip != null) {
+      if (scopeNote === "nationwide" && rawZip != null) {
         dataNotes.push("The requested location wasn't recognized, so this search was widened to nationwide.");
       } else if (scopeNote === "nationwide") {
         dataNotes.push("No location was specified, so this search covers listings nationwide rather than a specific area.");

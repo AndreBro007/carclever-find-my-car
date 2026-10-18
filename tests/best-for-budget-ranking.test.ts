@@ -102,7 +102,7 @@ function check(name: string, cond: boolean, detail?: string) {
   const inVins = pool.map((c) => c.vin).sort();
   const outVins = ranked.map((c) => c.vin).sort();
   const inPrices = pool.map((c) => c.retailListing.price).sort((x, y) => (x ?? 0) - (y ?? 0));
-  const outPrices = ranked.map((c) => c.retailListing.price).sort((x, y) => (x ?? 0) - (y ?? 0));
+  const outPrices = ranked.map((c) => c.retailListing?.price).sort((x, y) => (x ?? 0) - (y ?? 0));
   check("3a. Same set of VINs in and out (no filtering/relaxation inside ranking)", JSON.stringify(inVins) === JSON.stringify(outVins));
   check("3b. Same set of prices in and out (no price ceiling altered by ranking)", JSON.stringify(inPrices) === JSON.stringify(outPrices));
   check("3c. Output length unchanged", ranked.length === pool.length);

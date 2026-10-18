@@ -183,7 +183,7 @@ function listing(vehicle: Partial<VehicleListing["vehicle"]>, vin = "1FTEW2KP9TK
 {
   // Valid trim matching semantics remain unchanged for normal strings.
   check("C4. Normal exact trim match still works unchanged", trimMatches("XLT", "XLT") === true);
-  check("C5. Normal directional trim match (more-specific actual) still works unchanged", trimMatches("AMG", "AMG GLA 35") === true);
+  check("C5. Trim match is exact since the Oct 2026 fix (drivetrain words ignored): EX is not EX-L, and a shorter requested trim does not match a longer reported one", trimMatches("EX", "EX-L") === false && trimMatches("AMG", "AMG GLA 35") === false && trimMatches("Sport Touring Hybrid AWD", "Sport Touring Hybrid") === true);
   check("C6. Normal directional trim non-match (less-specific actual) still correctly fails, unchanged", trimMatches("AMG GLA 35", "AMG") === false);
   check("C7. Missing/null actual trim still correctly returns false, unchanged", trimMatches("XLT", null) === false);
   check("C8. Missing/undefined actual trim still correctly returns false, unchanged", trimMatches("XLT", undefined) === false);
