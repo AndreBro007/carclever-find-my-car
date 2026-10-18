@@ -53,8 +53,8 @@ test("accounting: cylinders and transmission are never reported as filtered in a
 
 test("Edmunds labels are short and claim nothing about area: all trims, not filtered to the asked trim; no 'near you'", () => {
   const z = zeroResultsExitLine("Mercedes-Benz", "GLA", true, "AMG");
-  assert.match(z, /^\n\nSee all used Mercedes-Benz GLA on Edmunds \(all trims, not filtered to AMG\): https:\/\/edmunds\.sjv\.io\//);
+  assert.match(z, /^\n\nSee all used Mercedes-Benz GLA on Edmunds \(all trims, not filtered to AMG; enter your ZIP there for local results\): https:\/\/edmunds\.sjv\.io\//);
   assert.ok(!/near you/.test(z));
   const c = closingExitLine([{ identity: { make: "Honda", model: "Civic" }, condition: { inventoryType: "used" } }]);
-  assert.match(c, /on Edmunds \(all trims\): https:/); assert.ok(!/near you/.test(c));
+  assert.match(c, /on Edmunds \(all trims; enter your ZIP there for local results\): https:/); assert.ok(!/near you/.test(c));
 });

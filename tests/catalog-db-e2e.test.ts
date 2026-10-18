@@ -165,7 +165,7 @@ test("no results because of the trim: the alternatives say so, and are never cal
   assert.match(txt, /No vehicles matched Honda Civic Type R at up to \$90,000/);
   assert.match(txt, /None is the Type R trim you asked for:/);
   assert.ok(!/over your budget/.test(txt), "all of them cost less than the limit");
-  assert.match(txt, /on Edmunds \(all trims, not filtered to Type R\)/);
+  assert.match(txt, /on Edmunds \(all trims, not filtered to Type R; enter your ZIP there for local results\)/);
 });
 
 test("a cylinder or transmission request adds a plain not-applied line to the reply", opts, async () => {
