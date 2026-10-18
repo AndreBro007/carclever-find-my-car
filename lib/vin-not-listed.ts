@@ -1,6 +1,6 @@
 import { decodeNhtsaElectrification } from "./nhtsa-client";
 import { resolveLinks } from "./link-resolution";
-import type { AutoDevListing } from "./auto-dev-client";
+import type { VehicleListing } from "./listing-types";
 
 const ACRONYM_MAKES = new Set(["BMW", "GMC", "MG", "AMG"]);
 /** NHTSA writes makes in capitals: "TOYOTA" -> "Toyota", "LAND ROVER" -> "Land Rover", "MERCEDES-BENZ" -> "Mercedes-Benz"; acronyms stay ("BMW", "GMC"). */
@@ -28,7 +28,7 @@ export async function notListedLinksText(vin: string, deps: NotListedDeps = {}):
   const trim = r.trimOptions.length === 1 ? r.trimOptions[0] : undefined; // only when NHTSA names exactly one trim
   const nowYear = deps.currentYear ?? new Date().getFullYear();
   const isNew = year >= nowYear; // current or next model year: treat as a new car (category link, no exact-VIN attempt)
-  const listing = { vin, vehicle: { make, model, year, ...(trim ? { trim } : {}) }, ...(isNew ? { retailListing: { used: false } } : {}) } as unknown as AutoDevListing;
+  const listing = { vin, vehicle: { make, model, year, ...(trim ? { trim } : {}) }, ...(isNew ? { retailListing: { used: false } } : {}) } as unknown as VehicleListing;
   const links = resolve(listing);
   const label = `${year} ${make} ${model}${trim ? " " + trim : ""}`;
   const lines: string[] = [];

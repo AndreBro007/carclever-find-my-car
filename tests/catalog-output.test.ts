@@ -46,11 +46,9 @@ test("the database schema accepts the shaped card; the standard schema rightly d
   assert.ok(!FindMatchingVehicleOutputSchema.safeParse(out).success);
   assert.ok(CatalogDbOutputSchema.safeParse({ meta, results: [card()] }).success); // a full card is still valid too
 });
-test("shapeCardsForSource only shapes in database mode", () => {
+test("shapeCardsForSource shapes cards for the database app", () => {
   const prev = process.env.LISTING_SOURCE;
   try {
-    process.env.LISTING_SOURCE = "auto_dev";
-    assert.ok("history" in (shapeCardsForSource([card()])[0] as any));
     process.env.LISTING_SOURCE = "catalog_db";
     assert.ok(!("history" in (shapeCardsForSource([card()])[0] as any)));
   } finally { if (prev === undefined) delete process.env.LISTING_SOURCE; else process.env.LISTING_SOURCE = prev; }
@@ -75,9 +73,6 @@ test("buyer check built for the text the model reads: history, Carfax and CPO 'm
   };
   const prev = process.env.LISTING_SOURCE;
   try {
-    process.env.LISTING_SOURCE = "auto_dev";
-    assert.equal(shapeBuyerCheckForCatalog(bc).needsVerification.length, 4); // the other apps are unchanged
-    assert.ok(shapeBuyerCheckForCatalog(bc).nextSteps[1].includes("Carfax"));
     process.env.LISTING_SOURCE = "catalog_db";
     const s = shapeBuyerCheckForCatalog(bc);
     assert.deepEqual(s.needsVerification, ["model and trim cannot be confirmed from the VIN alone - confirm independently."]);

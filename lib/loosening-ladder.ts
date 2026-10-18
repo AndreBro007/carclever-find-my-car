@@ -86,7 +86,7 @@
  * Trim and seats are never part of this ladder — they were never sent as
  * hard filters in the first place (SYS-20260812-023/025).
  */
-import type { AutoDevListing, ListingsQuery, ListingsResponse } from "./auto-dev-client";
+import type { VehicleListing, ListingsQuery, ListingsResponse } from "./listing-types";
 
 export interface Relaxation {
   step: string;
@@ -94,7 +94,7 @@ export interface Relaxation {
 }
 
 export interface WidenOutcome {
-  data: AutoDevListing[];
+  data: VehicleListing[];
   total: number | null;
   /** The query that actually produced `data`. Callers MUST verify against this, not the original. */
   query: ListingsQuery;
@@ -135,7 +135,7 @@ export interface WidenOptions {
    * Injected because that means post-verification AND diversity — this module
    * must not re-implement either, or the two definitions will drift.
    */
-  usableCount: (rows: AutoDevListing[], query: ListingsQuery) => number;
+  usableCount: (rows: VehicleListing[], query: ListingsQuery) => number;
   /** Stop as soon as this many usable results exist. */
   minAcceptable: number;
   priceFlexibility: "strict" | "flexible";
@@ -191,7 +191,7 @@ function resolveStepOrder(priorityAxis: PriorityAxis | undefined): StepName[] {
 
 export async function widenSearchIfThin(
   baseQuery: ListingsQuery,
-  current: { data: AutoDevListing[]; total: number | null },
+  current: { data: VehicleListing[]; total: number | null },
   opts: WidenOptions,
 ): Promise<WidenOutcome> {
   const relaxations: Relaxation[] = [];

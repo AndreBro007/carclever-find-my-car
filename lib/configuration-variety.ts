@@ -8,7 +8,7 @@
  * changed, same function bodies, same behavior, only the runtime-safety
  * String() coercion already applied to configurationKey() before this move.
  */
-import type { AutoDevListing } from "./auto-dev-client";
+import type { VehicleListing } from "./listing-types";
 
 /**
  * EXPERIMENT (preview only, follow-up to d5805cc): configuration-variety
@@ -54,7 +54,7 @@ import type { AutoDevListing } from "./auto-dev-client";
  * malformed trim showing up as its own literal string in the grouping
  * key — a real, if imperfect, value, not a guess).
  */
-export function configurationKey(c: AutoDevListing): string {
+export function configurationKey(c: VehicleListing): string {
   const make = String(c.vehicle?.make ?? "").trim().toLowerCase();
   const model = String(c.vehicle?.model ?? "").trim().toLowerCase();
   const year = c.vehicle?.year ?? "";
@@ -63,12 +63,12 @@ export function configurationKey(c: AutoDevListing): string {
 }
 
 export function applyConfigurationVarietyPass(
-  candidates: AutoDevListing[],
+  candidates: VehicleListing[],
   maxPerConfig = 2,
-): AutoDevListing[] {
+): VehicleListing[] {
   const seenCount = new Map<string, number>();
-  const withinCap: AutoDevListing[] = [];
-  const overflow: AutoDevListing[] = [];
+  const withinCap: VehicleListing[] = [];
+  const overflow: VehicleListing[] = [];
 
   for (const c of candidates) {
     const key = configurationKey(c);

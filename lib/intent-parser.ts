@@ -198,7 +198,7 @@ export function parseIntent(input: {
     interpretationNotes.push(
       `Removed the manufacturer name from the model field (${modelPrefixesStripped
         .map((c) => `"${c.original}" → "${c.corrected}"`)
-        .join(", ")}) — Auto.dev's model field never includes the make.`,
+        .join(", ")}) — the model field never includes the make.`,
     );
   }
 

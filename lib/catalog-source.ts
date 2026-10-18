@@ -2,7 +2,7 @@
  * Edmunds Product Feed (Impact Catalog API) as a listing source
  * (spike/edmunds-catalog-mode). Server-side only: holds Impact credentials.
  *
- * Converts catalogue items into the EXISTING AutoDevListing shape so the whole
+ * Converts catalogue items into the EXISTING VehicleListing shape so the whole
  * downstream pipeline (verification, ranking, cards, links) is reused unchanged.
  *
  * Feed field mapping. CONFIRMED by the aggregate diagnostic on 2026-10-08 (20-item sample):
@@ -22,7 +22,7 @@
  * come back as an empty result (or the same `error` string shape Auto.dev uses).
  */
 import zipcodes from "zipcodes";
-import type { AutoDevListing, ListingsQuery, ListingsResponse } from "./auto-dev-client";
+import type { VehicleListing, ListingsQuery, ListingsResponse } from "./listing-types";
 import { classModels } from "./vehicle-class";
 
 const IMPACT_BASE = "https://api.impact.com";
@@ -267,7 +267,7 @@ export function dealerZip(raw: Record<string, unknown>): { zip: string; city: st
   return hit ? { zip, city: hit.city, state: hit.state } : undefined;
 }
 
-export function normalizeCatalogItem(rawIn: unknown): AutoDevListing | null {
+export function normalizeCatalogItem(rawIn: unknown): VehicleListing | null {
   if (rawIn == null || typeof rawIn !== "object") return null;
   const raw = rawIn as Record<string, unknown>;
   if (/out\s*of\s*stock/i.test(str(raw.StockAvailability) ?? "")) return null;
@@ -310,14 +310,14 @@ export function normalizeCatalogItem(rawIn: unknown): AutoDevListing | null {
 
 const CACHE_TTL_MS = 15 * 60_000;
 const CACHE_MAX = 800;
-const byVin = new Map<string, { at: number; listing: AutoDevListing }>();
+const byVin = new Map<string, { at: number; listing: VehicleListing }>();
 
-function remember(l: AutoDevListing): void {
+function remember(l: VehicleListing): void {
   if (!l.vin) return;
   if (byVin.size >= CACHE_MAX) byVin.delete(byVin.keys().next().value as string);
   byVin.set(l.vin, { at: Date.now(), listing: l });
 }
-export function getCachedCatalogListing(vin: string): AutoDevListing | null {
+export function getCachedCatalogListing(vin: string): VehicleListing | null {
   const hit = byVin.get(vin);
   if (!hit || Date.now() - hit.at > CACHE_TTL_MS) return null;
   return hit.listing;
@@ -376,7 +376,7 @@ export async function searchCatalogListings(q: ListingsQuery): Promise<ListingsR
   }
 
   const seen = new Set<string>();
-  const data: AutoDevListing[] = [];
+  const data: VehicleListing[] = [];
   for (const r of results) {
     for (const raw of r.items) {
       const l = normalizeCatalogItem(raw);
@@ -421,8 +421,8 @@ export async function searchCatalogListings(q: ListingsQuery): Promise<ListingsR
     }
   }
   if (!localApplied) {
-    const price = (l: AutoDevListing) => l.retailListing?.price ?? Number.POSITIVE_INFINITY;
-    const yr = (l: AutoDevListing) => l.vehicle?.year ?? 0;
+    const price = (l: VehicleListing) => l.retailListing?.price ?? Number.POSITIVE_INFINITY;
+    const yr = (l: VehicleListing) => l.vehicle?.year ?? 0;
     if (q.sort === "price.asc") out = [...data].sort((a, b) => price(a) - price(b));
     else if (q.sort === "price.desc") out = [...data].sort((a, b) => (price(b) === Infinity ? -1 : price(b)) - (price(a) === Infinity ? -1 : price(a)));
     else if (q.sort === "year.desc") out = [...data].sort((a, b) => yr(b) - yr(a));

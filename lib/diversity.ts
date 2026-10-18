@@ -4,7 +4,7 @@
  * the flagship app (diversity logic there only fires when a model list is
  * supplied — SYS-20260812-002).
  */
-import type { AutoDevListing } from "./auto-dev-client";
+import type { VehicleListing } from "./listing-types";
 
 const MAX_PER_MAKE_MODEL = 2;
 
@@ -41,7 +41,7 @@ function isValidVin(vin: string): boolean {
   return vin.length === 17;
 }
 
-export function applyDiversity(listings: AutoDevListing[], limit: number): AutoDevListing[] {
+export function applyDiversity(listings: VehicleListing[], limit: number): VehicleListing[] {
   const seen = new Map<string, number>();
   // Tracks VINs that have already made it into `result` — populated only
   // when a listing is actually pushed (see below), never merely scanned.
@@ -52,7 +52,7 @@ export function applyDiversity(listings: AutoDevListing[], limit: number): AutoD
   // was itself skipped for an unrelated reason (e.g. the make/model cap)
   // and never got included in the first place.
   const seenVins = new Set<string>();
-  const result: AutoDevListing[] = [];
+  const result: VehicleListing[] = [];
 
   for (const listing of listings) {
     const vin = safeVin(listing.vin);

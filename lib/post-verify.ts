@@ -6,8 +6,8 @@
  * judgment, no "large SUV" reasoning — that stays the calling LLM's job,
  * by design, per SYS-20260812-035).
  */
-import type { AutoDevListing } from "./auto-dev-client";
-import type { ListingsQuery } from "./auto-dev-client";
+import type { VehicleListing } from "./listing-types";
+import type { ListingsQuery } from "./listing-types";
 import { modelSatisfiesRequested } from "./model-match";
 
 // make can be comma-separated OR lists (see match-score.ts for why). Model
@@ -27,7 +27,7 @@ function matchesAnyInList(value: unknown, list: string): boolean {
   return options.some((opt) => v === opt || v.startsWith(opt) || opt.startsWith(v));
 }
 
-export function verifyAgainstConstraints(listing: AutoDevListing, query: ListingsQuery): string[] {
+export function verifyAgainstConstraints(listing: VehicleListing, query: ListingsQuery): string[] {
   const violations: string[] = [];
   const v = listing.vehicle;
   const rl = listing.retailListing;

@@ -11,13 +11,13 @@
  * Built by reading the CURRENT runtime code — buildResultCard() in
  * route.ts, lib/vin-cross-check.ts, lib/match-score.ts,
  * lib/link-resolution.ts, lib/constraint-evidence.ts,
- * lib/qualifier-accounting.ts, lib/auto-dev-client.ts — not from the
+ * lib/qualifier-accounting.ts, the removed listings client — not from the
  * previously deleted, stale FindMatchingVehicleOutput schema. Do not copy
  * shapes from that old schema; if this file and the old one ever
  * disagreed, the old one was wrong (that's why it was deleted).
  *
  * Two fields are intentionally z.unknown().nullable(), not string/number:
- * vehicle.style and vehicle.confidence in lib/auto-dev-client.ts are
+ * vehicle.style and vehicle.confidence in the removed listings client are
  * themselves typed `unknown` ("observed in schema audit — meaning
  * unconfirmed" / "real field, unresearched"). identity.bodyStyleConfig and
  * detail.dataConfidence are those same values passed through unchanged
@@ -71,7 +71,7 @@ const IdentitySchema = z.object({
   trim: z.string().nullable(),
   series: z.string().nullable(),
   squishVin: z.string().nullable(),
-  // vehicle.style is `unknown` at the source (lib/auto-dev-client.ts) —
+  // vehicle.style is `unknown` at the source (the removed listings client) —
   // see file header. Passed through via `v?.style ?? null`.
   bodyStyleConfig: z.unknown().nullable(),
 });

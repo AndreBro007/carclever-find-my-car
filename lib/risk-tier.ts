@@ -37,7 +37,7 @@
  * — no new Auto.dev field, no new API, no numeric score. All three inputs
  * (crossCheckVin, buildHistorySummary, buildCpoSummary in
  * app/[transport]/route.ts) already operate directly on a raw
- * AutoDevListing, so this can run at the lean (pre-stage-2) pipeline
+ * VehicleListing, so this can run at the lean (pre-stage-2) pipeline
  * stage for lower_risk ranking, and again at the full-detail stage for
  * the final card's displayed tier — same "lean informs ordering,
  * full-detail is authoritative for the card" pattern already used for
@@ -92,7 +92,7 @@ export interface RiskEvidence {
  * the underlying data (a "not reported as one-owner" disclosure is
  * itself neutral, not a confirmed multi-owner fact), and titleStatus is
  * the same field BuyerCheck itself deliberately excludes as still
- * unverified in the client contract (lib/auto-dev-client.ts). Both would
+ * unverified in the client contract (the removed listings client). Both would
  * need real, reliably-populated evidence before being added here.
  */
 export function classifyRiskTier(evidence: RiskEvidence): RiskTier {

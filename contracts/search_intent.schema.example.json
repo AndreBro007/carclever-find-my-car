@@ -24,7 +24,7 @@
   },
   "verificationRequired": ["electrification", "drivetrain", "seating", "history", "destination"],
   "interpretationNotes": [
-    "Hybrid is a hard semantic requirement (electrificationRequirement: required) but Auto.dev Listings fuel is not safe as the sole candidate gate -- NHTSA's own decode is the authoritative confirmation, and an unconfirmed/ambiguous vehicle is excluded, never assumed to satisfy the request.",
+    "Hybrid is a hard semantic requirement (electrificationRequirement: required) but Listings fuel is not safe as the sole candidate gate -- NHTSA's own decode is the authoritative confirmation, and an unconfirmed/ambiguous vehicle is excluded, never assumed to satisfy the request.",
     "AWD/4WD and seating require post-search verification.",
     "Radius may widen only with disclosure.",
     "'goals' is retired; 'vehicleNeeds' is the sole soft-preference field, no dual-acceptance period."

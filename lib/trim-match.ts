@@ -43,7 +43,7 @@ function tokens(s: string): string[] {
  *
  * Runtime-safety fix (fix/provider-string-runtime-safety, SYS-20260828):
  * `actual` accepts `unknown`, not `string | null | undefined` — every
- * call site here passes a raw AutoDevListing vehicle.trim value straight
+ * call site here passes a raw VehicleListing vehicle.trim value straight
  * through (route.ts:532/1256/1261, lib/constraint-evidence.ts:245), and a
  * live production crash confirmed vehicle.trim can genuinely be a NUMBER
  * at runtime (observed: 1958) despite the client's own declared

@@ -32,7 +32,7 @@
 import { configurationKey, applyConfigurationVarietyPass } from "@/lib/configuration-variety";
 import { trimMatches } from "@/lib/trim-match";
 import { normalizeCompareString } from "@/lib/constraint-evidence";
-import type { AutoDevListing } from "@/lib/auto-dev-client";
+import type { VehicleListing } from "@/lib/listing-types";
 
 let pass = 0;
 let fail = 0;
@@ -46,7 +46,7 @@ function check(name: string, cond: boolean, detail?: string) {
   }
 }
 
-function listing(vehicle: Partial<AutoDevListing["vehicle"]>, vin = "1FTEW2KP9TKE60602"): AutoDevListing {
+function listing(vehicle: Partial<VehicleListing["vehicle"]>, vin = "1FTEW2KP9TKE60602"): VehicleListing {
   return {
     vin,
     vehicle: { make: "Ford", model: "F-150", year: 2024, trim: "XLT", ...vehicle },
@@ -110,14 +110,14 @@ function listing(vehicle: Partial<AutoDevListing["vehicle"]>, vin = "1FTEW2KP9TK
 // with one malformed candidate in the pool
 // ===========================================================================
 {
-  const pool: AutoDevListing[] = [
+  const pool: VehicleListing[] = [
     listing({ trim: "XLT" }, "VIN0001"),
     listing({ trim: 1958 as unknown as string }, "VIN0002"), // the malformed one
     listing({ trim: "Lariat" }, "VIN0003"),
     listing({ trim: "Platinum" }, "VIN0004"),
   ];
   let threw = false;
-  let result: AutoDevListing[] = [];
+  let result: VehicleListing[] = [];
   try {
     result = applyConfigurationVarietyPass(pool, 2);
   } catch {
@@ -135,7 +135,7 @@ function listing(vehicle: Partial<AutoDevListing["vehicle"]>, vin = "1FTEW2KP9TK
 // many distinct configurations, matching the real production shape) still
 // reaches a usable shortlist even with a malformed record mixed in.
 {
-  const pool: AutoDevListing[] = [
+  const pool: VehicleListing[] = [
     listing({ make: "Ford", model: "Expedition", trim: "Active" }, "VIN0001"),
     listing({ make: "Toyota", model: "4Runner", trim: 1958 as unknown as string }, "VIN0002"),
     listing({ make: "Jeep", model: "Grand Wagoneer", trim: "Upland" }, "VIN0003"),
@@ -143,7 +143,7 @@ function listing(vehicle: Partial<AutoDevListing["vehicle"]>, vin = "1FTEW2KP9TK
     listing({ make: "Mazda", model: "CX-90", trim: null as unknown as string }, "VIN0005"),
   ];
   let threw = false;
-  let result: AutoDevListing[] = [];
+  let result: VehicleListing[] = [];
   try {
     result = applyConfigurationVarietyPass(pool, 2);
   } catch {

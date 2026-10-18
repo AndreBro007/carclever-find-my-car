@@ -58,7 +58,7 @@
  * vendor at request time.
  */
 import { buildEdmundsUrl, buildEdmundsCategoryUrl, wrapWithAffiliateNetwork, withSharedId } from "./edmunds-cj";
-import type { AutoDevListing } from "./auto-dev-client";
+import type { VehicleListing } from "./listing-types";
 
 export interface LinkResolution {
   affiliateUrl: string | null; // Edmunds destination behind "Check avail."; see checkAvailSource for which tier
@@ -83,13 +83,13 @@ function looksObviouslyBroken(url: string | undefined): boolean {
   return OBVIOUSLY_BROKEN_PATTERNS.some((p) => p.test(url));
 }
 
-function isCarvanaListing(listing: AutoDevListing): boolean {
+function isCarvanaListing(listing: VehicleListing): boolean {
   const dealer = (listing.retailListing?.dealer ?? "").toLowerCase();
   const vdp = (listing.retailListing?.vdp ?? "").toLowerCase();
   return dealer === "carvana" || vdp.includes("carvana.com");
 }
 
-export function resolveLinks(listing: AutoDevListing): LinkResolution {
+export function resolveLinks(listing: VehicleListing): LinkResolution {
   const isCarvana = isCarvanaListing(listing);
 
   const vin = listing.vin;

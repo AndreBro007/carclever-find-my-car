@@ -4,7 +4,7 @@
  * accident history, owners) are ignored silently, exactly like the earlier catalogue source.
  */
 import zipcodes from "zipcodes";
-import type { ListingsQuery } from "../auto-dev-client";
+import type { ListingsQuery } from "../listing-types";
 import { alnumKey, bodyClassesFor } from "./normalize";
 
 export interface Queryable { query: (text: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }> }

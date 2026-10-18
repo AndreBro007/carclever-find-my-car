@@ -1,12 +1,12 @@
 import { resolveLinks } from "./link-resolution";
 import { catalogOutputActive } from "./catalog-output";
-import type { AutoDevListing } from "./auto-dev-client";
+import type { VehicleListing } from "./listing-types";
 
 const label = (make: unknown, model: unknown): string => [make, model].filter((x) => typeof x === "string" && x.trim()).join(" ");
 
 /** Model-level Edmunds "similar vehicles" page (with our Impact tracking): used by default, new when asked. Null when it cannot be built. */
 export function modelLevelLink(make: string, model: string, isNew: boolean): string | null {
-  const l = resolveLinks({ vehicle: { make, model }, ...(isNew ? { retailListing: { used: false } } : {}) } as unknown as AutoDevListing);
+  const l = resolveLinks({ vehicle: { make, model }, ...(isNew ? { retailListing: { used: false } } : {}) } as unknown as VehicleListing);
   return l.affiliateFallbackUrl;
 }
 

@@ -1,7 +1,7 @@
 /**
  * Pure candidate-ordering/disclosure logic, extracted from
  * app/[transport]/route.ts specifically so it can be
- * unit-tested with real functional assertions on real AutoDevListing
+ * unit-tested with real functional assertions on real VehicleListing
  * fixtures — Next.js Route Handler files only permit a fixed set of named
  * exports (GET/POST/etc + a few config options), so these functions could
  * not be exported and imported directly from route.ts itself (confirmed by
@@ -14,7 +14,7 @@
  * could drift.
  */
 
-import { type AutoDevListing } from "@/lib/auto-dev-client";
+import { type VehicleListing } from "@/lib/listing-types";
 import { trimMatches } from "@/lib/trim-match";
 import { crossCheckVin } from "@/lib/vin-cross-check";
 import { classifyRiskTier, riskTierRank, type RiskTier } from "@/lib/risk-tier";
@@ -32,7 +32,7 @@ export function isAnomalousPrice(price: number | undefined | null): boolean {
 }
 
 export function buildCpoSummary(
-  listing: AutoDevListing,
+  listing: VehicleListing,
 ): { state: "confirmed_cpo" | "reported_not_cpo" | "unknown"; note: string } {
   const cpo = listing.retailListing?.cpo;
   if (cpo === true) {
@@ -48,7 +48,7 @@ export function buildCpoSummary(
 }
 
 export function buildHistorySummary(
-  listing: AutoDevListing,
+  listing: VehicleListing,
 ): { state: "known_clean" | "known_issues" | "unreported"; note: string; ownerNote: string | null } {
   const h = listing.history;
   const carfaxAvailable = Boolean(listing.retailListing?.carfaxUrl);
@@ -107,10 +107,10 @@ export function buildHistorySummary(
  * search is unchanged.
  */
 export function applyLocalBestForBudgetOrdering(
-  candidates: AutoDevListing[],
+  candidates: VehicleListing[],
   trimPreference: string | undefined,
-  electrificationMatchOf?: (c: AutoDevListing) => boolean,
-): AutoDevListing[] {
+  electrificationMatchOf?: (c: VehicleListing) => boolean,
+): VehicleListing[] {
   if (candidates.length === 0) return candidates;
 
   const years = candidates.map((c) => c.vehicle?.year).filter((y): y is number => y != null);
@@ -133,18 +133,18 @@ export function applyLocalBestForBudgetOrdering(
     if (m == null || milesMin == null || milesMax == null || milesMax === milesMin) return 0.5;
     return (milesMax - m) / (milesMax - milesMin);
   };
-  const priceRank = (c: AutoDevListing): number => {
+  const priceRank = (c: VehicleListing): number => {
     const p = c.retailListing?.price;
     if (isAnomalousPrice(p)) return 0.5;
     if (p == null || priceMin == null || priceMax == null || priceMax === priceMin) return 0.5;
     return (priceMax - p) / (priceMax - priceMin);
   };
-  const balancedScore = (c: AutoDevListing): number =>
+  const balancedScore = (c: VehicleListing): number =>
     (yearRank(c.vehicle?.year) + mileageRank(c.retailListing?.miles) + priceRank(c)) / 3;
-  const trimMatchRank = (c: AutoDevListing): number =>
+  const trimMatchRank = (c: VehicleListing): number =>
     trimPreference && trimMatches(trimPreference, c.vehicle?.trim) ? 0 : 1;
-  const anomalyRank = (c: AutoDevListing): number => (isAnomalousPrice(c.retailListing?.price) ? 1 : 0);
-  const electrificationMatchRank = (c: AutoDevListing): number =>
+  const anomalyRank = (c: VehicleListing): number => (isAnomalousPrice(c.retailListing?.price) ? 1 : 0);
+  const electrificationMatchRank = (c: VehicleListing): number =>
     electrificationMatchOf && electrificationMatchOf(c) ? 0 : 1;
 
   return [...candidates].sort((a, b) => {
@@ -184,19 +184,19 @@ export function applyLocalBestForBudgetOrdering(
  * no effect (existing tier-only behavior is exactly unchanged).
  */
 export function applyLocalLowerRiskOrdering(
-  candidates: AutoDevListing[],
-  electrificationMatchOf?: (c: AutoDevListing) => boolean,
-): AutoDevListing[] {
+  candidates: VehicleListing[],
+  electrificationMatchOf?: (c: VehicleListing) => boolean,
+): VehicleListing[] {
   if (candidates.length === 0) return candidates;
 
-  const tierOf = (c: AutoDevListing): RiskTier =>
+  const tierOf = (c: VehicleListing): RiskTier =>
     classifyRiskTier({
       verification: crossCheckVin(c),
       history: buildHistorySummary(c),
       condition: { cpoEvidenceState: buildCpoSummary(c).state },
     });
 
-  const electrificationMatchRank = (c: AutoDevListing): number =>
+  const electrificationMatchRank = (c: VehicleListing): number =>
     electrificationMatchOf && electrificationMatchOf(c) ? 0 : 1;
 
   return [...candidates].sort((a, b) => {

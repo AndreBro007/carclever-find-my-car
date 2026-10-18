@@ -18,7 +18,6 @@ test("description variant: the two Auto.dev-era phrases are replaced, nothing el
   for (const [from] of CHECK_VEHICLE_DESCRIPTION_EDITS) assert.ok(base.includes(from), "base must contain: " + from.slice(0, 50));
   const prev = process.env.LISTING_SOURCE;
   try {
-    process.env.LISTING_SOURCE = "auto_dev"; assert.equal(catalogCheckVehicleDescription(base), base);
     process.env.LISTING_SOURCE = "catalog_db"; const v = catalogCheckVehicleDescription(base);
     let expected = base; for (const [from, to] of CHECK_VEHICLE_DESCRIPTION_EDITS) expected = expected.replace(from, () => to);
     assert.equal(v, "A VIN check for one known vehicle: identity, recall and listing details, for a VIN, or for a make, model and year. For a used car with a VIN, it includes NHTSA's recall lookup link. Use it for a known vehicle, including follow-ups to a search. For a broad search, use Find Matching Vehicle."); assert.ok(v.startsWith("A VIN check for one known vehicle")); assert.ok(!/accident\/CPO history|option A|safe buy/.test(v));

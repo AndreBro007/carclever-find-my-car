@@ -13,7 +13,7 @@
  * Discipline unchanged: unknown is never treated as a conflict, and trim/model
  * gaps never fail a match (Trust Class B).
  */
-import type { AutoDevListing } from "./auto-dev-client";
+import type { VehicleListing } from "./listing-types";
 import { analyzeVin } from "./vin-anatomy";
 
 export interface VerificationResult {
@@ -34,7 +34,7 @@ function makesAgree(listed: string | undefined, decoded: string | null): boolean
   return norm(a) === norm(b);
 }
 
-export function crossCheckVin(listing: AutoDevListing): VerificationResult {
+export function crossCheckVin(listing: VehicleListing): VerificationResult {
   const v = listing.vehicle;
   const anatomy = analyzeVin(listing.vin);
 

@@ -42,11 +42,11 @@ This command runs all deterministic, offline regression suites using the locally
 - `tests/best-for-budget-ranking.test.ts` — settled `best_for_budget` ranking formula contracts
 - `tests/geo-verification.test.ts` — geographic radius verification logic
 - `tests/risk-tier.test.ts` — risk classification and Buyer Check boundaries
-- `tests/provider-string-runtime-safety.test.ts` — malformed Auto.dev field handling
+- `tests/provider-string-runtime-safety.test.ts` — malformed provider field handling
 - `tests/provider-string-normalization-boundary.test.ts` — provider data type coercion rules
 - `tests/stable-boundaries.test.ts` — VIN dedup, link routing, widget metadata contracts
 
-All deterministic tests are offline. They do NOT call Auto.dev, NHTSA, Vercel, production, preview, external websites, or any mutable network service. A failing suite makes `npm test` exit non-zero. No silent skips.
+All deterministic tests are offline. They do NOT call any listings API, NHTSA, Vercel, production, preview, external websites, or any mutable network service. A failing suite makes `npm test` exit non-zero. No silent skips.
 
 ## 2. Clean Reproducibility Gate
 

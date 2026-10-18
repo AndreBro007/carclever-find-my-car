@@ -19,7 +19,7 @@
  * confirmation, not a fixed checklist and never a wall of caveats. Nothing
  * is added for a field the user never asked about.
  */
-import type { AutoDevListing } from "./auto-dev-client";
+import type { VehicleListing } from "./listing-types";
 
 export interface CardIntentInput {
   exteriorColor?: string;
@@ -166,7 +166,7 @@ export function buildIntentConfirmations(input: CardIntentInput, card: CardForCo
  * deliberately separate from any suitability commentary — this reports a
  * fact about the data, not an opinion about the vehicle.
  */
-export function detectDataConflicts(listing: AutoDevListing): string[] {
+export function detectDataConflicts(listing: VehicleListing): string[] {
   const conflicts: string[] = [];
   const series = listing.vehicle?.series;
   const cylinders = listing.vehicle?.cylinders;
@@ -246,7 +246,7 @@ export function buildQualifierAccounting(input: CardIntentInput): QualifierAccou
     entries.push({
       requested: `${input.seatsMinPreference}+ seats`,
       tier: "disclosed_not_filtered",
-      applied: "never used to exclude results — seating capacity is a real response field but not a documented Auto.dev filter, so it's disclosed per result instead",
+      applied: "never used to exclude results — seating capacity is a real response field but not a filter this source supports, so it's disclosed per result instead",
     });
   }
 

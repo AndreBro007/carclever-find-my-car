@@ -204,7 +204,7 @@ export interface NhtsaElectrificationResult {
  *
  * Runtime-safety fix (fix/provider-string-runtime-safety, SYS-20260828):
  * claimedMake/claimedModel accept `unknown`, not `string | null`. Both
- * call sites (app/[transport]/route.ts) pass a raw AutoDevListing
+ * call sites (app/[transport]/route.ts) pass a raw VehicleListing
  * vehicle.make/vehicle.model value straight through on EVERY shortlisted
  * result (not an edge case — this runs for every search's full-detail
  * refetch), and a live production crash confirmed Auto.dev can return a

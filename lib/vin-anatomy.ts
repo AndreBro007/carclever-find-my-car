@@ -10,8 +10,7 @@
  * "unknown", never a conflict. A wrong conflict flag is worse than no flag —
  * consistent with the "unknown != false" principle used throughout.
  *
- * The paid /vin/{vin} decode remains available in auto-dev-client for
- * single-vehicle drill-down, where one extra call is justified.
+ * Single-vehicle drill-down uses the NHTSA decoder (lib/nhtsa-client.ts).
  */
 
 /** Letters excluded from all VINs by standard (avoid confusion with 0/1/5). */

@@ -1,54 +1,34 @@
 /**
- * Listing-source facade (spike/edmunds-catalog-mode). Same four function names and
- * signatures the route already imported from auto-dev-client, so the route needs
- * only an import swap. Existing Auto.dev code is untouched and is still what runs
- * unless the mode (or the exhaustion breaker) says otherwise.
+ * Listing-source facade (catalogue edition). Same function names and signatures the
+ * route already used, now routing only to the catalogue sources: our own database
+ * (default) or the live Edmunds/Impact catalogue API.
  */
-import * as autoDev from "./auto-dev-client";
-import type { AutoDevListing, ListingsQuery, ListingsResponse } from "./auto-dev-client";
-import { autoDevLooksExhausted, configuredMode } from "./source-mode";
-import { catalogConfigured, getCachedCatalogListing, searchCatalogListings } from "./catalog-source";
-import { catalogDbConfigured, catalogDbModelFacets, getCatalogDbListing, searchCatalogDbListings } from "./catalog-db-source";
+import type { VehicleListing, ListingsQuery, ListingsResponse } from "./listing-types";
+import { configuredMode } from "./source-mode";
+import { getCachedCatalogListing, searchCatalogListings } from "./catalog-source";
+import { catalogDbModelFacets, getCatalogDbListing, searchCatalogDbListings } from "./catalog-db-source";
 
-export type ActiveSource = "auto_dev" | "edmunds_catalog" | "catalog_db";
+export type ActiveSource = "edmunds_catalog" | "catalog_db";
 
 export function activeSource(): ActiveSource {
-  const mode = configuredMode();
-  if (mode === "catalog_db") return catalogDbConfigured() ? "catalog_db" : "auto_dev";
-  if (mode === "edmunds_catalog") return catalogConfigured() ? "edmunds_catalog" : "auto_dev";
-  if (mode === "auto" && autoDevLooksExhausted() && catalogConfigured()) return "edmunds_catalog";
-  return "auto_dev";
+  return configuredMode();
 }
 
 export async function searchListingsLean(query: ListingsQuery): Promise<ListingsResponse> {
-  if (activeSource() === "catalog_db") return searchCatalogDbListings(query);
-  if (activeSource() === "edmunds_catalog") return searchCatalogListings(query);
-  const primary = await autoDev.searchListingsLean(query);
-  // Auto mode: if Auto.dev just failed (or flagged itself exhausted) try the catalogue
-  // for THIS request too, so the user never sees the outage.
-  if (configuredMode() === "auto" && catalogConfigured() && (primary.error || autoDevLooksExhausted())) {
-    const fallback = await searchCatalogListings(query);
-    if (fallback.data.length > 0) return fallback;
-  }
-  return primary;
+  return activeSource() === "edmunds_catalog" ? searchCatalogListings(query) : searchCatalogDbListings(query);
 }
 
-// Catalogue rows are already complete, so "full detail" in catalogue mode is the cached row.
-// A miss returns null, which the route already treats as a silent lean-row fallback.
-export async function getListingByVin(vin: string): Promise<AutoDevListing | null> {
-  if (activeSource() === "catalog_db") return getCatalogDbListing(vin);
-  if (activeSource() === "edmunds_catalog") return getCachedCatalogListing(vin);
-  return autoDev.getListingByVin(vin);
+// Catalogue rows are already complete, so "full detail" is the stored row. A miss returns null,
+// which the route already treats as a silent lean-row fallback.
+export async function getListingByVin(vin: string): Promise<VehicleListing | null> {
+  return activeSource() === "edmunds_catalog" ? getCachedCatalogListing(vin) : getCatalogDbListing(vin);
 }
 
-export async function searchListingByVinExact(vin: string): Promise<AutoDevListing | null> {
-  if (activeSource() === "catalog_db") return getCatalogDbListing(vin);
-  if (activeSource() === "edmunds_catalog") return getCachedCatalogListing(vin);
-  return autoDev.searchListingByVinExact(vin);
+export async function searchListingByVinExact(vin: string): Promise<VehicleListing | null> {
+  return getListingByVin(vin);
 }
 
 export async function getModelFacets(query: ListingsQuery): Promise<Array<{ value: string; count: number }>> {
-  if (activeSource() === "catalog_db") return catalogDbModelFacets(query);
-  if (activeSource() === "edmunds_catalog") return []; // no facet endpoint; correction step simply doesn't fire
-  return autoDev.getModelFacets(query);
+  if (activeSource() === "edmunds_catalog") return []; // no facet endpoint; the correction step simply doesn't fire
+  return catalogDbModelFacets(query);
 }

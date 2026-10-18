@@ -1,6 +1,6 @@
 # CarClever - Find My Car
 
-A live MCP server for vehicle search and matching across current U.S. new and used inventory. Built on Auto.dev's Starter tier (VIN Decode, Listings, Photos endpoints).
+A live MCP server for vehicle search and matching across current U.S. new and used inventory. Built on our own catalogue database (Edmunds catalogue supplied through Impact, refreshed daily) with NHTSA vehicle decoding and recall lookups.
 
 **Status: Production live at `carclever-find-my-car.vercel.app`**
 
@@ -16,7 +16,7 @@ A live MCP server for vehicle search and matching across current U.S. new and us
 ## Architecture
 
 - **Next.js** on Vercel (serverless)
-- **Auto.dev API** for live inventory (Starter tier: VIN Decode, Listings, Photos)
+- **Neon Postgres** catalogue database for inventory (daily Edmunds/Impact feed), plus NHTSA lookups
 - **MCP Apps** for visual result cards (SEP-1865 standard, supports Claude and ChatGPT)
 - **Zod** for input/output validation
 - **TypeScript** throughout
@@ -37,7 +37,6 @@ Deployed SHA always matches `main` branch in GitHub. Vercel deployment status is
 
 Design decisions, provider data audit, API contracts, and field handling live in the `carclever-widget` repo:
 - `DECISIONS.md` — full decision history
-- `specs/Auto_Dev_Field_Audit_v1.md` — provider field reliability and coercion rules
 - `STATE.md` — current session and session archive
 
 <!-- Remove outputSchema from find_matching_vehicle (c8a5c36) -->

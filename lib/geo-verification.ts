@@ -52,7 +52,7 @@
  * CO — roughly 900 miles apart), this 20-mile tolerance is negligible
  * against the actual margin involved.
  */
-import type { AutoDevListing } from "./auto-dev-client";
+import type { VehicleListing } from "./listing-types";
 
 const GEO_TOLERANCE_MILES = 20;
 

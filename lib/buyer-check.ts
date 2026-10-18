@@ -39,7 +39,7 @@ export interface BuyerCheck {
  *   or a generic, evidence-agnostic verification suggestion.
  * - No numeric risk/deal/value score of any kind.
  * - titleStatus is deliberately NOT used — that source field is still
- *   unverified in the current client contract (lib/auto-dev-client.ts
+ *   unverified in the current client contract (the removed listings client
  *   marks retailListing.titleStatus "unconfirmed").
  *
  * Outcome precedence (first match wins):

@@ -1,6 +1,6 @@
 import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
-import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
+import { type VehicleListing, type ListingsQuery } from "@/lib/listing-types";
 // spike/edmunds-catalog-mode: same four functions, now routed through the source facade
 // (Auto.dev unchanged unless mode/breaker selects the Edmunds catalogue).
 import { catalogOutputActive, shapeCardsForSource, shapeBuyerCheckForCatalog, nhtsaTextLines, nhtsaTextFootnote, catalogCheckVehicleDescription, freshnessSignals, freshnessTextLine } from "@/lib/catalog-output";
@@ -43,7 +43,7 @@ import { FindMatchingVehicleInput, FindMatchingVehicleInputCatalog } from "@/lib
 import { fetchRecallStatus, clipRecallText, type RecallInfo } from "@/lib/nhtsa-recalls-client";
 import { nhtsaLinkField, nhtsaRecallCheckUrl, recallCheckFootnote, recallCheckLine, addRecallCheckStep } from "@/lib/nhtsa-links";
 
-import { getCorpusCountForDescription, initCorpusCount } from "@/lib/corpus-count";
+import { getCorpusCountForDescription } from "@/lib/corpus-count";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting, type CardIntentInput } from "@/lib/qualifier-accounting";
 import { RESULTS_CARD_RESOURCE_URI, buildResultsCardHtml, getAppOrigin } from "@/lib/results-card";
@@ -61,7 +61,6 @@ import {
   type ConstraintEvidenceRequest,
 } from "@/lib/constraint-evidence";
 
-initCorpusCount();
 
 // Description rules 2 and 4 below are adapted from the proven, live-tested
 // tool-description language in AUTODEV_V2_NLP_SEARCH_REDESIGN.md §5.1
@@ -190,7 +189,7 @@ const RESPONSE_ASSEMBLY_RESERVE_MS = 20_000;
  * disclosed, not dropped — same "unknown != false" discipline as history/CPO).
  */
 function buildSeatsSummary(
-  listing: AutoDevListing,
+  listing: VehicleListing,
   seatsMin: number | undefined,
 ): { state: "meets_or_exceeds" | "below_requested" | "reported" | "unknown"; note: string } {
   const seats = listing.vehicle?.seats;
@@ -321,7 +320,7 @@ function signedImageProxyUrl(rawImageUrl: string | null): string | null {
 }
 
 async function buildResultCard(
-  listing: AutoDevListing,
+  listing: VehicleListing,
   intent: ReturnType<typeof parseIntent>,
   intentInput: CardIntentInput,
   nhtsa?: NhtsaElectrificationResult | null,
@@ -350,7 +349,7 @@ async function buildResultCard(
   // answer here, unlike the trim-conflict badge below, was judged not
   // worth the added complexity for what's just a URL-construction input).
   // Never overrides a trim Auto.dev already supplied.
-  const effectiveListing: AutoDevListing =
+  const effectiveListing: VehicleListing =
     !listing.vehicle?.trim && nhtsa?.trimOptions?.length
       ? { ...listing, vehicle: { ...listing.vehicle, trim: nhtsa.trimOptions[0] } }
       : listing;
@@ -473,8 +472,8 @@ async function buildResultCard(
       // review follow-up, SYS-20260828): the earlier String()-coercion
       // here prevented an output-schema crash but risked displaying
       // literal garbage ("1958", "[object Object]") as if it were a real
-      // vehicle fact. Now that lib/auto-dev-client.ts's normalizeListing()/
-      // leanRowToListing() guarantee every AutoDevListing entering this
+      // vehicle fact. Now that the removed listings client's normalizeListing()/
+      // leanRowToListing() guarantee every VehicleListing entering this
       // function already has correct runtime string types (a genuine
       // string survives, anything malformed becomes undefined at
       // ingestion — see that module's own doc comment), `v?.make ?? null`
@@ -657,8 +656,8 @@ function buildStandaloneIdentityCard(params: {
     vin: vin ?? "",
     vehicle: { make: make ?? undefined, model: model ?? undefined, year: year ?? undefined, trim: trim ?? undefined },
     retailListing: { used: false as const }, // forces the New-vehicle close/loose link tier — see doc comment above
-  } as AutoDevListing;
-  const linksFull = resolveLinks({ ...linkListing, retailListing: { used: true as const } } as AutoDevListing);
+  } as VehicleListing;
+  const linksFull = resolveLinks({ ...linkListing, retailListing: { used: true as const } } as VehicleListing);
   // A VIN we do not list: no exact-VIN link (the car may not exist); the similar-vehicles link is the used search for this make and model.
   const links = { ...linksFull, affiliateUrl: null, checkAvailSource: "none" as const, linkStatus: linksFull.affiliateFallbackUrl ? ("fallback-only" as const) : ("none-available" as const) };
 
@@ -932,7 +931,7 @@ const handler = createMcpHandler((server) => {
             `[find_matching_vehicle] vin_price_disagreement vin=${rawVin} searchPrice=${searchPrice} fullPrice=${fullPrice} chosenPrice=${searchPrice}`,
           );
         }
-        const resolvedListing: AutoDevListing =
+        const resolvedListing: VehicleListing =
           searchPrice != null && fullListing.retailListing
             ? { ...fullListing, retailListing: { ...fullListing.retailListing, price: searchPrice } }
             : fullListing;
@@ -1099,15 +1098,15 @@ const handler = createMcpHandler((server) => {
       // At stage 2, a still-missing or non-matching trim must NOT satisfy
       // the requirement — see trimRequiredFullFilter below.
       const trimRequired = intent.trimRequired;
-      const trimRequiredLeanFilter = (c: AutoDevListing): boolean => {
+      const trimRequiredLeanFilter = (c: VehicleListing): boolean => {
         if (!trimRequired) return true;
         const reported = c.vehicle?.trim;
         if (reported == null || reported === "") return true; // provisional — stage 2 may resolve it
         return trimMatches(trimRequired, reported);
       };
-      const trimIsConfirmedMatch = (c: AutoDevListing): boolean =>
+      const trimIsConfirmedMatch = (c: VehicleListing): boolean =>
         !!trimRequired && trimMatches(trimRequired, c.vehicle?.trim);
-      const trimRequiredFullFilter = (c: AutoDevListing): boolean => {
+      const trimRequiredFullFilter = (c: VehicleListing): boolean => {
         if (!trimRequired) return true;
         // Full detail is the last word — a still-missing or non-matching
         // trim can no longer stay provisional here.
@@ -1218,14 +1217,14 @@ const handler = createMcpHandler((server) => {
         baseQuery.used == null &&
         activeSource() !== "edmunds_catalog" && // catalogue cannot split new/used: one query, no duplicate pool
         (input.priorityAxis === "best_for_budget" || input.priorityAxis == null);
-      let rawResult: { data: AutoDevListing[]; total: number | null; error?: string; degraded?: string; source?: "auto_dev" | "edmunds_catalog" | "catalog_db"; localApplied?: boolean };
+      let rawResult: { data: VehicleListing[]; total: number | null; error?: string; degraded?: string; source?: "edmunds_catalog" | "catalog_db"; localApplied?: boolean };
       if (useFairPool) {
         const [newResult, usedResult] = await Promise.all([
           searchListingsLean({ ...baseQuery, used: false }),
           searchListingsLean({ ...baseQuery, used: true }),
         ]);
         const seenVins = new Set<string>();
-        const mergedData: AutoDevListing[] = [];
+        const mergedData: VehicleListing[] = [];
         for (const c of [...newResult.data, ...usedResult.data]) {
           if (c.vin && !seenVins.has(c.vin)) {
             seenVins.add(c.vin);
@@ -1257,7 +1256,7 @@ const handler = createMcpHandler((server) => {
       for (const c of intent.modelPrefixesStripped) {
         relaxations.push({
           step: "model_prefix_correction",
-          detail: `"${c.original}" includes the manufacturer name, which Auto.dev's model field never does — corrected to "${c.corrected}".`,
+          detail: `"${c.original}" includes the manufacturer name, which the model field never does — corrected to "${c.corrected}".`,
         });
       }
 
@@ -1402,7 +1401,7 @@ const handler = createMcpHandler((server) => {
       // provider count — a query can return 100 rows that verification strips
       // to two, which is exactly the "plenty of inventory, thin answer" case
       // this whole mechanism exists for.
-      const usableCount = (rows: AutoDevListing[], q: ListingsQuery) =>
+      const usableCount = (rows: VehicleListing[], q: ListingsQuery) =>
         applyDiversity(
           rows
             .filter((c) => verifyAgainstConstraints(c, q).length === 0)
@@ -1518,7 +1517,7 @@ const handler = createMcpHandler((server) => {
       // extended here. Mismatched candidates surfaced this way still get
       // their honest per-result "NOT the requested X" disclosure
       // (qualifier-accounting.ts) rather than looking like a plain match.
-      const bodyStyleMatchFilter = (c: AutoDevListing) => {
+      const bodyStyleMatchFilter = (c: VehicleListing) => {
         const target = droppedBodyStyle!.toLowerCase();
         // Runtime-safety fix (fix/provider-string-runtime-safety,
         // SYS-20260828): String()-coerced before .toLowerCase() — plain
@@ -1673,7 +1672,7 @@ const handler = createMcpHandler((server) => {
       // applies and existing non-electrification searches are byte-for-byte
       // unchanged.
       const electrificationMatchOf = electrificationResult.matchedVins
-        ? (c: AutoDevListing) => electrificationResult.matchedVins!.has(c.vin)
+        ? (c: VehicleListing) => electrificationResult.matchedVins!.has(c.vin)
         : undefined;
       // (SYS-20260924-008) "preferred" electrification, unlike "required",
       // never excludes anything — so when the bounded top-20 pool
@@ -1804,10 +1803,10 @@ const handler = createMcpHandler((server) => {
       // resolution can run a second time on the spare pool during backfill,
       // instead of duplicating this block.
       function resolveStage2Detail(
-        leanRows: AutoDevListing[],
-        fullRows: (AutoDevListing | null)[],
-      ): { kept: AutoDevListing[]; anyLookupFailed: boolean; anyConstraintDrift: boolean } {
-        const kept: AutoDevListing[] = [];
+        leanRows: VehicleListing[],
+        fullRows: (VehicleListing | null)[],
+      ): { kept: VehicleListing[]; anyLookupFailed: boolean; anyConstraintDrift: boolean } {
+        const kept: VehicleListing[] = [];
         let anyLookupFailed = false;
         let anyConstraintDrift = false;
 
@@ -1846,7 +1845,7 @@ const handler = createMcpHandler((server) => {
               `[find_matching_vehicle] stage2_price_disagreement vin=${lean.vin} leanPrice=${leanPrice} fullPrice=${fullPrice} chosenPrice=${leanPrice}`,
             );
           }
-          const priceResolved: AutoDevListing =
+          const priceResolved: VehicleListing =
             leanPrice != null && full.retailListing
               ? { ...full, retailListing: { ...full.retailListing, price: leanPrice } }
               : full;
@@ -1936,7 +1935,7 @@ const handler = createMcpHandler((server) => {
       // the original one — the same effectiveQuery discipline already
       // established for verifyAgainstConstraints() above.
       let geoDriftDetected = false;
-      const applyLocalStage2Filters = (full: AutoDevListing): boolean => {
+      const applyLocalStage2Filters = (full: VehicleListing): boolean => {
         let ok = true;
         if (droppedBodyStyle) {
           const matches = bodyStyleMatchFilter(full);
@@ -2147,7 +2146,7 @@ const handler = createMcpHandler((server) => {
         dataNotes.push(
           catalogOutputActive()
             ? `None of the results could be confirmed as a genuine ${bodyStyleLabel} — the listing data may label this model's body style differently. Shown anyway since they're still the correct model, with each result's reported body style disclosed individually below.`
-            : `None of the results could be confirmed as a genuine ${bodyStyleLabel} — Auto.dev's own data appears to mislabel this model's body style. Shown anyway since they're still the correct model, with each result's actual reported body style disclosed individually below.`,
+            : `None of the results could be confirmed as a genuine ${bodyStyleLabel} — the listing data appears to mislabel this model's body style. Shown anyway since they're still the correct model, with each result's actual reported body style disclosed individually below.`,
         );
       } else if (bodyStyleDriftDetected) {
         dataNotes.push(
@@ -2856,7 +2855,7 @@ const handler = createMcpHandler((server) => {
       const catalogTracking = catalogRow
         ? buildTrackingUrl({ id: String((catalogRow as { id?: unknown }).id), vin, year: Number(year), make: String(make), model: String(model) })
         : undefined;
-      const links = resolveLinks({ vin, vehicle: { make, model, year }, ...(catalogTracking ? { catalog: { trackingUrl: catalogTracking } } : {}) } as unknown as AutoDevListing);
+      const links = resolveLinks({ vin, vehicle: { make, model, year }, ...(catalogTracking ? { catalog: { trackingUrl: catalogTracking } } : {}) } as unknown as VehicleListing);
 
       if (links.linkStatus === "none-available") {
         return {

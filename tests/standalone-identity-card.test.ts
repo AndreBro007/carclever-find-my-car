@@ -19,7 +19,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { resolveLinks } from "../lib/link-resolution";
-import type { AutoDevListing } from "../lib/auto-dev-client";
+import type { VehicleListing } from "../lib/listing-types";
 
 const baseMeta = {
   totalCandidatesConsidered: 1,
@@ -104,7 +104,7 @@ test("resolveLinks: an identity-only listing (retailListing.used forced false, n
     vin: "",
     vehicle: { make: "Honda", model: "CR-V", year: 2023 },
     retailListing: { used: false },
-  } as AutoDevListing;
+  } as VehicleListing;
 
   const links = resolveLinks(identityOnlyListing);
 
@@ -119,7 +119,7 @@ test("resolveLinks: an identity-only listing with no VIN and no make/model produ
     vin: "",
     vehicle: {},
     retailListing: { used: false },
-  } as AutoDevListing;
+  } as VehicleListing;
 
   const links = resolveLinks(emptyListing);
 

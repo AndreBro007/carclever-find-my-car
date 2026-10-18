@@ -34,7 +34,7 @@
  *      is out of scope for a bounded fix — matches this file's existing
  *      "intentionally simple, real formula deferred" pattern.
  */
-import type { AutoDevListing } from "./auto-dev-client";
+import type { VehicleListing } from "./listing-types";
 import type { ParsedIntent } from "./intent-parser";
 import type { VerificationResult } from "./vin-cross-check";
 import type { CardIntentInput } from "./qualifier-accounting";
@@ -103,7 +103,7 @@ function identityConfidenceFrom(v: VerificationResult): number {
   return 0.0;
 }
 
-function statedCriteriaFit(listing: AutoDevListing, intent: ParsedIntent): number {
+function statedCriteriaFit(listing: VehicleListing, intent: ParsedIntent): number {
   // Simple, explainable v1: count how many stated hard constraints the
   // listing actually satisfies. Trim is intentionally excluded from this
   // hard-constraint count (ranking input only, handled below).
@@ -151,7 +151,7 @@ const USED_VALUE_BONUS = 0.04;
 const NEARLY_NEW_USED_BONUS = 0.02; // additional, only for clearly low-mileage Used
 const NEARLY_NEW_MILEAGE_THRESHOLD = 15_000;
 
-function usedValueTieBreak(listing: AutoDevListing, intentInput: CardIntentInput): number {
+function usedValueTieBreak(listing: VehicleListing, intentInput: CardIntentInput): number {
   if (intentInput.used === false) return 0; // explicit New-only — no influence at all
   const isReportedUsed = listing.retailListing?.used === true;
   if (!isReportedUsed) return 0;
@@ -161,7 +161,7 @@ function usedValueTieBreak(listing: AutoDevListing, intentInput: CardIntentInput
 }
 
 function resolvedCriteriaFit(
-  listing: AutoDevListing,
+  listing: VehicleListing,
   intent: ParsedIntent,
   intentInput: CardIntentInput,
 ): number {
@@ -191,7 +191,7 @@ function resolvedCriteriaFit(
 }
 
 export function computeMatchScore(
-  listing: AutoDevListing,
+  listing: VehicleListing,
   intent: ParsedIntent,
   verification: VerificationResult,
   intentInput: CardIntentInput,

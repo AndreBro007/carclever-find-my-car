@@ -1,12 +1,12 @@
 /**
  * Catalogue DATABASE as a listing source (branch catalog-db/v1). Same four functions the listing-source facade already
- * expects, returning the EXISTING AutoDevListing shape so ranking, verification, cards and links are reused unchanged.
+ * expects, returning the EXISTING VehicleListing shape so ranking, verification, cards and links are reused unchanged.
  * Server-side only. Needs DATABASE_URL (use a pooled connection string on serverless).
  *
  * Unlike the live-API catalogue source, the feed's own `condition` is available, so `used` is set from the data.
  */
 import { Pool } from "pg";
-import type { AutoDevListing, ListingsQuery, ListingsResponse } from "./auto-dev-client";
+import type { VehicleListing, ListingsQuery, ListingsResponse } from "./listing-types";
 import { classModels } from "./vehicle-class";
 import { buildTrackingUrl, type BodyClass } from "./catalog-db/normalize";
 import { modelFacets, rowByVin, searchRows, type DbRow, type Queryable } from "./catalog-db/search";
@@ -37,7 +37,7 @@ const BODY_LABEL: Record<BodyClass, string> = {
   wagon: "Wagon", truck: "Pickup", van: "Van", minivan: "Minivan", other: "",
 };
 
-export function rowToListing(r: DbRow): AutoDevListing {
+export function rowToListing(r: DbRow): VehicleListing {
   const year = r.year ?? undefined;
   const make = r.make, model = r.model;
   const tracking = r.link_override ?? (year ? buildTrackingUrl({ id: r.id, vin: r.vin, year, make, model }) : undefined);
@@ -83,7 +83,7 @@ function modelsFor(q: ListingsQuery): string[] | null {
 const SERVICE_ERROR = "The vehicle data service returned an error. This is a service issue, not a problem with the search itself.";
 
 export async function searchCatalogDbListings(q: ListingsQuery): Promise<ListingsResponse> {
-  if (!catalogDbConfigured() && !pool) return { data: [], total: 0, source: "catalog_db" };
+  if (!catalogDbConfigured() && !pool) return { data: [], total: 0, source: "catalog_db", error: SERVICE_ERROR };
   try {
     const res = await searchRows(getPool() as unknown as Queryable, q, modelsFor(q));
     return { data: res.rows.map(rowToListing), total: res.total, source: "catalog_db", localApplied: res.localApplied };
@@ -92,7 +92,7 @@ export async function searchCatalogDbListings(q: ListingsQuery): Promise<Listing
   }
 }
 
-export async function getCatalogDbListing(vin: string): Promise<AutoDevListing | null> {
+export async function getCatalogDbListing(vin: string): Promise<VehicleListing | null> {
   if (!catalogDbConfigured() && !pool) return null;
   try {
     const row = await rowByVin(getPool() as unknown as Queryable, vin);

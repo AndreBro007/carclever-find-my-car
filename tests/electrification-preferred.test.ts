@@ -7,7 +7,7 @@
 // applyLocalLowerRiskOrdering from lib/local-ranking.ts; electrificationStateSatisfies
 // from lib/nhtsa-client.ts), not source-text/regex checks and not a
 // hand-copied duplicate — genuine behavioral assertions on real output order
-// and real filter results, using constructed AutoDevListing fixtures.
+// and real filter results, using constructed VehicleListing fixtures.
 //
 // IMPORTANT LIMITATION, flagged not hidden: these tests exercise the pure
 // ordering/matching functions directly, with electrification match/no-match
@@ -24,7 +24,7 @@
 import { applyLocalBestForBudgetOrdering, applyLocalLowerRiskOrdering } from "@/lib/local-ranking";
 import { electrificationStateSatisfies, type ElectrificationState } from "@/lib/nhtsa-client";
 import { FindMatchingVehicleInput } from "@/lib/find-matching-vehicle-input";
-import type { AutoDevListing } from "@/lib/auto-dev-client";
+import type { VehicleListing } from "@/lib/listing-types";
 
 let pass = 0;
 let fail = 0;
@@ -45,12 +45,12 @@ interface MiniListing {
   miles?: number;
   trim?: string;
 }
-function toListing(l: MiniListing): AutoDevListing {
+function toListing(l: MiniListing): VehicleListing {
   return {
     vin: l.vin,
     vehicle: { year: l.year, trim: l.trim },
     retailListing: { price: l.price, miles: l.miles },
-  } as AutoDevListing;
+  } as VehicleListing;
 }
 
 // ===========================================================================
@@ -153,7 +153,7 @@ function toListing(l: MiniListing): AutoDevListing {
     toListing({ vin: "gas-comparable", year: 2024, price: 30000, miles: 20000 }),
     toListing({ vin: "hybrid-comparable", year: 2024, price: 30000, miles: 20000 }),
   ];
-  const matchOf = (c: AutoDevListing) => c.vin === "hybrid-comparable";
+  const matchOf = (c: VehicleListing) => c.vin === "hybrid-comparable";
   const ranked = applyLocalBestForBudgetOrdering(pool, undefined, matchOf);
   check(
     "preferred hybrid ranks a confirmed hybrid ahead of a comparable gasoline candidate",
@@ -166,7 +166,7 @@ function toListing(l: MiniListing): AutoDevListing {
     toListing({ vin: "nonphev-comparable", year: 2024, price: 28000, miles: 15000 }),
     toListing({ vin: "phev-comparable", year: 2024, price: 28000, miles: 15000 }),
   ];
-  const matchOf = (c: AutoDevListing) => c.vin === "phev-comparable";
+  const matchOf = (c: VehicleListing) => c.vin === "phev-comparable";
   const ranked = applyLocalBestForBudgetOrdering(pool, undefined, matchOf);
   check(
     "preferred PHEV ranks a confirmed PHEV ahead of a comparable non-PHEV",
@@ -179,7 +179,7 @@ function toListing(l: MiniListing): AutoDevListing {
     toListing({ vin: "nonev-comparable", year: 2025, price: 45000, miles: 5000 }),
     toListing({ vin: "ev-comparable", year: 2025, price: 45000, miles: 5000 }),
   ];
-  const matchOf = (c: AutoDevListing) => c.vin === "ev-comparable";
+  const matchOf = (c: VehicleListing) => c.vin === "ev-comparable";
   const ranked = applyLocalBestForBudgetOrdering(pool, undefined, matchOf);
   check(
     "preferred electric ranks a confirmed EV ahead of a comparable non-EV",
@@ -195,7 +195,7 @@ function toListing(l: MiniListing): AutoDevListing {
     toListing({ vin: "much-better-gas", year: 2026, price: 15000, miles: 500 }),
     toListing({ vin: "worse-hybrid", year: 2018, price: 45000, miles: 150000 }),
   ];
-  const matchOf = (c: AutoDevListing) => c.vin === "worse-hybrid";
+  const matchOf = (c: VehicleListing) => c.vin === "worse-hybrid";
   const ranked = applyLocalBestForBudgetOrdering(pool, undefined, matchOf);
   check(
     "preferred never overrides a materially better primary-axis candidate (electrification is a tiebreaker, not a primary key)",
@@ -225,7 +225,7 @@ function toListing(l: MiniListing): AutoDevListing {
     toListing({ vin: "match", year: 2024, price: 30000, miles: 20000 }),
     toListing({ vin: "no-match", year: 2024, price: 31000, miles: 21000 }),
   ];
-  const matchOf = (c: AutoDevListing) => c.vin === "match";
+  const matchOf = (c: VehicleListing) => c.vin === "match";
   const ranked = applyLocalBestForBudgetOrdering(pool, undefined, matchOf);
   check(
     "preferred does not exclude non-matching candidates -- both present in output",
@@ -246,7 +246,7 @@ function toListing(l: MiniListing): AutoDevListing {
   // appear in that set (electrificationStateSatisfies would return false
   // for them), so the predicate correctly returns false for both without
   // excluding them from the candidate list itself.
-  const matchOf = (c: AutoDevListing) => c.vin === "confirmed-match";
+  const matchOf = (c: VehicleListing) => c.vin === "confirmed-match";
   const ranked = applyLocalBestForBudgetOrdering(pool, undefined, matchOf);
   check(
     "preferred keeps unknown and ambiguous candidates eligible (present in output, just not promoted)",
@@ -272,7 +272,7 @@ function toListing(l: MiniListing): AutoDevListing {
     toListing({ vin: "1HGCM82633A004352", year: 2024, price: 30000, miles: 20000 }), // gas, same tier
     toListing({ vin: "1HGCM82633A004353", year: 2024, price: 30000, miles: 20000 }), // hybrid, same tier
   ];
-  const matchOf = (c: AutoDevListing) => c.vin === "1HGCM82633A004353";
+  const matchOf = (c: VehicleListing) => c.vin === "1HGCM82633A004353";
   const ranked = applyLocalLowerRiskOrdering(pool, matchOf);
   check(
     "lower_risk axis: preferred electrification tiebreaks within the same risk tier",

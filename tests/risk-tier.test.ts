@@ -68,7 +68,7 @@ function evidence(overrides: Partial<RiskEvidence>): RiskEvidence {
   // Handler files can't export arbitrary names. The final-card call site
   // (buildResultCard) stays in route.ts, unaffected by that move.
   const localRankingSource = fs.readFileSync("lib/local-ranking.ts", "utf8");
-  const leanCallSite = localRankingSource.match(/const tierOf = \(c: AutoDevListing\): RiskTier =>\s*\n\s*classifyRiskTier\(\{[\s\S]*?\}\);/);
+  const leanCallSite = localRankingSource.match(/const tierOf = \(c: VehicleListing\): RiskTier =>\s*\n\s*classifyRiskTier\(\{[\s\S]*?\}\);/);
   const cardCallSite = routeSource.match(/const riskTier = classifyRiskTier\(\{[\s\S]*?\}\);/);
   check("Lean-stage classifyRiskTier() call site located (now in lib/local-ranking.ts)", !!leanCallSite);
   check("Final-card classifyRiskTier() call site located", !!cardCallSite);
@@ -243,24 +243,14 @@ async function schemaTest() {
 // ===========================================================================
 async function leanEvidenceRetentionTest() {
   const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
-  const clientSource = fs.readFileSync("lib/auto-dev-client.ts", "utf8");
   // applyLocalLowerRiskOrdering's tierOf helper moved to
   // lib/local-ranking.ts this session (see comment on the earlier
   // Lean-stage classifyRiskTier() check above for why).
   const localRankingSource = fs.readFileSync("lib/local-ranking.ts", "utf8");
 
   check(
-    "LEAN_SELECT_FIELDS requests history.accidents, history.accidentCount, and retailListing.cpo",
-    /history\.accidents/.test(clientSource) && /history\.accidentCount/.test(clientSource) && /retailListing\.cpo/.test(clientSource),
-  );
-  check(
-    "leanRowToListing() maps the new select fields into the AutoDevListing shape classifyRiskTier() reads",
-    /history:\s*\{\s*\n\s*accidents:\s*row\["history\.accidents"\],\s*\n\s*accidentCount:\s*row\["history\.accidentCount"\],/.test(clientSource) &&
-      /cpo:\s*row\["retailListing\.cpo"\]/.test(clientSource),
-  );
-  check(
     "applyLocalLowerRiskOrdering() feeds classifyRiskTier() from buildHistorySummary()/buildCpoSummary() applied to the lean candidate directly (now in lib/local-ranking.ts)",
-    /const tierOf = \(c: AutoDevListing\): RiskTier =>\s*\n\s*classifyRiskTier\(\{\s*\n\s*verification: crossCheckVin\(c\),\s*\n\s*history: buildHistorySummary\(c\),\s*\n\s*condition: \{ cpoEvidenceState: buildCpoSummary\(c\)\.state \},/.test(localRankingSource),
+    /const tierOf = \(c: VehicleListing\): RiskTier =>\s*\n\s*classifyRiskTier\(\{\s*\n\s*verification: crossCheckVin\(c\),\s*\n\s*history: buildHistorySummary\(c\),\s*\n\s*condition: \{ cpoEvidenceState: buildCpoSummary\(c\)\.state \},/.test(localRankingSource),
   );
   check(
     "cardShape.dataConflicts is still populated from detectDataConflicts() (verification info not lost, just excluded from risk classification)",

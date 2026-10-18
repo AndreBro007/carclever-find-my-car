@@ -76,7 +76,7 @@ test("11. Never produces the literal string '[object Object]'", () => {
   // be pushed via the make/model/trim branches (never coerced), so this
   // documents the contract rather than exercising an actual malformed input
   // path (malformed inputs are normalized to null/undefined further
-  // upstream in lib/auto-dev-client.ts, out of scope for this fix).
+  // upstream in the removed listings client, out of scope for this fix).
   const title = formatVehicleTitle({ year: 2027, make: "Ram", model: "1500", trim: "Tradesman" });
   assert.ok(!title.includes("[object Object]"));
 });
