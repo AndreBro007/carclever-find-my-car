@@ -44,29 +44,47 @@ export async function buildNoResultsAlternatives(query: ListingsQuery, search: A
   if (!make) return "";
   const single = model && !model.includes(",") && !make.includes(",");
   const condition = query.used === false ? "new " : query.used === true ? "used " : "";
+  const items = (rows: VehicleListing[], distinct: boolean): string => pick(rows, 3, distinct).map((l, i) => describe(l, i + 1)).join("\n");
+  /** Nearest area first (when a ZIP was given), then the whole country; says which one it used. */
+  const nearThenNationwide = async (q: ListingsQuery): Promise<{ rows: VehicleListing[]; scope: string }> => {
+    let r = await search(q);
+    let rows = r.error ? [] : r.data;
+    if (rows.length || !query.zip) return { rows, scope: query.zip ? `near ZIP ${query.zip}` : "in the catalogue" };
+    r = await search({ ...q, zip: undefined, radius: undefined, state: undefined });
+    rows = r.error ? [] : r.data;
+    return { rows, scope: `anywhere in the country (none near ZIP ${query.zip})` };
+  };
   try {
     if (single) {
+      // 1. Same model and condition with the price limit removed.
       const open: ListingsQuery = { ...query, priceMin: undefined, priceMax: undefined, classHint: undefined, sort: "price.asc", limit: 60 };
-      let r = await search(open);
-      let scope = query.zip ? `near ZIP ${query.zip}` : "in the catalogue";
-      let rows = r.error ? [] : r.data;
-      if (!rows.length && query.zip) {
-        r = await search({ ...open, zip: undefined, radius: undefined, state: undefined });
-        rows = r.error ? [] : r.data;
-        scope = `anywhere in the country (none near ZIP ${query.zip})`;
+      const a = await nearThenNationwide(open);
+      const shown = pick(a.rows, 3, false);
+      if (shown.length) {
+        // Say WHY nothing matched: only call them "over budget" when every one really is; otherwise it is the trim or the electric/hybrid requirement.
+        const over = query.priceMax != null && shown.every((l) => (l.retailListing?.price as number) > (query.priceMax as number));
+        const why = over ? ` These are over your budget:` : opts.trim ? ` None is the ${opts.trim} trim you asked for:` : opts.unmet ? ` None is confirmed ${opts.unmet}:` : "";
+        return `\n\nClosest ${condition}${make} ${model} options ${a.scope}, lowest price first.${why}\n` + items(a.rows, false) + (over ? `\n(Shown for comparison only: they are above your price limit.)` : "");
       }
-      const top = pick(rows, 3, false);
-      if (top.length) {
-        return `\n\nClosest ${condition}${make} ${model} options ${scope}, lowest price first.${query.priceMax != null ? ` These are over your budget:` : opts.trim ? ` None is the ${opts.trim} trim you asked for:` : opts.unmet ? ` None is confirmed ${opts.unmet}:` : ""}\n` +
-          top.map((l, i) => describe(l, i + 1)).join("\n") + (query.priceMax != null ? `\n(Shown for comparison only: they are above your price limit.)` : "");
+      // 2. None in that condition at all: the same model in the other condition.
+      if (query.used !== undefined) {
+        const b = await nearThenNationwide({ ...open, used: undefined });
+        if (pick(b.rows, 3, false).length) {
+          const other = query.used === false ? "Used" : "New";
+          return `\n\nNo ${condition}${make} ${model} listings found. ${other} ones ${b.scope}, lowest price first:\n` + items(b.rows, false) +
+            (query.priceMax != null ? `\n(Shown for comparison only: ${other.toLowerCase()} cars, and above your price limit where marked.)` : "");
+        }
       }
     }
+    // 3. The model has no listings at all: other models from the same make inside the buyer's own filters.
     const wide: ListingsQuery = { ...query, model: undefined, classHint: undefined, sort: "price.asc", limit: 60 };
-    const r2 = await search(wide);
-    const top2 = r2.error ? [] : pick(r2.data, 3, true);
-    if (top2.length) {
-      return `\n\nNo ${condition}${make} ${model || "vehicles"} listings matched. Other ${make} models inside your filters:\n` + top2.map((l, i) => describe(l, i + 1)).join("\n");
-    }
+    const r3 = await search(wide);
+    const top3 = r3.error ? [] : pick(r3.data, 3, true);
+    if (top3.length) return `\n\nNo ${condition}${make} ${model || "vehicles"} listings matched. Other ${make} models inside your filters:\n` + top3.map((l, i) => describe(l, i + 1)).join("\n");
+    // 4. Still nothing: other models of the make with the price limit and condition removed, clearly labelled.
+    const r4 = await search({ ...wide, priceMin: undefined, priceMax: undefined, used: undefined });
+    const top4 = r4.error ? [] : pick(r4.data, 3, true);
+    if (top4.length) return `\n\nNo ${condition}${make} ${model || "vehicles"} listings matched. Other ${make} models, lowest price first (these do not match your price limit or condition):\n` + top4.map((l, i) => describe(l, i + 1)).join("\n");
   } catch {
     /* alternatives are a courtesy; never let them break the reply */
   }

@@ -2093,6 +2093,10 @@ const handler = createMcpHandler((server) => {
 
       const dataNotes: string[] = [];
       { const sizeNote = classSizeNote(input); if (sizeNote) dataNotes.push(sizeNote); }
+      {
+        const unapplied = [input.cylinders != null ? "cylinder count" : "", input.transmission ? "transmission" : ""].filter(Boolean);
+        if (unapplied.length) dataNotes.push(`${unapplied.join(" and ")} could not be applied as a filter because the catalogue has no such field; each result shows it when known.`);
+      }
       if (lowestMileageDefaultedToUsed) {
         dataNotes.push(
           "Showing used cars only, so the lowest mileage is a fair comparison. Ask for new cars if you want them.",
@@ -2258,7 +2262,7 @@ const handler = createMcpHandler((server) => {
           ? `No vehicles matched these criteria, even after automatically trying to widen the ${uniqueAttemptedSteps
               .map((s) => STEP_LABELS[s])
               .join(", ")} — this looks like a genuine inventory gap for this exact combination, not something more widening on those same dimensions would fix. A different location, a broader model list, or (if the budget allows) some price flexibility may help instead.`
-          : `No vehicles matched ${[input.used === true ? "used" : input.used === false ? "new" : "", input.make ?? "", input.model ?? ""].filter(Boolean).join(" ") || "these criteria"}${input.priceMax != null ? ` at up to $${Number(input.priceMax).toLocaleString("en-US")}` : ""}${rawZip ? ` within ${input.radiusMiles ?? 50} miles of ${rawZip}` : ""}. Nothing was widened or substituted.`;
+          : `No vehicles matched ${[input.used === true ? "used" : input.used === false ? "new" : "", input.make ?? "", input.model ?? "", typeof input.trimRequired === "string" ? input.trimRequired : ""].filter(Boolean).join(" ") || "these criteria"}${input.priceMax != null ? ` at up to $${Number(input.priceMax).toLocaleString("en-US")}` : ""}${rawZip ? ` within ${input.radiusMiles ?? 50} miles of ${rawZip}` : ""}. Nothing was widened or substituted.`;
 
       // Partial-success disclosure gap (SYS-20260816-049, real bug found live
       // 2026-08-16): a widening step can be genuinely attempted and fail to

@@ -152,3 +152,23 @@ test("cylinders and transmission are reported as not applied, never as filtered"
   }
   assert.ok(!acc.some((x) => /filtered on (cylinder|transmission)/.test(x.applied)));
 });
+
+test("no results: none in the asked condition, so the same model in the other condition is shown and labelled", opts, async () => {
+  const txt = textOf(await call(27, { make: "Toyota", model: "RAV4", used: false, priceMax: 5000 }));
+  assert.match(txt, /No new Toyota RAV4 listings found\. Used ones in the catalogue, lowest price first:/);
+  assert.match(txt, /2024 Toyota RAV4 LE - \$29,000/);
+  assert.ok(/https:\/\/edmunds\.sjv\.io/.test(txt));
+});
+
+test("no results because of the trim: the alternatives say so, and are never called over budget when they are not", opts, async () => {
+  const txt = textOf(await call(28, { make: "Honda", model: "Civic", trimRequired: "Type R", priceMax: 90000, zip: "90210" }));
+  assert.match(txt, /No vehicles matched Honda Civic Type R at up to \$90,000/);
+  assert.match(txt, /None is the Type R trim you asked for:/);
+  assert.ok(!/over your budget/.test(txt), "all of them cost less than the limit");
+  assert.match(txt, /this page is not filtered to your area, price or Type R trim/);
+});
+
+test("a cylinder or transmission request adds a plain not-applied line to the reply", opts, async () => {
+  const txt = textOf(await call(29, { make: "Honda", model: "Civic", cylinders: 4, transmission: "Manual", zip: "90210" }));
+  assert.match(txt, /cylinder count and transmission could not be applied as a filter because the catalogue has no such field/);
+});
