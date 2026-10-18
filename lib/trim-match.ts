@@ -2,8 +2,8 @@
  * Trim/variant matcher for `trimRequired` (SYS-20260823 — explicit trim
  * requests were being treated as soft ranking preferences, e.g. "Mercedes
  * AMG GLA 35" returning GLA 250s as "Strong match"). Deliberately NOT used
- * to build an Auto.dev query filter — `vehicle.trim` is not trusted as a
- * hard Auto.dev filter param anywhere in this codebase, and this module
+ * to build a provider query filter — `vehicle.trim` is not trusted as a
+ * hard provider filter param anywhere in this codebase, and this module
  * doesn't change that; it's a local, post-fetch matcher only.
  *
  * Normalized, directional, token-subset matching:
@@ -11,7 +11,7 @@
  *   comparing, so "AMG® GLA 35" and "amg gla-35" compare equal.
  * - A letter/digit boundary gets a space inserted ("GLA35" -> "GLA 35") so
  *   minor formatting differences between what a host model sends and what
- *   Auto.dev reports don't cause a false non-match.
+ *   the provider reports don't cause a false non-match.
  * - Directional: every token in the REQUESTED trim must appear in the
  *   ACTUAL (reported) trim's tokens. This means a less-specific actual
  *   trim ("AMG" alone) never satisfies a more-specific request ("AMG GLA

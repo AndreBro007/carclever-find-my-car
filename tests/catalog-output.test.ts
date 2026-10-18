@@ -84,10 +84,10 @@ test("buyer check built for the text the model reads: history, Carfax and CPO 'm
 
 test("text the AI reads: details line and safety line appear in database mode only, recall count gets one footnote", () => {
   const c: any = { powertrain: { drivetrain: "AWD", engine: "2.5L 4-cyl 203 hp" }, detail: { fuelTypeDisplay: "Hybrid", seats: 5, nhtsaOverallRating: 5, nhtsaRecallCampaigns: 3, standardSafetyTech: ["Automatic emergency braking", "Forward collision warning", "Lane departure warning", "Rear camera", "Blind spot monitoring", "Adaptive cruise control"] } };
-  const t = nhtsaTextLines(c, true);
+  const t = nhtsaTextLines(c);
   assert.ok(t.startsWith("\n   Hybrid · AWD · 2.5L 4-cyl 203 hp · 5 seats\n   NHTSA 5★ overall · 3 recall campaigns for this model year · NHTSA model-year data (may vary by trim): Automatic emergency braking, Forward collision warning, Lane departure warning, Rear camera +2 more"), t); // equipment is labelled model-year data on purpose (Oct 2026)
-  assert.equal(nhtsaTextLines(c, false), ""); assert.equal(nhtsaTextLines({ powertrain: {}, detail: {} }, true), ""); assert.equal(nhtsaTextLines(null, true), "");
-  assert.equal(nhtsaTextLines({ powertrain: {}, detail: { nhtsaRecallCampaigns: 1 } }, true), "\n   1 recall campaign for this model year");
-  assert.match(nhtsaTextFootnote([c, c], true), /^\n\nNote: recall counts are for the model year/); assert.equal(nhtsaTextFootnote([c], false), ""); assert.equal(nhtsaTextFootnote([{ detail: {} }], true), "");
-  assert.equal((nhtsaTextFootnote([c, c], true).match(/Note:/g) ?? []).length, 1);
+  assert.equal(nhtsaTextLines({ powertrain: {}, detail: {} }), ""); assert.equal(nhtsaTextLines(null), "");
+  assert.equal(nhtsaTextLines({ powertrain: {}, detail: { nhtsaRecallCampaigns: 1 } }), "\n   1 recall campaign for this model year");
+  assert.match(nhtsaTextFootnote([c, c]), /^\n\nNote: recall counts are for the model year/); assert.equal(nhtsaTextFootnote([{ detail: {} }]), "");
+  assert.equal((nhtsaTextFootnote([c, c]).match(/Note:/g) ?? []).length, 1);
 });

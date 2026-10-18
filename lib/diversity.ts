@@ -11,7 +11,7 @@ const MAX_PER_MAKE_MODEL = 2;
 /**
  * Safe string coercion for values that SHOULD be strings but aren't always
  * (real bug found 2026-08-14: `(x ?? "").toLowerCase()` crashed the entire
- * search whenever Auto.dev returned a non-string, non-null value for
+ * search whenever the provider returned a non-string, non-null value for
  * make/model on even one of 100 candidates - `??` only catches null/undefined,
  * not other unexpected types. String() safely handles any input type.
  */

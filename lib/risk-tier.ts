@@ -1,14 +1,9 @@
 /**
- * Shared PURCHASE-RISK-TIER classification (feature/lower-risk-mvp,
- * SYS-20260827 buyer-risk-vs-data-quality fix) — used by BOTH the
- * ordinary-search-card RISK badge and the lower_risk ranking axis.
- * Deliberately separate from BuyerCheck's own 4-outcome scheme
- * (app/[transport]/route.ts's buildBuyerCheck()): that scheme is tuned for
- * a narrative, direct-VIN-lookup writeup and doesn't need a clean
- * "positive vs merely unknown" split. This module exists specifically to
- * make that split explicit, since lower_risk ranking needs it (positive
- * evidence ranks above no-evidence, which ranks above known concerns) and
- * ordinary cards must never treat "unknown" as a warning.
+ * Shared PURCHASE-RISK-TIER classification (SYS-20260827 buyer-risk-vs-data-quality fix), used by the
+ * ordinary-search-card RISK badge. Deliberately separate from BuyerCheck's own 4-outcome scheme
+ * (app/[transport]/route.ts's buildBuyerCheck()): that scheme is tuned for a narrative, direct-VIN-lookup
+ * writeup. This module makes the "positive vs merely unknown" split explicit, because ordinary cards must
+ * never treat "unknown" as a warning.
  *
  * CRITICAL BOUNDARY (fixed here after a real production case: a brand-new
  * 2026 F-150 Raptor with 18 miles got a RISK badge purely because its
@@ -34,22 +29,17 @@
  * needsVerification) — this module simply never sees it, by design.
  *
  * Reuses the exact same purchase-risk evidence Buyer Check already reads
- * — no new Auto.dev field, no new API, no numeric score. All three inputs
+ * — no new provider field, no new API, no numeric score. All three inputs
  * (crossCheckVin, buildHistorySummary, buildCpoSummary in
  * app/[transport]/route.ts) already operate directly on a raw
- * VehicleListing, so this can run at the lean (pre-stage-2) pipeline
- * stage for lower_risk ranking, and again at the full-detail stage for
- * the final card's displayed tier — same "lean informs ordering,
- * full-detail is authoritative for the card" pattern already used for
- * best_for_budget/body-style elsewhere in this pipeline.
+ * VehicleListing, so this can run directly on a listing.
  *
  * "unknown ≠ false" throughout: a listing with zero known purchase-risk
  * concerns AND zero positive evidence is "unknown", never "amber".
  * Ordinary cards must never display anything for "unknown" or "positive"
  * — only "amber"/"red" ever produce a visible badge there (see
  * cardHtml() in lib/results-card.ts). The positive/unknown distinction
- * exists purely for lower_risk's internal ranking order, not for
- * ordinary-card display.
+ * is kept for completeness; ordinary cards only ever show amber or red.
  */
 
 export type RiskTier = "positive" | "unknown" | "amber" | "red";
@@ -92,7 +82,7 @@ export interface RiskEvidence {
  * the underlying data (a "not reported as one-owner" disclosure is
  * itself neutral, not a confirmed multi-owner fact), and titleStatus is
  * the same field BuyerCheck itself deliberately excludes as still
- * unverified in the client contract (the removed listings client). Both would
+ * unverified in the client contract (the earlier listings client). Both would
  * need real, reliably-populated evidence before being added here.
  */
 export function classifyRiskTier(evidence: RiskEvidence): RiskTier {
@@ -138,10 +128,3 @@ export function explainRiskTier(evidence: RiskEvidence): string[] {
   return reasons;
 }
 
-const RISK_TIER_RANK: Record<RiskTier, number> = { positive: 0, unknown: 1, amber: 2, red: 3 };
-
-/** Lower rank = ranked first for lower_risk. Exported so ranking and any
- * future consumer share one single source of truth for tier order. */
-export function riskTierRank(tier: RiskTier): number {
-  return RISK_TIER_RANK[tier];
-}

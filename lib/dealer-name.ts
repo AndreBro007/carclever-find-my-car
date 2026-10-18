@@ -1,7 +1,7 @@
 /**
  * Dealer name sanitization helper.
  *
- * Auto.dev feed identifiers like "ClementFord New VinSolutions Only" leak
+ * provider feed identifiers like "ClementFord New VinSolutions Only" leak
  * DMS/feed-connector suffixes into the UI. This helper strips known suffixes
  * and normalizes whitespace, returning a display-safe dealer name.
  *

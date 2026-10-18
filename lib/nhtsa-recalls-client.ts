@@ -2,7 +2,7 @@
  * NHTSA recalls client (V2.3, SYS-20260904-005 investigation -> build).
  *
  * Decision locked via DECISION-20260902-007 + ChatGPT's 2026-09-05 final
- * design sign-off: NHTSA-only (recallsByVehicle), never Auto.dev's
+ * design sign-off: NHTSA-only (recallsByVehicle), never the provider's
  * /recalls/{vin} endpoint — this project already has a live, tested NHTSA
  * relationship (nhtsa-client.ts's vPIC decode), so this avoids a new
  * unverified dependency. Accepted, already-recorded trade-off: NHTSA's

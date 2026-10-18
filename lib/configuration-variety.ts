@@ -38,7 +38,7 @@ import type { VehicleListing } from "./listing-types";
  * make/model/trim are all String()-coerced before .trim()/.toLowerCase()
  * — confirmed live via temporary diagnostic logging against a real
  * production request ("bodyType": "SUV", no model filter) that a genuine
- * Auto.dev listing can report vehicle.trim as a NUMBER (observed: 1958,
+ * provider listing can report vehicle.trim as a NUMBER (observed: 1958,
  * not a string) despite the client's own declared `trim?: string` type.
  * A bare `(c.vehicle?.trim ?? "").trim()` only substitutes the ""
  * fallback for null/undefined — a non-null, non-string value (like that

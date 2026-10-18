@@ -1,5 +1,5 @@
 /**
- * Vehicle-class safety net for the Edmunds catalogue source (spike/edmunds-catalog-mode).
+ * Vehicle-class safety net for the Edmunds catalogue source.
  *
  * The tool's own instructions tell the calling LLM to turn a class such as "large family SUV" into real
  * model names before calling (find-matching-vehicle-input.ts). ChatGPT sometimes sends only

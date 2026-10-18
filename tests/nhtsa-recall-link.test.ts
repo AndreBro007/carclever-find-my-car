@@ -16,8 +16,8 @@ describe("link builder", () => {
     const u = nhtsaRecallCheckUrl(VIN)!; assert.ok(u.startsWith("https://www.nhtsa.gov/")); assert.ok(!/sjv\.io|sharedid|anrdoezrs|u=/i.test(u));
   });
   test("the card field exists only for USED cars in the database app", () => {
-    assert.deepEqual(nhtsaLinkField(VIN, true, true), { nhtsaRecallCheckUrl: `https://www.nhtsa.gov/recalls?vymm=${VIN}` });
-    assert.deepEqual(nhtsaLinkField(VIN, false, true), {}); assert.deepEqual(nhtsaLinkField(VIN, true, false), {}); assert.deepEqual(nhtsaLinkField("bad", true, true), {});
+    assert.deepEqual(nhtsaLinkField(VIN, true), { nhtsaRecallCheckUrl: `https://www.nhtsa.gov/recalls?vymm=${VIN}` });
+    assert.deepEqual(nhtsaLinkField(VIN, false), {}); assert.deepEqual(nhtsaLinkField("bad", true), {});
   });
 });
 
@@ -25,20 +25,20 @@ const used = { condition: { inventoryType: "used" }, links: { nhtsaRecallCheckUr
 const fresh = { condition: { inventoryType: "new" }, links: {} };
 describe("guidance wording", () => {
   test("list footnote: how to check ANY listed car, then contact the dealer, honest about what the lookup covers", () => {
-    const t = recallCheckFootnote([used, fresh], true);
+    const t = recallCheckFootnote([used, fresh]);
     for (const must of ["open (unrepaired) recalls", "NHTSA's free VIN lookup", "https://www.nhtsa.gov/recalls?vymm=<the car's VIN>", "call or email the dealer", "vehicle history report", "many dealers provide one free", "participating manufacturers", "already repaired"]) assert.ok(t.includes(must), must);
     assert.ok(!/carfax|all recalls|no recalls|safe to buy|guarantee/i.test(t));
-    assert.equal(recallCheckFootnote([fresh], true), ""); assert.equal(recallCheckFootnote([], true), ""); assert.equal(recallCheckFootnote([used], false), "");
+    assert.equal(recallCheckFootnote([fresh]), ""); assert.equal(recallCheckFootnote([]), "");
   });
   test("single-car line carries that car's own link; nothing for new cars or other apps", () => {
-    const t = recallCheckLine(used, true); assert.ok(t.includes(`https://www.nhtsa.gov/recalls?vymm=${VIN}`) && t.includes("THIS car") && t.includes("call or email the dealer"));
-    assert.equal(recallCheckLine(fresh, true), ""); assert.equal(recallCheckLine(used, false), ""); assert.equal(recallCheckLine(null, true), "");
+    const t = recallCheckLine(used); assert.ok(t.includes(`https://www.nhtsa.gov/recalls?vymm=${VIN}`) && t.includes("THIS car") && t.includes("call or email the dealer"));
+    assert.equal(recallCheckLine(fresh), ""); assert.equal(recallCheckLine(null), "");
   });
   test("Buyer Check next steps gain one step for used cars; the object is otherwise untouched", () => {
     const bc = { outcome: "verify_before_proceeding", goodSigns: ["x"], concerns: [], needsVerification: [], nextSteps: ["Have a pre-purchase inspection done."] };
-    const out = addRecallCheckStep(bc, used, true); assert.equal(out.nextSteps.length, 2); assert.equal(out.nextSteps[0], bc.nextSteps[0]); assert.ok(out.nextSteps[1].includes(`vymm=${VIN}`) && out.nextSteps[1].includes("dealer"));
+    const out = addRecallCheckStep(bc, used); assert.equal(out.nextSteps.length, 2); assert.equal(out.nextSteps[0], bc.nextSteps[0]); assert.ok(out.nextSteps[1].includes(`vymm=${VIN}`) && out.nextSteps[1].includes("dealer"));
     assert.equal(out.outcome, bc.outcome); assert.equal(bc.nextSteps.length, 1); // input not mutated
-    assert.equal(addRecallCheckStep(bc, fresh, true), bc); assert.equal(addRecallCheckStep(bc, used, false), bc);
+    assert.equal(addRecallCheckStep(bc, fresh), bc);
   });
 });
 

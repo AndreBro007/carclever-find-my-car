@@ -1,7 +1,7 @@
 // Proxies vehicle photos through our own origin so the MCP Apps result-card
 // widget (lib/results-card.ts) can declare a single first-party domain in
 // its CSP resourceDomains instead of an open-ended allowlist of arbitrary
-// dealer/Auto.dev photo CDN domains, which can't be enumerated in advance.
+// dealer/provider photo CDN domains, which can't be enumerated in advance.
 //
 // Deliberately minimal: GET-only, http(s)-only upstream, capped size/time,
 // image-content-type only, long cache since listing photos don't change.

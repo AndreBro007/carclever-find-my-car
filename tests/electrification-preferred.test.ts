@@ -21,7 +21,7 @@
 //
 // Run: npx tsx tests/electrification-preferred.test.ts
 
-import { applyLocalBestForBudgetOrdering, applyLocalLowerRiskOrdering } from "@/lib/local-ranking";
+import { applyLocalBestForBudgetOrdering } from "@/lib/local-ranking";
 import { electrificationStateSatisfies, type ElectrificationState } from "@/lib/nhtsa-client";
 import { FindMatchingVehicleInput } from "@/lib/find-matching-vehicle-input";
 import type { VehicleListing } from "@/lib/listing-types";
@@ -258,40 +258,6 @@ function toListing(l: MiniListing): VehicleListing {
     "preferred still promotes the one genuinely confirmed match ahead of the unknown/ambiguous ones when otherwise comparable",
     ranked[0].vin === "confirmed-match",
     `got order: ${ranked.map((c) => c.vin).join(",")}`,
-  );
-}
-
-// ===========================================================================
-// "preferred" ranking -- lower_risk axis. Real function, real assertions.
-// Uses vins with no VIN-cross-check/history/CPO data at all, so every
-// candidate lands in the same ("unknown") risk tier -- isolates the
-// electrification tiebreak from risk-tier grouping.
-// ===========================================================================
-{
-  const pool = [
-    toListing({ vin: "1HGCM82633A004352", year: 2024, price: 30000, miles: 20000 }), // gas, same tier
-    toListing({ vin: "1HGCM82633A004353", year: 2024, price: 30000, miles: 20000 }), // hybrid, same tier
-  ];
-  const matchOf = (c: VehicleListing) => c.vin === "1HGCM82633A004353";
-  const ranked = applyLocalLowerRiskOrdering(pool, matchOf);
-  check(
-    "lower_risk axis: preferred electrification tiebreaks within the same risk tier",
-    ranked[0].vin === "1HGCM82633A004353",
-    `got order: ${ranked.map((c) => c.vin).join(",")}`,
-  );
-}
-{
-  // No matchOf -- lower_risk behavior must be unchanged from before this
-  // feature existed (both candidates same tier, order stable/unchanged).
-  const pool = [
-    toListing({ vin: "1HGCM82633A004352", year: 2024, price: 30000, miles: 20000 }),
-    toListing({ vin: "1HGCM82633A004353", year: 2024, price: 30000, miles: 20000 }),
-  ];
-  const rankedNoArg = applyLocalLowerRiskOrdering(pool);
-  check(
-    "lower_risk axis: no electrification fields preserves existing stable-order behavior",
-    rankedNoArg[0].vin === "1HGCM82633A004352" && rankedNoArg[1].vin === "1HGCM82633A004353",
-    `got order: ${rankedNoArg.map((c) => c.vin).join(",")}`,
   );
 }
 

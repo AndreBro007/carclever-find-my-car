@@ -1,4 +1,3 @@
-import { catalogOutputActive } from "./catalog-output";
 
 /**
  * NHTSA's free recall lookup, pre-filled with a VIN (André, Oct 14, from his own testing: https://www.nhtsa.gov/recalls?vymm=<VIN>).
@@ -11,9 +10,9 @@ export function nhtsaRecallCheckUrl(vin: string | null | undefined): string | nu
   const v = (vin ?? "").trim().toUpperCase();
   return /^[A-HJ-NPR-Z0-9]{17}$/.test(v) ? `${NHTSA_RECALLS_URL}?vymm=${v}` : null;
 }
-/** Card field for a USED car only (database app); {} otherwise. */
-export function nhtsaLinkField(vin: string | null | undefined, used: boolean, active: boolean = catalogOutputActive()): { nhtsaRecallCheckUrl?: string } {
-  const u = active && used ? nhtsaRecallCheckUrl(vin) : null;
+/** Card field for a USED car only ; {} otherwise. */
+export function nhtsaLinkField(vin: string | null | undefined, used: boolean): { nhtsaRecallCheckUrl?: string } {
+  const u = used ? nhtsaRecallCheckUrl(vin) : null;
   return u ? { nhtsaRecallCheckUrl: u } : {};
 }
 
@@ -21,17 +20,17 @@ const ADVICE = "then call or email the dealer to confirm, and ask for a vehicle 
 const SCOPE = "NHTSA's lookup covers participating manufacturers and does not show recalls that were already repaired";
 
 /** One footnote under a list that contains used cars: how to check ANY listed car for an unrepaired recall. "" otherwise. */
-export function recallCheckFootnote(cards: any[], active: boolean = catalogOutputActive()): string {
-  if (!active || !Array.isArray(cards) || !cards.some((c) => c?.links?.nhtsaRecallCheckUrl)) return "";
+export function recallCheckFootnote(cards: any[]): string {
+  if (!Array.isArray(cards) || !cards.some((c) => c?.links?.nhtsaRecallCheckUrl)) return "";
   return `\n\nBefore contacting a dealer: check a specific car for open (unrepaired) recalls with NHTSA's free VIN lookup, ${NHTSA_RECALLS_URL}?vymm=<the car's VIN>, ${ADVICE}. ${SCOPE}.`;
 }
-/** The same advice with the car's own link, for a single car (VIN lookup, check_vehicle). "" for new cars and in other apps. */
-export function recallCheckLine(card: any, active: boolean = catalogOutputActive()): string {
-  const u = active ? card?.links?.nhtsaRecallCheckUrl : null;
+/** The same advice with the car's own link, for a single car (VIN lookup, check_vehicle). "" for new cars. */
+export function recallCheckLine(card: any): string {
+  const u = card?.links?.nhtsaRecallCheckUrl;
   return u ? `\nOpen recalls on THIS car: check its VIN with NHTSA's free lookup, ${u}, ${ADVICE}. ${SCOPE}.` : "";
 }
-/** Adds the recall-check step to a Buyer Check's next steps (used cars, database app). Returns the same object when nothing applies. */
-export function addRecallCheckStep<T extends { nextSteps: string[] }>(bc: T, card: any, active: boolean = catalogOutputActive()): T {
-  const u = active ? card?.links?.nhtsaRecallCheckUrl : null;
+/** Adds the recall-check step to a Buyer Check's next steps (used cars). Returns the same object when nothing applies. */
+export function addRecallCheckStep<T extends { nextSteps: string[] }>(bc: T, card: any): T {
+  const u = card?.links?.nhtsaRecallCheckUrl;
   return u ? { ...bc, nextSteps: [...bc.nextSteps, `Check this VIN for open (unrepaired) recalls with NHTSA's free lookup (${u}), ${ADVICE}.`] } : bc;
 }

@@ -1,12 +1,12 @@
 /**
- * Geographic radius verification (SYS-20260827) — defense against Auto.dev's
+ * Geographic radius verification (SYS-20260827) — defense against the provider's
  * own radius filter leaking a listing far outside the requested search
  * radius. Confirmed live: a search for zip 77002 (Houston, TX), 50-mile
  * radius, returned a 2004 Ford F-150 (VIN 1FTPX14504NB68591) reported at
  * "Mike's Auto Inc, Grand Junction, CO" — roughly 900 miles away, already
- * present as Colorado in Auto.dev's own radius-filtered search response
+ * present as Colorado in the provider's own radius-filtered search response
  * (not a stage-2 full-detail drift — see DECISIONS.md for the diagnostic
- * writeup). This module does NOT trust Auto.dev's radius filter as ground
+ * writeup). This module does NOT trust the provider's radius filter as ground
  * truth; it adds one further, deliberately conservative, confirmation-only
  * check on top of it.
  *
@@ -52,7 +52,6 @@
  * CO — roughly 900 miles apart), this 20-mile tolerance is negligible
  * against the actual margin involved.
  */
-import type { VehicleListing } from "./listing-types";
 
 const GEO_TOLERANCE_MILES = 20;
 

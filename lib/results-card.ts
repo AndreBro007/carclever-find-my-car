@@ -11,7 +11,7 @@
 // bundler step inside the iframe, matching the "lean/fast, no rendering
 // performance issues" requirement.
 //
-// Photos: dealer/Auto.dev photo URLs are on arbitrary third-party domains we
+// Photos: dealer/provider photo URLs are on arbitrary third-party domains we
 // don't control, so they can't be safely enumerated in the resource's CSP
 // resourceDomains allowlist (default CSP blocks all non-'self' images). They
 // are instead proxied through our own deployed origin (see
@@ -415,7 +415,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
       : buyerCheck.outcome === "promising" ? "green"
       : buyerCheck.outcome === "significant_concern" ? "red"
       : "amber"; // verify_before_proceeding or caution
-    // Ordinary search card RISK badge (feature/lower-risk-mvp): amber/red
+    // Ordinary search card RISK badge: amber/red
     // ONLY, reusing the exact same .cc-risk CSS classes as Buyer Check
     // above — never green (that stays exclusive to Buyer Check's own
     // "promising" outcome), and never any badge for "positive"/"unknown".

@@ -7,23 +7,23 @@ const dec = (u: string) => decodeURIComponent(u);
 const card = (make: string, model: string, inv = "used", vin = "V1", score = 99) => ({ identity: { make, model, vin }, condition: { inventoryType: inv }, ranking: { matchScore: score } });
 
 test("closing line: model-level similar-vehicles link for the best match, used by default and new when the top match is new", () => {
-  const u = closingExitLine([card("Toyota", "RAV4")], true);
+  const u = closingExitLine([card("Toyota", "RAV4")]);
   assert.match(u, /^\n\nNot seeing the right one\? More Toyota RAV4 near you on Edmunds: https:\/\/edmunds\.sjv\.io\//);
   assert.ok(dec(u).includes("/used-toyota-rav4/")); assert.ok(!dec(u).includes("used-toyota-rav4-")); // model level, not one trim
-  assert.ok(dec(closingExitLine([card("Toyota", "RAV4", "new")], true)).includes("/new-toyota-rav4-for-sale/"));
+  assert.ok(dec(closingExitLine([card("Toyota", "RAV4", "new")])).includes("/new-toyota-rav4-for-sale/"));
   assert.equal((u.match(/https:\/\//g) ?? []).length, 1);
 });
 test("closing line: nothing in other apps, with no cars, or without a make and model", () => {
-  assert.equal(closingExitLine([card("Toyota", "RAV4")], false), ""); assert.equal(closingExitLine([], true), "");
-  assert.equal(closingExitLine([{ identity: {}, ranking: { matchScore: 1 } }], true), "");
-  assert.ok(closingExitLine([{ identity: { vin: "x" } }, card("Honda", "CR-V")], true).includes("Honda CR-V")); // skips a card without make and model
+  assert.equal(closingExitLine([]), "");
+  assert.equal(closingExitLine([{ identity: {}, ranking: { matchScore: 1 } }]), "");
+  assert.ok(closingExitLine([{ identity: { vin: "x" } }, card("Honda", "CR-V")]).includes("Honda CR-V")); // skips a card without make and model
 });
 test("zero results: the same exit when one make and one model are named, otherwise nothing", () => {
-  const t = zeroResultsExitLine("Toyota", "Supra", undefined, true);
+  const t = zeroResultsExitLine("Toyota", "Supra", undefined);
   assert.match(t, /^\n\nSee Toyota Supra near you on Edmunds: https:\/\/edmunds\.sjv\.io\//); assert.ok(dec(t).includes("/used-toyota-supra/"));
-  assert.ok(dec(zeroResultsExitLine("Toyota", "Supra", false, true)).includes("/new-toyota-supra-for-sale/"));
-  assert.equal(zeroResultsExitLine("Toyota", "Supra, RAV4", undefined, true), ""); assert.equal(zeroResultsExitLine(undefined, "Supra", undefined, true), "");
-  assert.equal(zeroResultsExitLine("Toyota", "", undefined, true), ""); assert.equal(zeroResultsExitLine("Toyota", "Supra", undefined, false), "");
+  assert.ok(dec(zeroResultsExitLine("Toyota", "Supra", false)).includes("/new-toyota-supra-for-sale/"));
+  assert.equal(zeroResultsExitLine("Toyota", "Supra, RAV4", undefined), ""); assert.equal(zeroResultsExitLine(undefined, "Supra", undefined), "");
+  assert.equal(zeroResultsExitLine("Toyota", "", undefined), "");
   assert.ok(modelLevelLink("Land Rover", "Range Rover Sport", false)!.length > 20);
 });
 test("ordering: higher match score first; among equal scores the nearest dealer first; unknown distance last", () => {

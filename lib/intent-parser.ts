@@ -13,7 +13,6 @@
  * (SYS-20260812-025).
  */
 
-import type { z } from "zod";
 
 export interface ParsedIntent {
   hardConstraints: {
@@ -27,7 +26,7 @@ export interface ParsedIntent {
     mileageMax?: number;
     location?: { zip: string; radiusMiles: number; strict: boolean };
   };
-  // Semantic — never sent as raw Auto.dev filter params (SYS-20260812-023/025):
+  // Semantic — never sent as raw provider filter params (SYS-20260812-023/025):
   semantic: {
     trimPreference?: string;
     seatsMin?: number;
@@ -36,8 +35,8 @@ export interface ParsedIntent {
   /**
    * User explicitly asked for a named trim/variant (SYS-20260823) — a hard
    * eligibility requirement, distinct from trimPreference above. Kept
-   * separate from `hardConstraints` (which mirrors real Auto.dev API query
-   * params) because trim is deliberately never sent to Auto.dev as a query
+   * separate from `hardConstraints` (which mirrors real provider API query
+   * params) because trim is deliberately never sent to the provider as a query
    * filter — `vehicle.trim` isn't trusted there. It's enforced locally in
    * route.ts against the returned lean/full-detail data instead, using
    * lib/trim-match.ts.
@@ -47,7 +46,7 @@ export interface ParsedIntent {
   interpretationNotes: string[];
   /**
    * Model entries that had a manufacturer name stripped off the front, e.g.
-   * "Lexus ES" -> "ES" (SYS-20260816-032). Real, confirmed live bug: Auto.dev's
+   * "Lexus ES" -> "ES" (SYS-20260816-032). Real, confirmed live bug: the provider's
    * `model` field never includes the make — a host model combining them into
    * one string (a completely reasonable-looking mistake) silently returns
    * zero, not an error. Returned here (rather than fixed silently) so route.ts

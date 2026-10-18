@@ -65,7 +65,7 @@ function priceFloorScore(price: number | null | undefined, priceMin: number): nu
   return 0.85 + 0.15 * Math.max(0, Math.min(1, aboveFloor));
 }
 
-// make fields can be comma-separated OR lists (Auto.dev's native comma
+// make fields can be comma-separated OR lists (the provider's native comma
 // syntax, e.g. "Suburban,Tahoe,Expedition" for a size-qualified search per
 // the model-name-expansion pattern — see route.ts tool description). Exact
 // string equality against the whole list would always fail; check membership.
@@ -75,7 +75,7 @@ function priceFloorScore(price: number | null | undefined, priceMin: number): nu
 //
 // Uses String() rather than relying on the TS type (`string | undefined`)
 // matching runtime reality — real bug found 2026-08-14 (diversity.ts): the
-// API can return unexpected types Auto.dev's own docs don't fully guarantee
+// API can return unexpected types the provider's own docs don't fully guarantee
 // against, and TS types don't protect against that at runtime.
 function matchesAnyInList(value: unknown, list: string): boolean {
   if (value == null || value === "") return false;

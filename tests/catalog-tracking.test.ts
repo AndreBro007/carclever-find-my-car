@@ -27,10 +27,10 @@ describe("freshness rules (no database)", () => {
   });
   test("text line: honest wording, both signals together, nothing in other apps or when neither applies", () => {
     const c = { detail: { justAdded: true, priceDrop: { amount: 1200, was: 32990, on: "2026-10-18" } } };
-    assert.equal(freshnessTextLine(c, true), "\n   Just added to the listings · Price dropped $1,200 (was $32,990, changed Oct 18)");
-    assert.equal(freshnessTextLine({ detail: { justAdded: true } }, true), "\n   Just added to the listings");
-    assert.equal(freshnessTextLine(c, false), ""); assert.equal(freshnessTextLine({ detail: {} }, true), ""); assert.equal(freshnessTextLine(null, true), "");
-    assert.ok(!/new on the market|brand new|hot deal|act now|hurry/i.test(freshnessTextLine(c, true)));
+    assert.equal(freshnessTextLine(c), "\n   Just added to the listings · Price dropped $1,200 (was $32,990, changed Oct 18)");
+    assert.equal(freshnessTextLine({ detail: { justAdded: true } }), "\n   Just added to the listings");
+    assert.equal(freshnessTextLine({ detail: {} }), ""); assert.equal(freshnessTextLine(null), "");
+    assert.ok(!/new on the market|brand new|hot deal|act now|hurry/i.test(freshnessTextLine(c)));
   });
 });
 

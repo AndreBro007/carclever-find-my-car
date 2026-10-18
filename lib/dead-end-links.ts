@@ -1,5 +1,4 @@
 import { resolveLinks } from "./link-resolution";
-import { catalogOutputActive } from "./catalog-output";
 import type { VehicleListing } from "./listing-types";
 
 const label = (make: unknown, model: unknown): string => [make, model].filter((x) => typeof x === "string" && x.trim()).join(" ");
@@ -12,10 +11,10 @@ export function modelLevelLink(make: string, model: string, isNew: boolean): str
 
 /**
  * Dead end 1: the buyer sees the list and likes none of it. One closing line hands them to Edmunds, which asks for or confirms their
- * location. Built from the best match's make and model. Database app only; "" otherwise.
+ * location. Built from the best match's make and model.
  */
-export function closingExitLine(cards: any[], active: boolean = catalogOutputActive()): string {
-  if (!active || !Array.isArray(cards) || cards.length === 0) return "";
+export function closingExitLine(cards: any[]): string {
+  if (!Array.isArray(cards) || cards.length === 0) return "";
   const top = cards.find((c) => c?.identity?.make && c?.identity?.model);
   if (!top) return "";
   const url = modelLevelLink(String(top.identity.make), String(top.identity.model), top.condition?.inventoryType === "new");
@@ -23,8 +22,7 @@ export function closingExitLine(cards: any[], active: boolean = catalogOutputAct
 }
 
 /** Dead end 2: no results for a named make and model. The same exit instead of nothing. "" when one make and one model are not named. */
-export function zeroResultsExitLine(make: unknown, model: unknown, used: unknown, active: boolean = catalogOutputActive()): string {
-  if (!active) return "";
+export function zeroResultsExitLine(make: unknown, model: unknown, used: unknown): string {
   const mk = typeof make === "string" ? make.trim() : "", md = typeof model === "string" ? model.trim() : "";
   if (!mk || !md || md.includes(",") || mk.includes(",")) return "";
   const url = modelLevelLink(mk, md, used === false);

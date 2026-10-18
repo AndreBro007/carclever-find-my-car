@@ -1,11 +1,11 @@
 /**
- * Fuel-type normalization helpers for Auto.dev API values.
+ * Fuel-type normalization helpers for provider API values.
  *
- * Auto.dev canonical values (confirmed from documentation):
+ * the provider canonical values (confirmed from documentation):
  *   "Gasoline", "Hybrid", "Plug-In Hybrid", "Electric", "Diesel"
  *
  * Defensive variants (common aliases seen in similar data feeds; not confirmed
- * from Auto.dev docs — will be validated against live API responses post-deploy):
+ * from provider docs — will be validated against live API responses post-deploy):
  *   EV, BEV, Battery Electric, Plug-in Hybrid, Plug In Hybrid, PHEV,
  *   Hybrid-Electric, Gas, Petrol
  */
@@ -19,14 +19,14 @@ export type NormalizedFuelType =
   | "unknown";
 
 /**
- * Normalize a raw fuel_type string from Auto.dev into a canonical lowercase enum value.
+ * Normalize a raw fuel_type string from the provider into a canonical lowercase enum value.
  * Returns "unknown" for null, undefined, empty, or unrecognized inputs.
  */
 export function normalizeFuelType(rawFuel: string | null | undefined): NormalizedFuelType {
   if (rawFuel == null || String(rawFuel).trim() === "") return "unknown";
   const f = String(rawFuel).trim().toLowerCase();
 
-  // --- Confirmed from Auto.dev documentation ---
+  // --- Confirmed from the provider documentation ---
   if (f === "electric")        return "electric";
   if (f === "hybrid")          return "hybrid";
   if (f === "plug-in hybrid")  return "plug_in_hybrid";
@@ -63,7 +63,7 @@ export function isStrictEV(rawFuel: string | null | undefined): boolean {
 
 /**
  * Known hybrid-only model overrides.
- * Applied AFTER Auto.dev returns fuel type; fires only when Auto.dev returns
+ * Applied AFTER the provider returns fuel type; fires only when the provider returns
  * "Gasoline" (or unknown) for a model that is unambiguously hybrid in the
  * given model year.
  *
@@ -100,7 +100,7 @@ function buildKnownHybridKey(make: string, model: string): string {
 
 /**
  * Returns true when the given make/model/year combination is a known
- * hybrid-only vehicle where Auto.dev may incorrectly return "Gasoline".
+ * hybrid-only vehicle where the provider may incorrectly return "Gasoline".
  * Returns false for any ambiguous model (conservative fail-safe).
  */
 export function isKnownHybridOnly(
@@ -169,7 +169,7 @@ export function isKnownHybridOnly(
 }
 
 /**
- * Apply known-hybrid override: if Auto.dev returned "Gasoline" (or unknown)
+ * Apply known-hybrid override: if the provider returned "Gasoline" (or unknown)
  * for a confirmed hybrid-only model, force the normalized type to "hybrid".
  * Override is logged when the DEBUG env var is set to "true".
  * isStrictEV is unaffected — this function targets hybrid only.
@@ -181,7 +181,7 @@ export function applyKnownHybridOverride(
   rawFuel: string | null | undefined,
 ): NormalizedFuelType {
   const normalized = normalizeFuelType(rawFuel);
-  // Only override when Auto.dev returned gasoline or unknown for a known hybrid
+  // Only override when the provider returned gasoline or unknown for a known hybrid
   if (normalized !== "gasoline" && normalized !== "unknown") return normalized;
   if (isKnownHybridOnly(year, make, model)) {
     if (process.env.DEBUG === "true") {
@@ -198,7 +198,7 @@ export function applyKnownHybridOverride(
 /**
  * Map a NormalizedFuelType enum value to the display string shown in the UI.
  * When the normalized result is "unknown", returns the original fallback string
- * (which may be the raw Auto.dev value) so no information is lost.
+ * (which may be the raw provider value) so no information is lost.
  */
 export function formatFuelTypeForDisplay(
   normalized: NormalizedFuelType,

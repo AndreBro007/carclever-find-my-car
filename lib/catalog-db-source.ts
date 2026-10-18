@@ -80,7 +80,7 @@ function modelsFor(q: ListingsQuery): string[] | null {
   return null;
 }
 
-const SERVICE_ERROR = "Our car database is on a coffee break. Your search is fine, please try again in a minute!";
+const SERVICE_ERROR = "Our car database is on a coffee break.";
 
 export async function searchCatalogDbListings(q: ListingsQuery): Promise<ListingsResponse> {
   if (!catalogDbConfigured() && !pool) return { data: [], total: 0, source: "catalog_db", error: SERVICE_ERROR };

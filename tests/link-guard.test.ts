@@ -47,7 +47,7 @@ test("withSharedId: idempotent, only edmunds.sjv.io, never invalid tags, never r
 });
 test("dead-end links and the VIN-not-listed link carry the tag too", async () => {
   assertGuarded(modelLevelLink("Toyota", "RAV4", false), "model level used"); assertGuarded(modelLevelLink("Toyota", "RAV4", true), "model level new");
-  for (const text of [closingExitLine([{ identity: { make: "Honda", model: "CR-V" }, condition: { inventoryType: "used" } }], true), zeroResultsExitLine("Toyota", "Supra", undefined, true)])
+  for (const text of [closingExitLine([{ identity: { make: "Honda", model: "CR-V" }, condition: { inventoryType: "used" } }]), zeroResultsExitLine("Toyota", "Supra", undefined)])
     for (const u of text.match(/https:\/\/\S+/g) ?? []) assertGuarded(u, "dead end line");
   const t = await notListedLinksText("2T3H1RFV0MC000001", { decode: (async () => ({ make: "TOYOTA", model: "RAV4", modelYear: "2021", trimOptions: ["LE"] })) as any, currentYear: 2026 });
   const urls = t.match(/https:\/\/\S+/g) ?? []; assert.equal(urls.length, 1); urls.forEach((u) => assertGuarded(u, "not listed"));

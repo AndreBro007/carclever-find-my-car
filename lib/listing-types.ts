@@ -10,7 +10,7 @@ export interface VehicleListing {
   vin: string;
   "@id"?: string;
   createdAt?: string;
-  /** Set only for rows that came from the Edmunds/Impact catalogue (spike/edmunds-catalog-mode). */
+  /** Set only for rows that came from the Edmunds/Impact catalogue. */
   catalog?: { itemId?: string; trackingUrl?: string; distanceMiles?: number; firstSeen?: string; priceWas?: number; priceChangedAt?: string };
   vehicle?: {
     make?: string;
@@ -52,7 +52,7 @@ export interface VehicleListing {
     photoCount?: number; // known unreliable per field-trust registry, don't use for gallery-size prediction
     titleStatus?: string; // unconfirmed
   };
-  // Trust Class C (auto_dev.field_trust_registry.yaml): "discover broadly, then
+  // Trust Class C (field trust registry): "discover broadly, then
   // verify locally or cross-API" — never a query filter, only a post-search
   // verification/display signal. Confirmed real via live projection test
   // (PROJPARITY-004-select): present in 27/30 sampled rows in that run, but

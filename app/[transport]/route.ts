@@ -1,14 +1,12 @@
 import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
 import { type VehicleListing, type ListingsQuery } from "@/lib/listing-types";
-// spike/edmunds-catalog-mode: same four functions, now routed through the source facade
-// (Auto.dev unchanged unless mode/breaker selects the Edmunds catalogue).
-import { catalogOutputActive, shapeCardsForSource, shapeBuyerCheckForCatalog, nhtsaTextLines, nhtsaTextFootnote, catalogCheckVehicleDescription, freshnessSignals, freshnessTextLine } from "@/lib/catalog-output";
+// Listing source: our own catalogue database, reached through the source facade (lib/listing-source.ts).
+import { shapeCardsForSource, shapeBuyerCheckForCatalog, nhtsaTextLines, nhtsaTextFootnote, catalogCheckVehicleDescription, freshnessSignals, freshnessTextLine } from "@/lib/catalog-output";
 import { withNhtsaSpecs, modelsAgree } from "@/lib/nhtsa-specs";
 import { notListedLinksText, titleCaseMake } from "@/lib/vin-not-listed";
 import { buildComparison, comparisonText, type CompareItem } from "@/lib/compare";
 import { closingExitLine, zeroResultsExitLine, sortByScoreThenDistance } from "@/lib/dead-end-links";
-import { catalogDescription } from "@/lib/catalog-output";
 import { attachNhtsaRatings } from "@/lib/nhtsa-ratings";
 import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets } from "@/lib/listing-source";
 import { inferClassHint } from "@/lib/vehicle-class";
@@ -28,8 +26,8 @@ import { logSearchEvent } from "@/lib/search-log";
 import { verifyAgainstConstraints } from "@/lib/post-verify";
 import { parseIntent } from "@/lib/intent-parser";
 import { applyDiversity } from "@/lib/diversity";
-import { crossCheckVin, type VerificationResult } from "@/lib/vin-cross-check";
-import { classifyRiskTier, explainRiskTier, riskTierRank, type RiskTier } from "@/lib/risk-tier";
+import { crossCheckVin } from "@/lib/vin-cross-check";
+import { classifyRiskTier, explainRiskTier } from "@/lib/risk-tier";
 import { buildBuyerCheck, type BuyerCheck } from "@/lib/buyer-check";
 import { applyConfigurationVarietyPass } from "@/lib/configuration-variety";
 import { withFindMatchingVehicleErrorBoundary } from "@/lib/tool-error-boundary";
@@ -37,9 +35,9 @@ import { computeMatchScore } from "@/lib/match-score";
 import { resolveLinks } from "@/lib/link-resolution";
 import { sanitizeDealerName } from "@/lib/dealer-name";
 import { applyKnownHybridOverride, formatFuelTypeForDisplay } from "@/lib/fuel-type";
-import { decodeNhtsaElectrification, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, type ElectrificationState, ELECTRIFICATION_POOL_SIZE, prioritizeElectrificationCandidates, electrificationStateSatisfies } from "@/lib/nhtsa-client";
-import { isAnomalousPrice, buildCpoSummary, buildHistorySummary, applyLocalBestForBudgetOrdering, applyLocalLowerRiskOrdering } from "@/lib/local-ranking";
-import { FindMatchingVehicleInput, FindMatchingVehicleInputCatalog } from "@/lib/find-matching-vehicle-input";
+import { decodeNhtsaElectrification, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, ELECTRIFICATION_POOL_SIZE, prioritizeElectrificationCandidates, electrificationStateSatisfies } from "@/lib/nhtsa-client";
+import { isAnomalousPrice, buildCpoSummary, buildHistorySummary, applyLocalBestForBudgetOrdering } from "@/lib/local-ranking";
+import { FindMatchingVehicleInputCatalog } from "@/lib/find-matching-vehicle-input";
 import { fetchRecallStatus, clipRecallText, type RecallInfo } from "@/lib/nhtsa-recalls-client";
 import { nhtsaLinkField, nhtsaRecallCheckUrl, recallCheckFootnote, recallCheckLine, addRecallCheckStep } from "@/lib/nhtsa-links";
 
@@ -50,20 +48,12 @@ import { RESULTS_CARD_RESOURCE_URI, buildResultsCardHtml, getAppOrigin } from "@
 import { signImageUrl } from "@/lib/image-proxy-sign";
 import { trimMatches } from "@/lib/trim-match";
 import { formatVehicleTitle } from "@/lib/vehicle-title";
-import {
-  FindMatchingVehicleOutputSchema,
-  CatalogDbOutputSchema,
-  type FindMatchingVehicleOutput,
-} from "@/lib/find-matching-vehicle-output";
-import {
-  buildConstraintChecks,
-  aggregateSearchConstraintStatus,
-  type ConstraintEvidenceRequest,
-} from "@/lib/constraint-evidence";
+import { CatalogDbOutputSchema, type FindMatchingVehicleOutput } from "@/lib/find-matching-vehicle-output";
+import { buildConstraintChecks, aggregateSearchConstraintStatus, type ConstraintEvidenceRequest } from "@/lib/constraint-evidence";
 
 
 // Description rules 2 and 4 below are adapted from the proven, live-tested
-// tool-description language in AUTODEV_V2_NLP_SEARCH_REDESIGN.md §5.1
+// tool-description language in the V2 search redesign document §5.1
 // (Sky redesign, approved July 26, 2026) — same architecture principle
 // Find My Car already uses (calling LLM owns intent, server stays thin and
 // deterministic), just with more explicit coaching for known data quirks.
@@ -78,20 +68,6 @@ An exact 17-character VIN refers to one specific listing; if unavailable, that o
 Results include current matching listings, viewing links where available, and available evidence about confirmed, unconfirmed, or changed criteria. Each result links to its Edmunds listing for current details. Missing history, ownership, certification, or specification data remains unknown and is never treated as proof a vehicle satisfies or fails a request.
 
 This tool is for vehicle-listing searches — not general automotive education, maintenance, financing, leasing, unsupported categories, or comparisons not requiring current listings.`;
-
-const FIND_MATCHING_VEHICLE_DESCRIPTION = () => `Finds current vehicles for sale in the United States and returns a concise shortlist matching a user's stated requirements. Appropriate for listing requests with explicit criteria, optimization goals such as lowest price, newest, lowest mileage, or best within a stated budget, practical needs such as a large family SUV or commuter vehicle, or an exact current listing by VIN.
-
-Direct filter fields should reflect requirements the user stated or clearly implied; leave unstated restrictions unset.
-
-Search inputs include make, model, price, year, mileage, location, body style, drivetrain, transmission, trim, seating, color, condition, electrification, and purchase priority. Most direct criteria are matched against actual listing data; seating, certification, and history-related requests reflect available evidence, which may be confirmed, unconfirmed, or unreported rather than guaranteed. Practical needs such as a large family SUV, a teen-driver car, or a vehicle for towing are interpreted before the search runs to identify relevant candidates; this tool then searches and ranks them using actual listing data — it does not independently establish reliability, safety, running cost, towing suitability, condition, accident-free history, or certification. When a practical need implies a vehicle class, resolve it into real matching model names yourself and include them in model before calling this tool (for example, a large family SUV might include CR-V, RAV4, or Highlander; a reliable commuter car might include Corolla, Civic, or Mazda3), every time, alongside the related need stated in vehicleNeeds. For a broad hybrid, plug-in hybrid, or electric request, likewise resolve suitable real model or variant names and include them in model before calling the tool. For required hybrid or plug-in hybrid searches, use electrified variants only; for preferred searches, acceptable base-model alternatives may also be included.
-
-An exact 17-character VIN refers to one specific listing; if unavailable, that outcome is reported rather than substituting a similar vehicle. Electrification requests state accepted types — hybrid (including mild hybrid), plug-in hybrid, electric — and whether required or preferred. A vehicle's primary fuel label alone does not determine hybrid or plug-in-hybrid status. For an unambiguous city-only request, a representative ZIP may be supplied as the local search anchor; results disclose the overall local, state-wide, or nationwide scope.
-
-Results include current matching listings, viewing links where available, and available evidence about confirmed, unconfirmed, or changed criteria. Missing history, ownership, certification, or specification data remains unknown and is never treated as proof a vehicle satisfies or fails a request.
-
-This tool is for vehicle-listing searches — not general automotive education, maintenance, financing, leasing, unsupported categories, or comparisons not requiring current listings.`;
-
-
 
 const ResolveDealerUrlOutput = z.object({
   affiliateUrl: z.string().nullable(),
@@ -153,7 +129,7 @@ const VERCEL_MAX_DURATION_MS = 60_000;
 const RESPONSE_ASSEMBLY_RESERVE_MS = 20_000;
 
 /**
- * Resolves the calling LLM's decoded priorityAxis into Auto.dev's single-field
+ * Resolves the calling LLM's decoded priorityAxis into the provider's single-field
  * sort. Same decode-then-execute pattern as the rest of the tool: the LLM reads
  * the user's actual sentence and picks the axis; we map it deterministically.
  *
@@ -181,7 +157,7 @@ const RESPONSE_ASSEMBLY_RESERVE_MS = 20_000;
 /**
  * Seats disclosure — same Trust Class C treatment as CPO/history
  * (SYS-20260815 follow-up). `vehicle.seats` is a real response field, but
- * confirmed absent from Auto.dev's documented Vehicle Filters list (field
+ * confirmed absent from the provider's documented Vehicle Filters list (field
  * audit, 2026-08-14) — it can be reported, never queried as a hard filter.
  * `seatsMinPreference` was collected as input since early in the build and
  * did nothing until now — this closes that gap, without ever excluding a
@@ -223,7 +199,7 @@ function buildSeatsSummary(
  * Design principle (agreed with André): never exclude a result on MISSING
  * history data — only on a known, positive contradiction. Always disclose
  * confidence honestly per result, and point to the Carfax link (free
- * passthrough, SYS-20260812-022) as the independent source when Auto.dev's
+ * passthrough, SYS-20260812-022) as the independent source when the provider's
  * own data can't fully answer the question. This is the general pattern for
  * "user asked for something we can't be fully sure about" - run broadly,
  * never silently narrow the pool, be explicit about what we actually know.
@@ -238,7 +214,7 @@ function buildSeatsSummary(
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function applyDrivetrainFilter(candidates: any[], wanted: string | undefined): Promise<any[]> {
-  if (!wanted || !catalogOutputActive()) return candidates;
+  if (!wanted) return candidates;
   const want = wanted.toUpperCase();
   if (!want.includes("AWD") && !want.includes("4WD")) return candidates;
   const pool = candidates.slice(0, ELECTRIFICATION_POOL_SIZE);
@@ -260,18 +236,14 @@ function resolveSort(
       return "miles.asc";
     case "newest":
       return "year.desc";
-    // lower_risk has no natural provider-level sort field (Auto.dev has no
-    // risk/history sort) — ranking happens entirely via local reordering
-    // (applyLocalLowerRiskOrdering(), below), same architecture as
-    // best_for_budget. Provider retrieval falls back to the same
-    // price-aware default best_for_budget already uses.
+    // Any other value falls back to the same price-aware default that best_for_budget uses.
     case "best_for_budget":
     default:
       return priceMax != null ? "price.desc" : "year.desc";
   }
 }
 
-const CANDIDATE_POOL_SIZE = 300; // was 100 (Auto.dev Growth cap). Database mode has no such cap: searches take 10-250 ms at 1.4 million cars
+const CANDIDATE_POOL_SIZE = 300; // was 100 (provider Growth cap). Database mode has no such cap: searches take 10-250 ms at 1.4 million cars
 
 // Shared anomalous-price rule (feature/value-based-best-for-budget follow-up):
 // hoisted to module scope so the "price-likely-inaccurate" card badge
@@ -328,10 +300,10 @@ async function buildResultCard(
   relaxedFields?: ReadonlySet<string>,
 ) {
   // Database mode: fill blank drivetrain/transmission/engine/cylinders/seats from the NHTSA decode already made for this car (never overrides the listing).
-  if (catalogOutputActive()) listing = withNhtsaSpecs(listing, nhtsa);
+  listing = withNhtsaSpecs(listing, nhtsa);
   let verification = crossCheckVin(listing); // now local/synchronous — no API call
   // Database mode: when the NHTSA decode confirms the model (and trim), the verified list says so, matching the reply text.
-  if (catalogOutputActive() && nhtsa?.model && listing.vehicle?.model && modelsAgree(listing.vehicle.model, nhtsa.model, listing.vehicle?.make)) {
+  if (nhtsa?.model && listing.vehicle?.model && modelsAgree(listing.vehicle.model, nhtsa.model, listing.vehicle?.make)) {
     const trimOk = !!(listing.vehicle?.trim && (nhtsa.trimOptions ?? []).some((x: string) => x.trim().toLowerCase() === String(listing.vehicle?.trim).trim().toLowerCase()));
     const confirmed = ["model", ...(trimOk ? ["trim"] : [])];
     verification = {
@@ -342,13 +314,13 @@ async function buildResultCard(
   }
   const { matchScore, matchScoreLabel, breakdown } = computeMatchScore(listing, intent, verification, intentInput);
 
-  // Trim fill from NHTSA (SYS-20260904-004): only when Auto.dev's own
+  // Trim fill from NHTSA (SYS-20260904-004): only when the provider's own
   // trim is missing AND NHTSA decoded at least one candidate. Simple rule
   // by design — take the first candidate even when NHTSA is ambiguous
   // (picking one is trivially simple; requiring an unambiguous single
   // answer here, unlike the trim-conflict badge below, was judged not
   // worth the added complexity for what's just a URL-construction input).
-  // Never overrides a trim Auto.dev already supplied.
+  // Never overrides a trim the provider already supplied.
   const effectiveListing: VehicleListing =
     !listing.vehicle?.trim && nhtsa?.trimOptions?.length
       ? { ...listing, vehicle: { ...listing.vehicle, trim: nhtsa.trimOptions[0] } }
@@ -363,10 +335,10 @@ async function buildResultCard(
   const rl = listing.retailListing;
 
   const normalizedFuel = applyKnownHybridOverride(v?.year, v?.make, v?.model, v?.fuel);
-  // NHTSA (SYS-20260819-002): Auto.dev's fuel field has no electrification
+  // NHTSA (SYS-20260819-002): the provider's fuel field has no electrification
   // signal at all, so the model-name allowlist above is a best-effort
   // partial mitigation, not a complete fix. When NHTSA's authoritative
-  // decode says electrified and Auto.dev/the allowlist both missed it,
+  // decode says electrified and the provider/the allowlist both missed it,
   // trust NHTSA — it's manufacturer-submitted data, not another guess.
   const finalNormalizedFuel =
     normalizedFuel === "gasoline" && nhtsaIndicatesElectrified(nhtsa)
@@ -375,7 +347,7 @@ async function buildResultCard(
   const historySummary = buildHistorySummary(listing);
   const cpoSummary = buildCpoSummary(listing);
   const seatsSummary = buildSeatsSummary(listing, intent.semantic.seatsMin);
-  // Computed once here (feature/lower-risk-mvp), reused for cardShape's
+  // Computed once here, reused for cardShape's
   // own dataConflicts field below — this is disclosed as verification
   // information (SYS-20260827: a listing/spec data-quality signal, e.g.
   // an NHTSA cylinder-count mismatch, useful for a buyer to verify
@@ -383,16 +355,14 @@ async function buildResultCard(
   // NOT passed into classifyRiskTier() below — see lib/risk-tier.ts's
   // module doc for the full purchase-risk-vs-data-quality boundary.
   const dataConflicts = detectDataConflicts(listing);
-  // Risk tier (feature/lower-risk-mvp) — computed for EVERY card, not just
+  // Risk tier — computed for EVERY card, not just
   // direct-VIN-lookup ones, using only genuine purchase-risk evidence
   // (VIN identity check, reported accident history, CPO status —
   // deliberately NOT dataConflicts, per SYS-20260827). Attached to
   // cardShape below (c.risk.tier) so the ordinary-search-card RISK badge
   // (amber/red only, never green, never for unknown/positive — see
   // lib/results-card.ts) can use it without any new data source. This is
-  // display-only here; lower_risk's actual ranking
-  // (applyLocalLowerRiskOrdering(), above) runs earlier, at the lean
-  // stage, using the same classifyRiskTier() function.
+  // display-only here.
   const riskTier = classifyRiskTier({
     verification,
     history: historySummary,
@@ -427,11 +397,11 @@ async function buildResultCard(
   // already establishes for make/model/cylinder conflicts (the real
   // production bug that boundary exists to prevent: a brand-new,
   // perfectly fine F-150 Raptor once got wrongly flagged amber purely
-  // from a data mismatch). Only fires when Auto.dev actually claims a
+  // from a data mismatch). Only fires when the provider actually claims a
   // trim (nothing to conflict with otherwise -- that's the missing-trim
   // fill case above, a different thing) AND NHTSA decoded at least one
   // candidate. Checks membership against ALL candidates, however many
-  // there are -- if NHTSA says "EX, X-Line" and Auto.dev says "X-Line",
+  // there are -- if NHTSA says "EX, X-Line" and the provider says "X-Line",
   // that's a valid answer, not a conflict; only flags when the claimed
   // trim matches NONE of them.
   const claimedTrim = listing.vehicle?.trim;
@@ -459,10 +429,10 @@ async function buildResultCard(
   const cardShape = {
     // Catalogue rows without a readable VIN get a stable catalogue key (never presented as a VIN).
     canonicalVehicleId: listing.vin || (listing.catalog?.itemId ? `catalog:${listing.catalog.itemId}` : listing.vin),
-    // Ordinary-search-card risk badge input (feature/lower-risk-mvp):
+    // Ordinary-search-card risk badge input:
     // amber/red only ever get displayed on an ordinary card (see
     // cardHtml() in lib/results-card.ts) — "positive"/"unknown" are
-    // carried here for lower_risk ranking's internal use and completeness
+    // carried here for completeness
     // of the structured data, never surfaced as a card badge either way.
     risk: { tier: riskTier, reasons: riskReasons },
     identity: {
@@ -472,7 +442,7 @@ async function buildResultCard(
       // review follow-up, SYS-20260828): the earlier String()-coercion
       // here prevented an output-schema crash but risked displaying
       // literal garbage ("1958", "[object Object]") as if it were a real
-      // vehicle fact. Now that the removed listings client's normalizeListing()/
+      // vehicle fact. Now that the earlier listings client's normalizeListing()/
       // leanRowToListing() guarantee every VehicleListing entering this
       // function already has correct runtime string types (a genuine
       // string survives, anything malformed becomes undefined at
@@ -561,10 +531,10 @@ async function buildResultCard(
       historyPersonalUse: listing.history?.personalUse ?? null,
       titleStatus: rl?.titleStatus ?? null,
       fuelTypeDisplay: formatFuelTypeForDisplay(finalNormalizedFuel, v?.fuel),
-      ...(catalogOutputActive() && nhtsa?.specs?.safetyTech?.length ? { standardSafetyTech: nhtsa.specs.safetyTech } : {}),
-      ...(catalogOutputActive() && nhtsa?.rating ? { nhtsaOverallRating: nhtsa.rating.overall } : {}),
-      ...(catalogOutputActive() ? freshnessSignals(listing.catalog, rl?.price ?? null) : {}),
-      ...(catalogOutputActive() && nhtsa?.recallCampaigns && nhtsa.recallCampaigns > 0
+      ...(nhtsa?.specs?.safetyTech?.length ? { standardSafetyTech: nhtsa.specs.safetyTech } : {}),
+      ...(nhtsa?.rating ? { nhtsaOverallRating: nhtsa.rating.overall } : {}),
+      ...(freshnessSignals(listing.catalog, rl?.price ?? null)),
+      ...(nhtsa?.recallCampaigns && nhtsa.recallCampaigns > 0
         ? { nhtsaRecallCampaigns: nhtsa.recallCampaigns, nhtsaRecallNote: `NHTSA lists ${nhtsa.recallCampaigns} recall campaign${nhtsa.recallCampaigns === 1 ? "" : "s"} for this model year. This is not specific to this car and does not say whether any recall was repaired; check this VIN at nhtsa.gov/recalls.` }
         : {}),
     },
@@ -744,7 +714,7 @@ const handler = createMcpHandler((server) => {
       mimeType: "text/html;profile=mcp-app",
       _meta: {
         ui: {
-          // Photo domains vary per dealer/Auto.dev listing and can't be
+          // Photo domains vary per dealer/provider listing and can't be
           // enumerated — photos are proxied through our own first-party
           // origin instead (see app/api/img-proxy/route.ts), so only this
           // one domain needs declaring here.
@@ -802,9 +772,9 @@ const handler = createMcpHandler((server) => {
     "find_matching_vehicle",
     {
       title: "Find Matching Vehicle",
-      description: catalogOutputActive() ? CATALOG_FIND_MATCHING_VEHICLE_DESCRIPTION : FIND_MATCHING_VEHICLE_DESCRIPTION(),
-      inputSchema: catalogOutputActive() ? FindMatchingVehicleInputCatalog : FindMatchingVehicleInput,
-      outputSchema: catalogOutputActive() ? CatalogDbOutputSchema : FindMatchingVehicleOutputSchema,
+      description: CATALOG_FIND_MATCHING_VEHICLE_DESCRIPTION,
+      inputSchema: FindMatchingVehicleInputCatalog,
+      outputSchema: CatalogDbOutputSchema,
       // Canonical output contract. All live structuredContent construction paths
       // are compile-time validated against this schema via `satisfies`.
       annotations: { title: "Find Matching Vehicle", readOnlyHint: true, openWorldHint: true, destructiveHint: false },
@@ -919,7 +889,7 @@ const handler = createMcpHandler((server) => {
         // (photo, dealer, location, drivetrain, Carfax, used/new, history,
         // mileage, year, make, model, trim, etc.) stays exactly as returned
         // by full-detail. The exact search row's own VIN is verified before
-        // its price is trusted at all — Auto.dev's docs don't guarantee
+        // its price is trusted at all — the provider's docs don't guarantee
         // this filter can never near-match, so this code doesn't assume it.
         const searchPrice =
           exactSearchRow && exactSearchRow.vin === rawVin ? exactSearchRow.retailListing?.price ?? null : null;
@@ -940,7 +910,7 @@ const handler = createMcpHandler((server) => {
           resolvedListing.vehicle?.model,
           resolvedListing.vehicle?.cylinders,
         );
-        const nhtsaResult = catalogOutputActive() ? (await attachNhtsaRatings([nhtsaDecoded]))[0] : nhtsaDecoded; // database mode: add the NHTSA 5-star rating
+        const nhtsaResult = (await attachNhtsaRatings([nhtsaDecoded]))[0]; // database mode: add the NHTSA 5-star rating
 
         const vinIntentInput: CardIntentInput = {
           exteriorColor: input.exteriorColor,
@@ -998,7 +968,7 @@ const handler = createMcpHandler((server) => {
         // ONLY here, on the direct-VIN-lookup result — never on normal
         // search results. Pure function over the same evidence
         // buildResultCard() already produced for vinCard above; no new
-        // Auto.dev call, no new data source.
+        // provider call, no new data source.
         const buyerCheck = vinCard ? shapeBuyerCheckForCatalog(buildBuyerCheck(vinCard)) : null;
         const vinCardsWithBuyerCheck = vinCard && buyerCheck ? [{ ...vinCard, buyerCheck }] : vinCards;
 
@@ -1088,7 +1058,7 @@ const handler = createMcpHandler((server) => {
       }
 
       // trimRequired (SYS-20260823): a hard eligibility requirement,
-      // enforced locally — deliberately never sent to Auto.dev as a query
+      // enforced locally — deliberately never sent to the provider as a query
       // filter (vehicle.trim isn't trusted there as a hard filter param,
       // same as everywhere else in this file). Stage-1 lean data may have
       // trim; when it doesn't, a candidate stays provisional rather than
@@ -1113,7 +1083,7 @@ const handler = createMcpHandler((server) => {
 
       // "Lowest mileage" almost always means "lowest mileage used car" in
       // real buy-intent — a new car being low-mileage isn't a finding worth
-      // surfacing as the best match, and Auto.dev has no separate "demo"
+      // surfacing as the best match, and the provider has no separate "demo"
       // category (confirmed: retailListing.used is a strict true=used/
       // false=new boolean, nothing else) — a demo vehicle without a prior
       // retail owner would carry used:false, same bucket as genuinely new.
@@ -1125,7 +1095,7 @@ const handler = createMcpHandler((server) => {
       const lowestMileageDefaultedToUsed = input.priorityAxis === "lowest_mileage" && input.used == null;
       const effectiveUsed = lowestMileageDefaultedToUsed ? true : input.used;
 
-      // Lean ZIP validation (2026-08-15) — Auto.dev silently ignores an
+      // Lean ZIP validation (2026-08-15) — the provider silently ignores an
       // invalid ZIP and returns unfiltered, effectively nationwide results
       // with no error and no signal anything went wrong (confirmed live:
       // zip=00000 returned real Camrys from GA/WA/TX). A real host model
@@ -1207,7 +1177,7 @@ const handler = createMcpHandler((server) => {
       // pool. Fix: only fair-pool for best_for_budget/unset, the one axis
       // that actually re-ranks the merged result afterward. cheapest/
       // lowest_mileage/newest keep the original single-query path, so
-      // Auto.dev's own global sort (price.asc/miles.asc/year.desc) is
+      // the provider's own global sort (price.asc/miles.asc/year.desc) is
       // preserved intact across NEW+USED exactly as it was before fair
       // pooling was introduced. Ranking formula, anomaly handling,
       // diversity, Match Score, hard filters, and UI are untouched.
@@ -1238,7 +1208,7 @@ const handler = createMcpHandler((server) => {
         // succeeding still gives a real, usable (if partial) result, same
         // "partial beats nothing" principle already used for the stage-2
         // full-detail fallback below.
-        const mergedError = newResult.error && usedResult.error ? `${newResult.error} ${usedResult.error}` : undefined;
+        const mergedError = newResult.error && usedResult.error ? (newResult.error === usedResult.error ? newResult.error : `${newResult.error} ${usedResult.error}`) : undefined;
         const mergedDegraded =
           newResult.degraded || usedResult.degraded
             ? [newResult.degraded, usedResult.degraded].filter(Boolean).join(" ")
@@ -1283,7 +1253,7 @@ const handler = createMcpHandler((server) => {
 
       // Facet-grounded model-name correction (design doc §4), added
       // 2026-08-15 — fixes the real MX-5 regression (SYS-20260815-001):
-      // model strings that don't exactly match Auto.dev's data (e.g. "MX-5"
+      // model strings that don't exactly match the provider's data (e.g. "MX-5"
       // vs the real "MX-5 Miata") return a clean silent zero rather than an
       // error. ONLY runs when the primary search genuinely found nothing AND
       // a specific model was requested — every search that already returns
@@ -1442,7 +1412,7 @@ const handler = createMcpHandler((server) => {
         const widenedOutcome = await widenSearchIfThin(
           effectiveQuery,
           // Widening only needs a number to compare against MIN_ACCEPTABLE —
-          // when Auto.dev's total is missing (e.g. vehicle.doors filter, SYS-20260819-001),
+          // when the provider's total is missing (e.g. vehicle.doors filter, SYS-20260819-001),
           // candidates.length is the best available proxy for that decision.
           // This fallback is local to the widening check only; the real
           // `total` variable (possibly still null) is untouched below and
@@ -1468,7 +1438,7 @@ const handler = createMcpHandler((server) => {
       }
 
       // Post-verification (SYS-20260812-035, redesign doc §5.4 step 6):
-      // Auto.dev can silently swallow/mishandle params and return rows that
+      // the provider can silently swallow/mishandle params and return rows that
       // don't actually satisfy a stated filter. Mechanical check only — no
       // semantic/size-class judgment, that stays the calling LLM's job.
       const verifiedCandidates = candidates.filter(
@@ -1483,7 +1453,7 @@ const handler = createMcpHandler((server) => {
       // wrong data should be EXCLUDED, not disclosed-and-shown. A user
       // skimming a "Strong match" result won't necessarily read a caveat
       // line closely; from their perspective a wrong body style is just a
-      // wrong listing, whether the cause is our tool or Auto.dev's data.
+      // wrong listing, whether the cause is our tool or the provider's data.
       // This is a real, deliberate distinction from the "unknown != false"
       // principle used elsewhere (accident history, CPO): those are
       // genuinely AMBIGUOUS data, so disclosure-not-exclusion is correct.
@@ -1494,7 +1464,7 @@ const handler = createMcpHandler((server) => {
       // unknown-isn't-false discipline, just applied to exclusion instead
       // of disclosure.
       //
-      // Real flaw found live 2026-08-16 (SYS-20260816-057): Auto.dev's own
+      // Real flaw found live 2026-08-16 (SYS-20260816-057): the provider's own
       // categorization can be wrong for genuinely correct vehicles, not just
       // for genuinely different ones — a real Volvo V90 (a wagon) is tagged
       // "Crossover" there, not "Wagon." For E-Class, the excluded candidates
@@ -1517,7 +1487,7 @@ const handler = createMcpHandler((server) => {
         // SYS-20260828): String()-coerced before .toLowerCase() — plain
         // optional chaining (`c.vehicle?.bodyStyle?.toLowerCase()`) only
         // guards against null/undefined, not against a present-but-wrong-
-        // type value; a live production crash confirmed Auto.dev can
+        // type value; a live production crash confirmed the provider can
         // return a non-string value for a sibling field (vehicle.trim,
         // observed as the number 1958) despite its declared string type,
         // and vehicle.bodyStyle/vehicle.type carry the exact same
@@ -1541,7 +1511,7 @@ const handler = createMcpHandler((server) => {
       // Trim requirement, stage 1 (SYS-20260823): a confirmed non-match is
       // excluded outright — unlike bodyStyleFilteredCandidates above, there
       // is deliberately NO "never reduce a real pool to zero" fallback here.
-      // Body style has that fallback because Auto.dev's own tagging can be
+      // Body style has that fallback because the provider's own tagging can be
       // wrong for a genuinely correct vehicle (real Volvo V90 tagged
       // "Crossover"); trimRequired is instead an explicit user-stated hard
       // requirement, same category as priceMax — showing a confirmed wrong
@@ -1554,7 +1524,7 @@ const handler = createMcpHandler((server) => {
       // Prefer a confirmed trim match ahead of a provisional (trim
       // unknown at lean stage) candidate before diversity/shortlisting —
       // stable sort, so candidates within each group keep their existing
-      // relative order (already sorted per Auto.dev's own sort/priorityAxis).
+      // relative order (already sorted per the provider's own sort/priorityAxis).
       const trimOrderedCandidates = trimRequired
         ? [...trimFilteredCandidates].sort((a, b) => {
             const aRank = trimIsConfirmedMatch(a) ? 0 : 1;
@@ -1688,10 +1658,6 @@ const handler = createMcpHandler((server) => {
         // lowest_mileage/newest pass through unchanged. Provider retrieval/
         // sort (resolveSort() above) is completely untouched.
         //
-        // lower_risk (feature/lower-risk-mvp): same architecture, its own
-        // local reordering pass (applyLocalLowerRiskOrdering, above) —
-        // mutually exclusive with best_for_budget's pass, never both.
-        //
         // KNOWN LIMITATION, flagged not hidden: the
         // cheapest/lowest_mileage/newest axes intentionally do NOT get an
         // electrification-preferred nudge — those three axes' own module
@@ -1699,7 +1665,7 @@ const handler = createMcpHandler((server) => {
         // deliberate guarantee, and adding a ranking nudge there would
         // break that documented exactness. electrificationRequirement:
         // "preferred" currently only affects ordering under best_for_budget
-        // (default) and lower_risk.
+        // (default).
         input.priorityAxis === "best_for_budget" || input.priorityAxis == null
           ? applyConfigurationVarietyPass(
               applyLocalBestForBudgetOrdering(electrificationFilteredCandidates, intent.semantic.trimPreference, electrificationMatchOf),
@@ -1729,7 +1695,7 @@ const handler = createMcpHandler((server) => {
       // NHTSA electrification check (SYS-20260819-002): same shortlist stage
       // as the full-detail refetch above, run in parallel, never blocks the
       // search — a failed/slow NHTSA call just means that one result keeps
-      // relying on Auto.dev's own (known-incomplete) fuel field, same as
+      // relying on the provider's own (known-incomplete) fuel field, same as
       // before this feature existed.
       const nhtsaResults = await Promise.all(
         refetched.map((listing) =>
@@ -1746,17 +1712,17 @@ const handler = createMcpHandler((server) => {
       // this lookup, so a positional zip would silently misalign. Cards for
       // any VIN not in this map simply get `undefined`, same as before this
       // feature existed.
-      const ratedNhtsa = catalogOutputActive() ? await attachNhtsaRatings(nhtsaResults) : nhtsaResults; // database mode: add the NHTSA 5-star rating (cached, time-boxed, never blocks)
+      const ratedNhtsa = await attachNhtsaRatings(nhtsaResults); // database mode: add the NHTSA 5-star rating (cached, time-boxed, never blocks)
       const nhtsaByVin = new Map(refetched.map((listing, i) => [listing.vin, ratedNhtsa[i]]));
 
       // Post-refetch re-verification (SYS-20260816-004): getListingByVin is a
-      // separate, independent Auto.dev fetch and can return a price (or other
+      // separate, independent provider fetch and can return a price (or other
       // hard-constraint fields) that differs from the already-verified stage-1
       // lean data — e.g. a live price change between the search call and the
       // per-VIN refetch. Without this check, a listing that correctly passed
       // priceMax/verifyAgainstConstraints at stage 1 could reach the user
       // over budget at stage 2 with zero re-verification, even under
-      // priceFlexibility: "strict". Real, confirmed bug — not Auto.dev
+      // priceFlexibility: "strict". Real, confirmed bug — not the provider
       // buffering, not a caller-side parameter mistake (found investigating
       // André's live testing question, root-caused by reading this file).
       //
@@ -1778,7 +1744,7 @@ const handler = createMcpHandler((server) => {
       // logged separately as detail_lookup_failed.
       //
       // Fixed again (SYS-20260823, VIN W1N4N5BB1TJ864755 confirmed live):
-      // full-detail is authoritative for everything EXCEPT price. Auto.dev's
+      // full-detail is authoritative for everything EXCEPT price. the provider's
       // full-detail endpoint was observed returning $61,515 for a VIN whose
       // live listing (Edmunds-confirmed) and stage-1 lean/listings price
       // were both $59,935 — full-detail's own price was simply wrong. Price
@@ -1810,7 +1776,7 @@ const handler = createMcpHandler((server) => {
 
           if (!full) {
             // Case 1: genuine lookup failure. Lean fallback still allowed so
-            // a real candidate isn't unnecessarily lost — no new Auto.dev
+            // a real candidate isn't unnecessarily lost — no new provider
             // call/retry added here.
             anyLookupFailed = true;
             console.log(
@@ -1821,7 +1787,7 @@ const handler = createMcpHandler((server) => {
           }
 
           // Price precedence (confirmed production case, VIN
-          // W1N4N5BB1TJ864755): Auto.dev's full-detail endpoint can return a
+          // W1N4N5BB1TJ864755): the provider's full-detail endpoint can return a
           // stale/incorrect price for a VIN whose live listing (Edmunds
           // confirmed) matches the stage-1 lean/listings price exactly —
           // the lean price is canonical for price specifically, applied
@@ -1874,11 +1840,9 @@ const handler = createMcpHandler((server) => {
 
       const {
         kept: shortlistWithPriceCheck,
-        anyLookupFailed: detailLookupFailedFromPrimary,
         anyConstraintDrift: priceDriftFromPrimary,
       } = resolveStage2Detail(leanShortlist, fullDetail);
       let priceDriftDetected = priceDriftFromPrimary;
-      let detailLookupFailedDetected = detailLookupFailedFromPrimary;
 
       // Body-style stage-2 re-check (SYS-20260816-052): the SYS-20260816-051
       // exclude filter runs on stage-1 lean data, but confirmed live that
@@ -1918,7 +1882,7 @@ const handler = createMcpHandler((server) => {
       // real inventory — never a silently-included wrong trim.
       let trimDriftDetected = false;
       // Geographic radius verification, stage 2 (SYS-20260827): same
-      // architecture as body style/trim above — Auto.dev's own radius
+      // architecture as body style/trim above — the provider's own radius
       // filter is not trusted as ground truth. Only fires when the
       // listing's confirmed reported state is provably outside the
       // effective (possibly widened) radius from the search ZIP — see
@@ -1987,11 +1951,9 @@ const handler = createMcpHandler((server) => {
         );
         const {
           kept: spareResolved,
-          anyLookupFailed: spareLookupFailed,
           anyConstraintDrift: spareDrift,
         } = resolveStage2Detail(spareLean, spareFullDetail);
         if (spareDrift) priceDriftDetected = true;
-        if (spareLookupFailed) detailLookupFailedDetected = true;
 
         const backfillMatches = ((droppedBodyStyle || trimRequired || effectiveQuery.zip)
           ? spareResolved.filter(applyLocalStage2Filters)
@@ -2079,7 +2041,7 @@ const handler = createMcpHandler((server) => {
       // Match Score ordering is only correct for the default best_for_budget
       // axis, where "best overall fit" is genuinely what the user asked for.
       // For directional axes (cheapest/lowest_mileage/newest), the shortlist
-      // already arrives in the correct order — it was fetched from Auto.dev
+      // already arrives in the correct order — it was fetched from the provider
       // with the matching sort (resolveSort() above: price.asc/miles.asc/
       // year.desc) and that order survives diversity capping and the stage-2
       // detail refetch unchanged, since both preserve array order rather than
@@ -2093,31 +2055,12 @@ const handler = createMcpHandler((server) => {
       // that way by the time they reached it.
       if (input.priorityAxis === "cheapest" || input.priorityAxis === "lowest_mileage" || input.priorityAxis === "newest") {
         // Leave cards in their already-correct fetched order — do not re-sort.
-      } else if ((input.priorityAxis as string) === "lower_risk") { // unreachable: the tool no longer accepts lower_risk; remove in the lean copy
-        // Final-card risk sort (feature/lower-risk-mvp follow-up #2):
-        // applyLocalLowerRiskOrdering() already ranked the LEAN candidates
-        // by risk tier before stage-2, but that lean pre-ranking was
-        // falling into this same Match Score branch below and being
-        // silently overwritten, the same class of bug the cheapest/
-        // lowest_mileage/newest branch above already exists to prevent.
-        // Fixed by re-sorting the FINAL full-detail cards here by their
-        // own c.risk.tier via the same riskTierRank() helper
-        // applyLocalLowerRiskOrdering() uses — preferable to merely
-        // preserving the lean order, since the final card carries the
-        // authoritative full-detail risk evidence (lean is necessarily a
-        // pre-stage-2 approximation). Stable sort by tier rank ONLY —
-        // candidates within the same tier keep whatever relative order
-        // diversity/shortlisting already produced, no secondary scoring
-        // formula invented on top. Match Score itself is completely
-        // untouched by this branch; a higher Match Score amber/red card
-        // can never jump above a lower Match Score positive/unknown card.
-        cards.sort((a, b) => riskTierRank(a.risk.tier) - riskTierRank(b.risk.tier));
       } else {
         cards.sort((a, b) => b.ranking.matchScore - a.ranking.matchScore);
       }
       // Database app, default ordering only: among equally good matches (same match score) the nearest dealer comes first. The distance comes
       // from the first-pass rows (the refetched copy has none). The priority axes above keep their own order.
-      if (catalogOutputActive() && input.priorityAxis !== "cheapest" && input.priorityAxis !== "lowest_mileage" && input.priorityAxis !== "newest") {
+      if (input.priorityAxis !== "cheapest" && input.priorityAxis !== "lowest_mileage" && input.priorityAxis !== "newest") {
         const miles = new Map<string, number>();
         for (const l of [...leanShortlist, ...spareLean]) { const d = (l as any).catalog?.distanceMiles; if (typeof d === "number") miles.set(l.vin, d); }
         const sorted = sortByScoreThenDistance(cards, miles);
@@ -2138,9 +2081,7 @@ const handler = createMcpHandler((server) => {
       if (bodyStyleFallbackUsed) {
         const bodyStyleLabel = droppedBodyStyle ?? "match for the requested body style";
         dataNotes.push(
-          catalogOutputActive()
-            ? `None of the results could be confirmed as a genuine ${bodyStyleLabel} — the listing data may label this model's body style differently. Shown anyway since they're still the correct model, with each result's reported body style disclosed individually below.`
-            : `None of the results could be confirmed as a genuine ${bodyStyleLabel} — the listing data appears to mislabel this model's body style. Shown anyway since they're still the correct model, with each result's actual reported body style disclosed individually below.`,
+          `None of the results could be confirmed as a genuine ${bodyStyleLabel} — the listing data may label this model's body style differently. Shown anyway since they're still the correct model, with each result's reported body style disclosed individually below.`,
         );
       } else if (bodyStyleDriftDetected) {
         dataNotes.push(
@@ -2154,16 +2095,12 @@ const handler = createMcpHandler((server) => {
       }
       if (geoDriftDetected) {
         dataNotes.push(
-          catalogOutputActive()
-            ? "One or more listings turned out to be far outside the requested search radius at the detailed lookup stage — excluded rather than shown as a mismatch."
-            : "One or more listings were confirmed to be reported far outside the requested search radius at the detailed lookup stage, despite passing the provider's own radius filter — excluded rather than shown as a mismatch.",
+          "One or more listings turned out to be far outside the requested search radius at the detailed lookup stage — excluded rather than shown as a mismatch.",
         );
       }
       if (violationRate > 0.2) {
         dataNotes.push(
-          catalogOutputActive()
-            ? "Some results didn't fully match the stated filters and were excluded."
-            : "Some results from the underlying data source didn't fully match the stated filters and were excluded — this can happen with the provider's data.",
+          "Some results didn't fully match the stated filters and were excluded.",
         );
       }
       if (rawResult.degraded) {
@@ -2205,7 +2142,7 @@ const handler = createMcpHandler((server) => {
           dataNotes,
           scopeNote,
           serviceError: rawResult.error ?? null,
-          interpretationNotes: [...intent.interpretationNotes, ...(catalogOutputActive() && (input.exteriorColor || input.interiorColor) ? ["Colour is matched against the dealer's colour name (for example \"Glacier White\" or \"Brooklyn Grey Metallic\"); a car whose colour name has no standard colour word may not appear. If fewer than 3 cars match, colour only influences ranking."] : [])],
+          interpretationNotes: [...intent.interpretationNotes, ...((input.exteriorColor || input.interiorColor) ? ["Colour is matched against the dealer's colour name (for example \"Glacier White\" or \"Brooklyn Grey Metallic\"); a car whose colour name has no standard colour word may not appear. If fewer than 3 cars match, colour only influences ranking."] : [])],
           qualifierAccounting: buildQualifierAccounting(intentInput),
         },
         results: shapeCardsForSource(cards),
@@ -2231,7 +2168,7 @@ const handler = createMcpHandler((server) => {
       // sends the user off changing their perfectly good search criteria when
       // the real problem was that the request never completed.
       const serviceFailureMessage = rawResult.error
-        ? `${rawResult.error} Your search criteria look fine — this is worth retrying in a moment.`
+        ? `${rawResult.error} Your search itself looks fine, so please try again in a minute!`
         : null;
 
       // Honest empty-result message (SYS-20260816-030): the old version
@@ -2255,7 +2192,7 @@ const handler = createMcpHandler((server) => {
       // Non-geographic ZIP check (SYS-20260817-005): a real, confirmed bug —
       // some valid, real US ZIPs (PO-Box-only downtown ZIPs, federal
       // buildings, some university/military ZIPs) can't be geocoded to a
-      // meaningful search radius, and Auto.dev silently returns zero rather
+      // meaningful search radius, and the provider silently returns zero rather
       // than erroring. Without this check, that reads exactly like a
       // genuine inventory gap and gets reported as one — a confidently
       // wrong diagnosis. Live-confirmed: zip 77001 (Houston, PO-Box-only)
@@ -2381,8 +2318,8 @@ const handler = createMcpHandler((server) => {
                 const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
                 return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel}${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${linkStr}`;
               })
-              .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards) + seatUnknownFootnote(cards) + (catalogOutputActive() && Array.isArray(input.vehicleNeeds) && input.vehicleNeeds.length && cards.length ? `\n\nBefore you buy, ask the dealer about: ${input.vehicleNeeds.join(", ")}. These are not in our data, so ask for service and history records.` : "") + (catalogOutputActive() && input.zip && cards.length < SHORTLIST_SIZE ? `\n\nOnly ${cards.length} within ${input.radiusMiles ?? 50} miles. Ask me to widen to 100 miles to see more.` : "") + (catalogOutputActive() && cards.length ? "\n\nCheck each Edmunds listing, then contact the dealer to confirm price, history and availability." : "")
-            + (catalogOutputActive() && ["cheapest", "newest", "lowest_mileage"].includes(String(input.priorityAxis)) && input.yearMin == null && input.mileageMax == null
+              .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards) + seatUnknownFootnote(cards) + (Array.isArray(input.vehicleNeeds) && input.vehicleNeeds.length && cards.length ? `\n\nBefore you buy, ask the dealer about: ${input.vehicleNeeds.join(", ")}. These are not in our data, so ask for service and history records.` : "") + (input.zip && cards.length < SHORTLIST_SIZE ? `\n\nOnly ${cards.length} within ${input.radiusMiles ?? 50} miles. Ask me to widen to 100 miles to see more.` : "") + (cards.length ? "\n\nCheck each Edmunds listing, then contact the dealer to confirm price, history and availability." : "")
+            + (["cheapest", "newest", "lowest_mileage"].includes(String(input.priorityAxis)) && input.yearMin == null && input.mileageMax == null
               ? "\n\nFor a closer match, tell me a minimum year, a maximum mileage or your budget, and I'll narrow the list." : "");
 
       return {
@@ -2401,7 +2338,7 @@ const handler = createMcpHandler((server) => {
       description: catalogCheckVehicleDescription(
         "Answers 'is this a safe buy,' 'any red flags,' or 'what recalls does it have' for ONE specific, already-identified vehicle — a known VIN, or a complete make+model+year when no VIN is available. This is the preferred tool for known-vehicle risk/recall questions, including follow-ups after a find_matching_vehicle search (e.g. 'check option A', 'any recalls on the second one', 'is this Camry safe to buy'). Self-contained: requires either vin, or all three of make/model/year — never relies on a prior search's session state, so pass the actual VIN or make/model/year the user is referring to, not a reference like 'the second result'. Returns a Buyer Check (identity verification, accident/CPO history, next steps) when a VIN is supplied, plus recall status from NHTSA (make/model/year-level — not a VIN-specific remedy check, so 'status needs verification' is a normal, honest result, not an error). A recall lookup failure never blocks the rest of the response — Buyer Check and any other available information is still returned, with recall status reported as unavailable. Do NOT use this for a broad search ('find me a...', 'show me...') — use find_matching_vehicle for that; this tool is for one already-identified vehicle only."),
       inputSchema: {
-        vin: z.string().optional().describe("The vehicle's exact 17-character VIN. Preferred when available — enables the full Buyer Check (VIN identity verification" + (catalogOutputActive() ? " and next steps" : ", accident/CPO history") + ") alongside recall status. If omitted, make, model, AND year must all be supplied instead."),
+        vin: z.string().optional().describe("The vehicle's exact 17-character VIN. Preferred when available — enables the full Buyer Check (VIN identity verification" + " and next steps" + ") alongside recall status. If omitted, make, model, AND year must all be supplied instead."),
         make: z.string().optional().describe("Vehicle manufacturer, e.g. Toyota. Required together with model and year when vin is not supplied."),
         model: z.string().optional().describe("Vehicle model name, e.g. Camry — never include the manufacturer name here. Required together with make and year when vin is not supplied."),
         year: z.number().optional().describe("Model year. Required together with make and model when vin is not supplied."),
@@ -2483,9 +2420,9 @@ const handler = createMcpHandler((server) => {
               );
               lines.push(`NHTSA source: ${standaloneRecall.nhtsaSourceUrl}`);
             }
-            if (catalogOutputActive() && nhtsaRecallCheckUrl(rawVin)) lines.push(`Open recalls on this exact VIN: check it with NHTSA's free lookup, ${nhtsaRecallCheckUrl(rawVin)}. ${"NHTSA's lookup covers participating manufacturers and does not show recalls that were already repaired"}.`);
-            lines.push(catalogOutputActive() ? "No Buyer Check available — that requires a listing to verify against, and none exists for this VIN here." : "No Buyer Check available — that requires a real listing (accident/ownership history) to verify against, which doesn't exist for this VIN here.");
-            if (catalogOutputActive() && (identityCard as any).links?.affiliateFallbackUrl) lines.push(`Similar used vehicles on Edmunds: ${(identityCard as any).links.affiliateFallbackUrl}`);
+            if (nhtsaRecallCheckUrl(rawVin)) lines.push(`Open recalls on this exact VIN: check it with NHTSA's free lookup, ${nhtsaRecallCheckUrl(rawVin)}. ${"NHTSA's lookup covers participating manufacturers and does not show recalls that were already repaired"}.`);
+            lines.push("No Buyer Check available — that requires a listing to verify against, and none exists for this VIN here.");
+            if ((identityCard as any).links?.affiliateFallbackUrl) lines.push(`Similar used vehicles on Edmunds: ${(identityCard as any).links.affiliateFallbackUrl}`);
 
             const standaloneVinResults = shapeCardsForSource([identityCard]);
             return {
@@ -2572,7 +2509,7 @@ const handler = createMcpHandler((server) => {
           // existing find_matching_vehicle direct-VIN pattern exactly.
           const buyerCheck = addRecallCheckStep(shapeBuyerCheckForCatalog(buildBuyerCheck(card, recall)), card);
           // Database mode: model and trim confirmed by the NHTSA VIN decode are no longer listed as unknown, so text and structured data agree.
-          const decodeModelOk = !!(catalogOutputActive() && nhtsaResult?.model && listing.vehicle?.model && modelsAgree(listing.vehicle.model, nhtsaResult.model, listing.vehicle?.make));
+          const decodeModelOk = !!(nhtsaResult?.model && listing.vehicle?.model && modelsAgree(listing.vehicle.model, nhtsaResult.model, listing.vehicle?.make));
           const decodeTrimOk = !!(decodeModelOk && listing.vehicle?.trim && (nhtsaResult?.trimOptions ?? []).some((t) => t.trim().toLowerCase() === String(listing.vehicle?.trim).trim().toLowerCase()));
           const stillUnknown = ((card as any).verification?.unknownAttributes ?? []).filter((a: string) => !((a === "model" && decodeModelOk) || (a === "trim" && decodeTrimOk)));
           const confirmedByDecode = [...(decodeModelOk ? ["model"] : []), ...(decodeTrimOk ? ["trim"] : [])];
@@ -2582,26 +2519,26 @@ const handler = createMcpHandler((server) => {
 
           const outcomeLabel: Record<BuyerCheck["outcome"], string> = {
             promising: "Promising",
-            verify_before_proceeding: catalogOutputActive() ? "Confirm with the dealer" : "Verify before proceeding",
+            verify_before_proceeding: "Confirm with the dealer",
             caution: "Caution",
             significant_concern: "Significant concern",
           };
 
           const lines: string[] = [];
           lines.push(`${formatVehicleTitle({ year: listing.vehicle?.year ?? null, make: listing.vehicle?.make ?? null, model: listing.vehicle?.model ?? null, trim: listing.vehicle?.trim ?? null })} — VIN ${listing.vin}`);
-          if (catalogOutputActive()) lines[0] += nhtsaTextLines(card); // database app: fuel, drive, engine and standard safety features under the title
-          if (catalogOutputActive()) {
+          lines[0] += nhtsaTextLines(card); // database app: fuel, drive, engine and standard safety features under the title
+          {
             const listingUrl = card.links?.affiliateUrl ?? card.links?.affiliateFallbackUrl ?? null;
             if (listingUrl) lines.push(`Listing: see the full details, photos and dealer contact on Edmunds: ${listingUrl}`);
           }
           lines.push(`Buyer Check: ${outcomeLabel[buyerCheck.outcome]}`);
           // Catalogue: when the status needs checking, point the buyer to the dealer and the Edmunds listing instead.
           const recallLine = recall
-            ? (catalogOutputActive() && recall.state === "none" ? "Recalls: none found for this model year. Check this VIN with NHTSA (link below)." : catalogOutputActive() && recall.count > 0 ? `Recalls: ${recall.count} campaign${recall.count === 1 ? "" : "s"} for this model year (${recall.campaigns.map((c) => c.campaignNumber).filter(Boolean).slice(0, 3).join(", ") || "numbers not listed"}). Check this VIN with NHTSA (link below).` : catalogOutputActive() && /verify status/i.test(recall.label) ? "Recalls: confirm with the dealer" : recall.label)
-            : (catalogOutputActive() ? "Recalls: confirm with the dealer" : "Recalls: Data unavailable");
+            ? (recall.state === "none" ? "Recalls: none found for this model year. Check this VIN with NHTSA (link below)." : recall.count > 0 ? `Recalls: ${recall.count} campaign${recall.count === 1 ? "" : "s"} for this model year (${recall.campaigns.map((c) => c.campaignNumber).filter(Boolean).slice(0, 3).join(", ") || "numbers not listed"}). Check this VIN with NHTSA (link below).` : /verify status/i.test(recall.label) ? "Recalls: confirm with the dealer" : recall.label)
+            : ("Recalls: confirm with the dealer");
           lines.push(recallLine);
           if (buyerCheck.goodSigns.length) lines.push(`Good signs: ${buyerCheck.goodSigns.join(" ")}`);
-          if (catalogOutputActive() && nhtsaResult) {
+          if (nhtsaResult) {
             // Model and trim from the NHTSA VIN decode (the listing title already shows them; this confirms them).
             const listingModel = listing.vehicle?.model ?? null;
             const listingTrim = listing.vehicle?.trim ?? null;
@@ -2611,25 +2548,13 @@ const handler = createMcpHandler((server) => {
             else if (modelMatch) lines.push(`Model confirmed by the NHTSA VIN decode (${nhtsaResult.model}). Confirm the trim on the Edmunds listing.`);
             else lines.push("Confirm the model and trim on the Edmunds listing.");
           }
-          if (catalogOutputActive()) { const fresh = freshnessTextLine(card); if (fresh && fresh.trim()) lines.push(fresh.trim()); }
+          { const fresh = freshnessTextLine(card); if (fresh && fresh.trim()) lines.push(fresh.trim()); }
           if (buyerCheck.concerns.length) lines.push(`Concerns: ${buyerCheck.concerns.join(" ")}`);
           if (buyerCheck.needsVerification.length) lines.push(`Needs verification: ${buyerCheck.needsVerification.join(" ")}`);
-          if (recall && recall.campaigns.length > 0 && !catalogOutputActive()) {
-            lines.push(
-              `Recall details (NHTSA, ${recall.count} total${recall.severeCount ? `, ${recall.severeCount} severity-flagged` : ""}): ` +
-                recall.campaigns
-                  .slice(0, 3)
-                  .map((c) => `${c.campaignNumber ?? "unknown campaign"} — ${c.component ?? "component unspecified"}: ${clipRecallText(c.summary, 240) ?? "no summary available"}${c.remedy ? ` Remedy: ${clipRecallText(c.remedy, 160)}` : ""}`)
-                  .join(" | "),
-            );
-            lines.push(`NHTSA source: ${recall.nhtsaSourceUrl}`);
-          }
-          if (catalogOutputActive()) {
+          {
             lines.push("Full vehicle history: see the Edmunds listing, and confirm it with the dealer.");
             lines.push(`Check this VIN for open recalls: https://www.nhtsa.gov/recalls?vymm=${listing.vin}`);
             lines.push("Next steps: 1) Open the Edmunds listing for photos, price and dealer details. 2) Contact the dealer to confirm the recall status, ask for a vehicle history report and arrange an inspection.");
-          } else {
-            lines.push(`Next steps: ${buyerCheck.nextSteps.join(" ")}`);
           }
 
           return {
@@ -2738,7 +2663,7 @@ const handler = createMcpHandler((server) => {
     "compare_vehicles",
     {
       title: "Compare Vehicles",
-      description: catalogOutputActive() ? "Compares 2 to 4 vehicles side by side on price, mileage, year, trim, fuel, drive, engine, NHTSA safety rating, recall campaign count and distance (with a ZIP). Takes VINs. When the user refers to results by number, use the VINs from the earlier search." : "Compares 2 to 4 specific vehicles side by side (price, mileage, year, trim, fuel, drive, engine, NHTSA safety rating, recall campaign count and, with a ZIP code, distance) for vehicles already identified by VIN, for example after a find_matching_vehicle search: 'compare 1 and 3', 'which of these two is the better deal'. Self-contained: pass the actual VINs, never references like 'the second result'. Every vehicle that is in this inventory is shown with its own Edmunds link; VINs that are not in this inventory are listed as not found. The comparison states differences only: it does not rank vehicles or judge safety, and missing data is shown as unknown, never guessed. For cars similar to one already listed (for example 'compare this one with similar cars'), first call find_matching_vehicle to find similar cars, then pass their VINs here. Do NOT use this for a broad search by itself (use find_matching_vehicle) or for recalls and red flags on one vehicle (use check_vehicle).",
+      description: "Compares 2 to 4 vehicles side by side on price, mileage, year, trim, fuel, drive, engine, NHTSA safety rating, recall campaign count and distance (with a ZIP). Takes VINs. When the user refers to results by number, use the VINs from the earlier search.",
       inputSchema: {
         vins: z.array(z.string()).min(2).max(4).describe("2 to 4 different exact 17-character VINs to compare, for example the VINs of cars 1 and 3 from a search list. Pass the actual VINs, not references like 'the second result'."),
         zip: z.string().optional().describe("Optional 5-digit ZIP code: adds each dealer's distance from it to the comparison."),
@@ -2765,7 +2690,7 @@ const handler = createMcpHandler((server) => {
         }
 
         const decoded = await Promise.all(found.map((l) => decodeNhtsaElectrification(l.vin, l.vehicle?.make, l.vehicle?.model, l.vehicle?.cylinders)));
-        const rated = catalogOutputActive() ? await attachNhtsaRatings(decoded) : decoded; // database app: NHTSA rating and model-year recall count
+        const rated = await attachNhtsaRatings(decoded); // database app: NHTSA rating and model-year recall count
         const neutralIntent = parseIntent({});
         const neutralInput: CardIntentInput = { droppedBodyStyleFilter: null };
         const built = await Promise.all(found.map(async (l, i) => ({ l, card: await buildResultCard(l, neutralIntent, neutralInput, rated[i], undefined, new Set()) })));
@@ -2826,7 +2751,7 @@ const handler = createMcpHandler((server) => {
     "resolve_dealer_url",
     {
       title: "Get Edmunds Link for a Vehicle",
-      description: catalogOutputActive() ? "Resolves a usable link for viewing or purchasing a specific vehicle, given its VIN, make, model, and year. Returns the Edmunds VIN-specific link to the vehicle's current listing; otherwise a similar-vehicles link for the same make and model. Never returns the dealer's own listing URL." : "Resolves a usable link for viewing or purchasing a specific vehicle, given its VIN, make, model, and year. Prefers the Edmunds VIN-specific pricing link; when that's unavailable (including for Carvana-sourced vehicles, which are never on Edmunds by VIN), falls back to affiliateFallbackUrl, a live Edmunds category-search link for the same make/model that never dead-ends. Never returns the dealer's own listing URL (dealerListingUrl) as the resolved link, even for Carvana — that field is still present on structuredContent for internal/diagnostic use, just never the text response.",
+      description: "Resolves a usable link for viewing or purchasing a specific vehicle, given its VIN, make, model, and year. Returns the Edmunds VIN-specific link to the vehicle's current listing; otherwise a similar-vehicles link for the same make and model. Never returns the dealer's own listing URL.",
       inputSchema: {
         vin: z.string().describe("The vehicle's 17-character VIN."),
         make: z.string().describe("Vehicle manufacturer, e.g. Toyota."),
@@ -2843,7 +2768,7 @@ const handler = createMcpHandler((server) => {
       // either way now, since dealerListingUrl is never routed to as the
       // resolved link regardless of Carvana status (see primary below).
       // Database mode: the same listing link as the card, so one car has one tracked link everywhere.
-      const catalogRow = catalogOutputActive() && vin ? await rowByVin(getCatalogPool(), vin).catch(() => null) : null;
+      const catalogRow = vin ? await rowByVin(getCatalogPool(), vin).catch(() => null) : null;
       const catalogTracking = catalogRow
         ? buildTrackingUrl({ id: String((catalogRow as { id?: unknown }).id), vin, year: Number(year), make: String(make), model: String(model) })
         : undefined;

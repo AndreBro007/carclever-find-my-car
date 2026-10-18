@@ -21,7 +21,7 @@
 //
 // Run: npx tsx tests/best-for-budget-ranking.test.ts
 
-import { applyLocalBestForBudgetOrdering, isAnomalousPrice } from "@/lib/local-ranking";
+import { applyLocalBestForBudgetOrdering } from "@/lib/local-ranking";
 
 interface MiniListing {
   vin: string;

@@ -104,7 +104,7 @@ export function buildIntentConfirmations(input: CardIntentInput, card: CardForCo
   // reachable in normal operation (SYS-20260816-057): route.ts hard-excludes
   // a confirmed mismatch at both stage 1 and stage 2, but ONLY when doing so
   // still leaves at least one real candidate — if excluding would reduce a
-  // genuine candidate pool to nothing (Auto.dev's own tag can be wrong for a
+  // genuine candidate pool to nothing (the provider's own tag can be wrong for a
   // genuinely correct vehicle, not just a genuinely different one — a real
   // Volvo V90 wagon is tagged "Crossover" there), the mismatch is shown
   // rather than hidden, and this branch is exactly what discloses that
@@ -116,8 +116,8 @@ export function buildIntentConfirmations(input: CardIntentInput, card: CardForCo
     // optional chaining only guards null/undefined, not a present-but-
     // wrong-type value. card.body.bodyStyle/vehicleType trace back to
     // route.ts's `v?.bodyStyle ?? null` (an uncoerced pass-through of the
-    // raw Auto.dev field), and a live production crash confirmed
-    // Auto.dev can return a non-string value for a sibling field
+    // raw provider field), and a live production crash confirmed
+    // the provider can return a non-string value for a sibling field
     // (vehicle.trim, observed as the number 1958) despite its declared
     // string type — the same unreliable-typing risk applies here. Also
     // ensures `confirmations.push(actual)` below only ever pushes an

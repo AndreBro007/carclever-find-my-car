@@ -44,7 +44,7 @@ type BuyerCheckLike = { goodSigns: string[]; concerns: string[]; needsVerificati
 
 /** Database mode: drop buyer-check lines about history / Carfax / CPO that the feed can never answer. Other lines stay. */
 export function shapeBuyerCheckForCatalog<T extends BuyerCheckLike>(bc: T): T {
-  if (!catalogOutputActive()) return bc;
+  
   // Catalogue: the feed has no certification or history data, and the listing page on Edmunds is the place to check them.
   const CATALOG_DROP = /Certified Pre-Owned|\bCPO\b|certif|history|Carfax|accident|cannot be confirmed from the VIN alone|Recall reported|model\/year-level/i;
   const keep = (a: string[]) => a.filter((x) => !MISSING_DATA_LINE.test(x) && !CATALOG_DROP.test(x));
@@ -54,38 +54,16 @@ export function shapeBuyerCheckForCatalog<T extends BuyerCheckLike>(bc: T): T {
 }
 
 export function shapeCardsForSource<T>(cards: T[]): T[] {
-  return catalogOutputActive() ? cards.map(shapeCardForCatalog) : cards;
-}
-
-/**
- * Database app: the tool description with the sentences that were written for Auto.dev replaced by accurate ones. Everything else in the
- * description (including the wording already reviewed by directory reviewers) is left exactly as it is.
- */
-export const CATALOG_DESCRIPTION_EDITS: Array<[from: string, to: string]> = [
-  ["Most direct criteria are matched against actual listing data; seating, certification, and history-related requests reflect available evidence, which may be confirmed, unconfirmed, or unreported rather than guaranteed.",
-   "Make, model, price, year, mileage, location, body style, condition and color are matched against listing data. Drive type, transmission, engine, fuel type and seating come from the vehicle's VIN decode where available and may be unconfirmed; certification, ownership and accident-history requests cannot be matched from this inventory and are reported as unconfirmed rather than guaranteed."],
-  ["An exact 17-character VIN refers to one specific listing; if unavailable, that outcome is reported rather than substituting a similar vehicle.",
-   "An exact 17-character VIN refers to one specific listing; if it is not listed, that outcome is reported with a link to similar vehicles on Edmunds, rather than substituting a different vehicle."],
-  ["Results include current matching listings, viewing links where available, and available evidence about confirmed, unconfirmed, or changed criteria.",
-   "Results include current matching listings, viewing links where available, available evidence about confirmed, unconfirmed, or changed criteria, and, where available, NHTSA safety information for the model year (overall rating, recall campaign count, standard safety features)."],
-];
-export const CATALOG_DESCRIPTION_APPENDIX = " To compare two or more specific vehicles from a list side by side, use compare_vehicles; for recalls and red flags on one vehicle, use check_vehicle. Each result links to its Edmunds listing, where the buyer can verify the details and contact the dealer.";
-export function catalogDescription(base: string): string {
-  let d = base;
-  for (const [from, to] of CATALOG_DESCRIPTION_EDITS) {
-    if (!d.includes(from)) console.error("[catalog-output] description sentence not found, left unchanged:", from.slice(0, 60));
-    d = d.replace(from, () => to);
-  }
-  return d.trimEnd() + CATALOG_DESCRIPTION_APPENDIX;
+  return cards.map(shapeCardForCatalog);
 }
 
 /**
  * Database app: the per-car text the AI reads (many AI hosts rely mostly on the text, not the structured data). Adds one line of vehicle
  * details (fuel, drive, engine, transmission, seats) and one line of NHTSA safety information (rating, model-year recall count, up to 4
- * standard features). Returns "" for other apps and for cars with nothing to show.
+ * standard features). Returns "" for cars with nothing to show.
  */
-export function nhtsaTextLines(c: any, active: boolean = catalogOutputActive()): string {
-  if (!active || !c) return "";
+export function nhtsaTextLines(c: any): string {
+  if (!c) return "";
   const p = c.powertrain ?? {}, d = c.detail ?? {};
   const spec = [d.fuelTypeDisplay, p.drivetrain, p.engine, p.transmission, d.seats ? `${d.seats} seats` : null].filter((x) => typeof x === "string" ? x.trim() : x).join(" · ");
   const safety: string[] = [];
@@ -97,13 +75,13 @@ export function nhtsaTextLines(c: any, active: boolean = catalogOutputActive()):
 }
 
 /** One footnote (not one per car) explaining what a recall count means; "" when no car shows one. */
-export function nhtsaTextFootnote(cards: any[], active: boolean = catalogOutputActive()): string {
-  if (!active || !cards.some((c) => c?.detail?.nhtsaRecallCampaigns > 0)) return "";
+export function nhtsaTextFootnote(cards: any[]): string {
+  if (!cards.some((c) => c?.detail?.nhtsaRecallCampaigns > 0)) return "";
   return "\n\nNote: recall counts are for the model year, not specific to a car, and do not say whether a recall was repaired; a buyer can check a VIN at nhtsa.gov/recalls.";
 }
 
 /**
- * Database app, check_vehicle: the V3 tool description with the phrases written for Auto.dev replaced. This inventory carries no accident or
+ * Database app, check_vehicle: the V3 tool description with the phrases written for the provider replaced. This inventory carries no accident or
  * certification history, and our result lists are numbered (not lettered). Everything else in the description is left exactly as it is.
  */
 export const CHECK_VEHICLE_DESCRIPTION_EDITS: Array<[from: string, to: string]> = [
@@ -113,7 +91,7 @@ export const CHECK_VEHICLE_DESCRIPTION_EDITS: Array<[from: string, to: string]> 
   ["so 'status needs verification' is a normal, honest result, not an error).", "so 'status needs verification' is a normal, honest result, not an error). For a used car with a VIN the result also includes NHTSA's free VIN lookup link, which shows whether that specific car has an unrepaired recall."],
 ];
 export function catalogCheckVehicleDescription(base: string): string {
-  if (!catalogOutputActive()) return base;
+  
   return "A VIN check for one known vehicle: identity, recall and listing details, for a VIN, or for a make, model and year. For a used car with a VIN, it includes NHTSA's recall lookup link. Use it for a known vehicle, including follow-ups to a search. For a broad search, use Find Matching Vehicle.";
   let d = base;
   for (const [from, to] of CHECK_VEHICLE_DESCRIPTION_EDITS) {
@@ -153,9 +131,9 @@ export function freshnessSignals(
   return out;
 }
 const shortDate = (ymd: string): string => new Date(ymd + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-/** One text line under a car: "Just added to the listings · Price dropped $1,200 (was $32,990, changed Oct 21)". "" when neither applies or in other apps. */
-export function freshnessTextLine(c: any, active: boolean = catalogOutputActive()): string {
-  if (!active || !c?.detail) return "";
+/** One text line under a car: "Just added to the listings · Price dropped $1,200 (was $32,990, changed Oct 21)". "" when neither applies. */
+export function freshnessTextLine(c: any): string {
+  if (!c?.detail) return "";
   const d = c.detail, bits: string[] = [];
   if (d.justAdded) bits.push("Just added to the listings");
   if (d.priceDrop) bits.push(`Price dropped $${d.priceDrop.amount.toLocaleString("en-US")} (was $${d.priceDrop.was.toLocaleString("en-US")}, changed ${shortDate(d.priceDrop.on)})`);

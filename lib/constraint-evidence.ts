@@ -86,9 +86,9 @@ export interface ResolvedListingForEvidence {
 /**
  * Runtime-safety fix (fix/provider-string-runtime-safety, SYS-20260828):
  * accepts `unknown`, not `string` — several call sites here pass raw
- * Auto.dev-derived values (actual.bodyStyle, actual.vehicleType,
+ * provider-derived values (actual.bodyStyle, actual.vehicleType,
  * actual.state) straight through, and a live production crash confirmed
- * Auto.dev can return a non-string value for a sibling field
+ * the provider can return a non-string value for a sibling field
  * (vehicle.trim, observed as the number 1958) despite its declared
  * string type in the client contract — the guards at each call site
  * (`actual.bodyStyle ?`) only protect against falsy values, not against

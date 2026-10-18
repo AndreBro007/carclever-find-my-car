@@ -11,18 +11,18 @@
  * Built by reading the CURRENT runtime code — buildResultCard() in
  * route.ts, lib/vin-cross-check.ts, lib/match-score.ts,
  * lib/link-resolution.ts, lib/constraint-evidence.ts,
- * lib/qualifier-accounting.ts, the removed listings client — not from the
+ * lib/qualifier-accounting.ts, the earlier listings client — not from the
  * previously deleted, stale FindMatchingVehicleOutput schema. Do not copy
  * shapes from that old schema; if this file and the old one ever
  * disagreed, the old one was wrong (that's why it was deleted).
  *
  * Two fields are intentionally z.unknown().nullable(), not string/number:
- * vehicle.style and vehicle.confidence in the removed listings client are
+ * vehicle.style and vehicle.confidence in the earlier listings client are
  * themselves typed `unknown` ("observed in schema audit — meaning
  * unconfirmed" / "real field, unresearched"). identity.bodyStyleConfig and
  * detail.dataConfidence are those same values passed through unchanged
  * (`v?.style ?? null`, `v?.confidence ?? null`) — declaring them narrower
- * here would silently assert a type Auto.dev's own API doesn't guarantee,
+ * here would silently assert a type the provider's own API doesn't guarantee,
  * which is exactly the mistake that made the old schema stale.
  */
 import { z } from "zod";
@@ -71,7 +71,7 @@ const IdentitySchema = z.object({
   trim: z.string().nullable(),
   series: z.string().nullable(),
   squishVin: z.string().nullable(),
-  // vehicle.style is `unknown` at the source (the removed listings client) —
+  // vehicle.style is `unknown` at the source (the earlier listings client) —
   // see file header. Passed through via `v?.style ?? null`.
   bodyStyleConfig: z.unknown().nullable(),
 });
@@ -216,7 +216,7 @@ const BuyerCheckSchema = z.object({
   nextSteps: z.array(z.string()),
 });
 
-// Risk tier (feature/lower-risk-mvp) — see lib/risk-tier.ts's own
+// Risk tier — see lib/risk-tier.ts's own
 // RiskTier type/doc comment for the full classification contract. Present
 // on EVERY result (not optional, unlike buyerCheck above, which is
 // direct-VIN-lookup-only) since buildResultCard() now computes this for
@@ -262,8 +262,8 @@ export const FindMatchingVehicleOutputSchema = z.object({
 
 export type FindMatchingVehicleOutput = z.infer<typeof FindMatchingVehicleOutputSchema>;
 
-// Database mode (LISTING_SOURCE=catalog_db): the feed carries no accident history, Carfax link, CPO status, risk
-// inputs, owner or title data, dealer VDP link, extra photos or Auto.dev-only identifiers. Those fields are LEFT OUT
+// Database mode: the feed carries no accident history, Carfax link, CPO status, risk
+// inputs, owner or title data, dealer VDP link, extra photos or provider-only identifiers. Those fields are LEFT OUT
 // of the output (lib/catalog-output.ts) instead of being sent empty or with "not reported" notes that confuse the
 // calling model and the buyer. This variant of the registered schema allows exactly those omissions.
 const CatalogDbResultSchema = ResultSchema.extend({

@@ -97,7 +97,7 @@ export const FindMatchingVehicleInput = z.object({
   // to the host as an McpError, not silently dropped.
 
 /**
- * Database app (LISTING_SOURCE=catalog_db): the same inputs, with notes that say what this inventory can and cannot do. The Auto.dev
+ * Database app: the same inputs, with notes that say what this inventory can and cannot do. The the provider
  * notes stay as they are for the other apps. Only descriptions differ; the accepted fields and types are identical.
  */
 export const FindMatchingVehicleInputCatalog = FindMatchingVehicleInput.safeExtend({

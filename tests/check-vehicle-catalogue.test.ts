@@ -24,7 +24,7 @@ test("description variant: the two Auto.dev-era phrases are replaced, nothing el
   } finally { if (prev === undefined) delete process.env.LISTING_SOURCE; else process.env.LISTING_SOURCE = prev; }
 });
 test("VIN note and result shaping are wired for database mode", () => {
-  assert.match(block, /catalogOutputActive\(\) \? " and next steps" : ", accident\/CPO history"/);
+  assert.ok(block.includes('" and next steps"'));
   assert.match(src, /const buyerCheck = addRecallCheckStep\(shapeBuyerCheckForCatalog\(buildBuyerCheck\(card, recall\)\), card\)/);
   assert.match(src, /const checkVehicleResults = shapeCardsForSource\(\[cardWithBuyerCheck\]\)/);
   assert.match(src, /shapeCardsForSource\(\[identityCard\]\)/); assert.match(src, /shapeCardsForSource\(\[noVinCard\]\)/);

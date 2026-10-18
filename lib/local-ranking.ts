@@ -16,8 +16,6 @@
 
 import { type VehicleListing } from "@/lib/listing-types";
 import { trimMatches } from "@/lib/trim-match";
-import { crossCheckVin } from "@/lib/vin-cross-check";
-import { classifyRiskTier, riskTierRank, type RiskTier } from "@/lib/risk-tier";
 
 // Shared anomalous-price rule (feature/value-based-best-for-budget follow-up):
 // hoisted here so the "price-likely-inaccurate" card badge (route.ts) and the
@@ -168,40 +166,3 @@ export function applyLocalBestForBudgetOrdering(
   });
 }
 
-/**
- * lower_risk local ordering (feature/lower-risk-mvp) — ranking only.
- * Provider retrieval/sort is untouched; hard eligibility filters have
- * already been applied by the time this runs. Uses classifyRiskTier()
- * (purchase-risk evidence only), deliberately excluding
- * detectDataConflicts() (a data-quality signal, not purchase-risk
- * evidence — see lib/risk-tier.ts). Sort by tier rank only (positive <
- * unknown < amber < red); candidates within the same tier keep their
- * existing relative order (stable sort), UNLESS electrificationMatchOf is
- * given "preferred", in which case a confirmed match
- * sorts first WITHIN the same tier only — never promotes a worse-risk-tier
- * candidate ahead of a better one just for being electrified. Absent
- * electrificationMatchOf, this key is always 0 for every candidate and has
- * no effect (existing tier-only behavior is exactly unchanged).
- */
-export function applyLocalLowerRiskOrdering(
-  candidates: VehicleListing[],
-  electrificationMatchOf?: (c: VehicleListing) => boolean,
-): VehicleListing[] {
-  if (candidates.length === 0) return candidates;
-
-  const tierOf = (c: VehicleListing): RiskTier =>
-    classifyRiskTier({
-      verification: crossCheckVin(c),
-      history: buildHistorySummary(c),
-      condition: { cpoEvidenceState: buildCpoSummary(c).state },
-    });
-
-  const electrificationMatchRank = (c: VehicleListing): number =>
-    electrificationMatchOf && electrificationMatchOf(c) ? 0 : 1;
-
-  return [...candidates].sort((a, b) => {
-    const tierDiff = riskTierRank(tierOf(a)) - riskTierRank(tierOf(b));
-    if (tierDiff !== 0) return tierDiff;
-    return electrificationMatchRank(a) - electrificationMatchRank(b);
-  });
-}

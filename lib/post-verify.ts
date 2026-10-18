@@ -1,7 +1,7 @@
 /**
- * Post-verification — Auto.dev silently swallows unknown/malformed params
+ * Post-verification — the provider silently swallows unknown/malformed params
  * and can return rows that don't actually satisfy a stated filter (real,
- * documented behavior — AUTODEV_V2_NLP_SEARCH_REDESIGN.md §3.3, §5.4 step 6).
+ * documented behavior — the V2 search redesign document §3.3, §5.4 step 6).
  * This is a mechanical sanity check, never a semantic one (no size-class
  * judgment, no "large SUV" reasoning — that stays the calling LLM's job,
  * by design, per SYS-20260812-035).

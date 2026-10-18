@@ -17,7 +17,7 @@
 
 import fs from "node:fs";
 import { JSDOM } from "jsdom";
-import { classifyRiskTier, riskTierRank, type RiskEvidence } from "@/lib/risk-tier";
+import { classifyRiskTier, type RiskEvidence } from "@/lib/risk-tier";
 import { buildResultsCardHtml } from "@/lib/results-card";
 import { buildBuyerCheck } from "@/lib/buyer-check";
 
@@ -67,16 +67,8 @@ function evidence(overrides: Partial<RiskEvidence>): RiskEvidence {
   // buildCpoSummary, so it could be unit-tested directly — Next.js Route
   // Handler files can't export arbitrary names. The final-card call site
   // (buildResultCard) stays in route.ts, unaffected by that move.
-  const localRankingSource = fs.readFileSync("lib/local-ranking.ts", "utf8");
-  const leanCallSite = localRankingSource.match(/const tierOf = \(c: VehicleListing\): RiskTier =>\s*\n\s*classifyRiskTier\(\{[\s\S]*?\}\);/);
   const cardCallSite = routeSource.match(/const riskTier = classifyRiskTier\(\{[\s\S]*?\}\);/);
-  check("Lean-stage classifyRiskTier() call site located (now in lib/local-ranking.ts)", !!leanCallSite);
   check("Final-card classifyRiskTier() call site located", !!cardCallSite);
-  check(
-    "Lean-stage classifyRiskTier() call does not pass dataConflicts",
-    !!leanCallSite && !/dataConflicts/.test(leanCallSite[0]),
-    leanCallSite ? leanCallSite[0] : undefined,
-  );
   check(
     "Final-card classifyRiskTier() call does not pass dataConflicts",
     !!cardCallSite && !/dataConflicts/.test(cardCallSite[0]),
@@ -155,41 +147,6 @@ function evidence(overrides: Partial<RiskEvidence>): RiskEvidence {
 }
 
 // ===========================================================================
-// REQUIRED TEST 8: positive -> unknown -> amber -> red ranking remains
-// correct.
-// ===========================================================================
-{
-  check("8a. positive ranks above unknown", riskTierRank("positive") < riskTierRank("unknown"));
-  check("8b. unknown ranks above amber", riskTierRank("unknown") < riskTierRank("amber"));
-  check("8c. amber ranks above red", riskTierRank("amber") < riskTierRank("red"));
-}
-
-// ===========================================================================
-// Final full-detail card sort must not let Match Score override lower_risk
-// (pre-existing fix, re-confirmed unaffected by this change).
-// ===========================================================================
-{
-  const cardsFixture = [
-    { id: "high-score-amber", matchScore: 99, tier: "amber" as const },
-    { id: "low-score-positive", matchScore: 50, tier: "positive" as const },
-    { id: "mid-score-unknown", matchScore: 75, tier: "unknown" as const },
-    { id: "low-score-red", matchScore: 40, tier: "red" as const },
-  ];
-  const sorted = [...cardsFixture].sort((a, b) => riskTierRank(a.tier) - riskTierRank(b.tier));
-  check("Lower Match Score (50) positive card outranks higher Match Score (99) amber card", sorted[0].id === "low-score-positive");
-  check("Mid Match Score (75) unknown card sorts second, ahead of amber/red regardless of score", sorted[1].id === "mid-score-unknown");
-  check("Amber card (highest Match Score, 99) still sorts behind unknown", sorted[2].id === "high-score-amber");
-  check("Red card sorts last", sorted[3].id === "low-score-red");
-
-  const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
-  const finalSortBlock = routeSource.match(
-    /if \(input\.priorityAxis === "cheapest"[\s\S]*?cards\.sort\(\(a, b\) => b\.ranking\.matchScore - a\.ranking\.matchScore\);\s*\n\s*\}/,
-  );
-  const block = finalSortBlock ? finalSortBlock[0] : "";
-  check("Final-card sort dispatch block located in route.ts", block.length > 0, block || "regex may need updating if reshaped");
-}
-
-// ===========================================================================
 // Registered output schema accepts risk.tier -- imports the REAL
 // FindMatchingVehicleOutputSchema, not a copy.
 // ===========================================================================
@@ -239,15 +196,7 @@ async function schemaTest() {
 // ===========================================================================
 async function leanEvidenceRetentionTest() {
   const routeSource = fs.readFileSync("app/[transport]/route.ts", "utf8");
-  // applyLocalLowerRiskOrdering's tierOf helper moved to
-  // lib/local-ranking.ts this session (see comment on the earlier
-  // Lean-stage classifyRiskTier() check above for why).
-  const localRankingSource = fs.readFileSync("lib/local-ranking.ts", "utf8");
 
-  check(
-    "applyLocalLowerRiskOrdering() feeds classifyRiskTier() from buildHistorySummary()/buildCpoSummary() applied to the lean candidate directly (now in lib/local-ranking.ts)",
-    /const tierOf = \(c: VehicleListing\): RiskTier =>\s*\n\s*classifyRiskTier\(\{\s*\n\s*verification: crossCheckVin\(c\),\s*\n\s*history: buildHistorySummary\(c\),\s*\n\s*condition: \{ cpoEvidenceState: buildCpoSummary\(c\)\.state \},/.test(localRankingSource),
-  );
   check(
     "cardShape.dataConflicts is still populated from detectDataConflicts() (verification info not lost, just excluded from risk classification)",
     /dataConflicts,\s*\n(\s*\/\/[^\n]*\n)*\s*const riskTier = classifyRiskTier/.test(routeSource) ||

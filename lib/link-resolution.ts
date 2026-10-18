@@ -130,7 +130,7 @@ export function resolveLinks(listing: VehicleListing): LinkResolution {
     }
   }
 
-  // Edmunds catalogue rows (spike/edmunds-catalog-mode) carry their own partner-tracked
+  // Edmunds catalogue rows carry their own partner-tracked
   // item link. Use it exactly as supplied (never re-wrapped); it supersedes the
   // constructed link above because it comes straight from the feed.
   const catalogUrl = listing.catalog?.trackingUrl;

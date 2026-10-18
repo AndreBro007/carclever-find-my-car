@@ -19,7 +19,7 @@
  * - A less-specific actual (e.g. "RAV4" for a requested "RAV4 Hybrid")
  *   never satisfies a more-specific request -> false.
  * - Case/punctuation differences don't matter.
- * - `requested` may be a comma-separated OR list (Auto.dev's native list
+ * - `requested` may be a comma-separated OR list (the provider's native list
  *   syntax, e.g. "RAV4 Hybrid,CR-V Hybrid") — satisfied if ANY option in
  *   the list is satisfied.
  */
@@ -48,7 +48,7 @@ function oneOptionSatisfies(requestedOption: string, actual: string): boolean {
 /**
  * `requested` is a single model name OR a comma-separated OR list.
  * `actual` is the listing's own reported model value — typed `unknown`
- * and String()-coerced defensively (real bug found 2026-08-14: Auto.dev
+ * and String()-coerced defensively (real bug found 2026-08-14: the provider
  * can return a non-string value for make/model on rare/varied vehicles
  * despite the declared type, and a bare `.trim()`/`.toLowerCase()` throws
  * on it — same class of bug already fixed in diversity.ts).

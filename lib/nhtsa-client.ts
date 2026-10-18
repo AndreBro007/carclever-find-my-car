@@ -1,10 +1,10 @@
 /**
  * NHTSA vPIC client — free, no-key, government VIN decode.
  *
- * Purpose (SYS-20260819-002): Auto.dev's `vehicle.fuel` field only ever
+ * Purpose (SYS-20260819-002): the provider's `vehicle.fuel` field only ever
  * carries primary fuel type ("Gasoline" for every hybrid, since that's
  * technically correct — hybrids do have a gasoline engine). There is no
- * secondary/electrification field anywhere in Auto.dev's schema, confirmed
+ * secondary/electrification field anywhere in the provider's schema, confirmed
  * by testing both the /listings response and the paid /vin/{vin} decode.
  * This is a genuine data gap, not a data error — NHTSA's manufacturer-
  * submitted vPIC data is the authoritative source for electrification
@@ -36,7 +36,7 @@
  * empty array when NHTSA has nothing) rather than a single string,
  * specifically so callers can't accidentally treat an ambiguous decode as
  * a confident single answer — see lib/link-resolution.ts (fills a missing
- * Auto.dev trim, takes the first candidate when ambiguous — picking one
+ * the provider trim, takes the first candidate when ambiguous — picking one
  * is simple, low-risk) and app/[transport]/route.ts's trim-conflict badge
  * (flags only when the claimed trim matches NONE of the candidates,
  * however many there are — checking array membership is simple regardless
@@ -101,7 +101,7 @@ export type ElectrificationState =
 
 /**
  * Classify raw NHTSA ElectrificationLevel/FuelTypeSecondary evidence into
- * a canonical state. Never infers from Auto.dev's primary-fuel label —
+ * a canonical state. Never infers from the provider's primary-fuel label —
  * NHTSA fields only, per the audit's explicit requirement.
  */
 export function classifyElectrification(
@@ -180,8 +180,8 @@ export interface NhtsaElectrificationResult {
   modelConflict: boolean;
   /** Answers the powertrain.type:"unknown" gap (SYS-20260819 testing,
    * Test 5) — NHTSA's own cylinder/drivetrain read, independent of
-   * Auto.dev's field. Cross-checked, not blindly trusted; disagreement is
-   * surfaced, never silently overrides Auto.dev's own display value. */
+   * the provider's field. Cross-checked, not blindly trusted; disagreement is
+   * surfaced, never silently overrides the provider's own display value. */
   engineCylinders: string | null;
   driveType: string | null;
   cylindersConflict: boolean;
@@ -207,7 +207,7 @@ export interface NhtsaElectrificationResult {
  * call sites (app/[transport]/route.ts) pass a raw VehicleListing
  * vehicle.make/vehicle.model value straight through on EVERY shortlisted
  * result (not an edge case — this runs for every search's full-detail
- * refetch), and a live production crash confirmed Auto.dev can return a
+ * refetch), and a live production crash confirmed the provider can return a
  * non-string value for a sibling field (vehicle.trim, observed as the
  * number 1958) despite its declared string type in the client contract.
  * The old `!!claimedMake` guard only protected against falsy values; a
@@ -301,7 +301,7 @@ export async function decodeNhtsaElectrification(
 /**
  * True when NHTSA's electrification data indicates a genuine hybrid,
  * mild hybrid, plug-in hybrid, or battery electric vehicle, regardless of
- * what Auto.dev's own fuel field says.
+ * what the provider's own fuel field says.
  *
  * Kept as a thin wrapper over `electrificationState`
  * rather than removed, so any existing call site relying on the old

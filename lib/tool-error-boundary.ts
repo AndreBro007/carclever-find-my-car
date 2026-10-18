@@ -3,7 +3,7 @@
  * (fix/provider-string-runtime-safety, SYS-20260828 review follow-up).
  *
  * NOT primary bug handling — every specific failure mode this tool
- * already knows about (invalid VIN, no matches, Auto.dev timeout/service
+ * already knows about (invalid VIN, no matches, the provider timeout/service
  * error, automatic widening, etc.) has its own deliberate handling deep
  * inside the tool body and returns normally; none of those ever reach
  * this wrapper's catch. This exists solely to stop a genuinely

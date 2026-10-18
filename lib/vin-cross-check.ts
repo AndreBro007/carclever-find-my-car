@@ -1,7 +1,7 @@
 /**
  * VIN cross-check — now fully LOCAL (design doc §5).
  *
- * Previously called /vin/{vin} once per shortlisted result: 5 extra Auto.dev
+ * Previously called /vin/{vin} once per shortlisted result: 5 extra provider
  * calls per search, on top of the listings call. Now derived offline from VIN
  * anatomy (ISO 3779/3780), taking a search from 6 API calls to 1.
  *

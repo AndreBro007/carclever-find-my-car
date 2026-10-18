@@ -2,7 +2,7 @@
  * Local VIN anatomy verification — ZERO API calls.
  *
  * Design doc §5: replaces the paid /vin/{vin} decode call that previously ran
- * once per shortlisted result (5 extra Auto.dev calls per search). VIN structure
+ * once per shortlisted result (5 extra provider calls per search). VIN structure
  * is an ISO 3779/3780 standard, so year, country, transcription validity, and
  * (often) manufacturer can be verified offline.
  *

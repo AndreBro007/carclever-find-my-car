@@ -1,6 +1,6 @@
 /**
  * Thin-result widening ladder — adapted from the proven design in
- * AUTODEV_V2_NLP_SEARCH_REDESIGN.md §5.4 (Sky redesign, approved July 26).
+ * the V2 search redesign document §5.4 (Sky redesign, approved July 26).
  *
  * HISTORY / WHY THIS WAS REWRITTEN (2026-08-16, SYS-20260816-008):
  * The original `searchWithLoosening()` was bypassed on Aug 13 per André's
@@ -110,7 +110,7 @@ export interface WidenOutcome {
    * exhausted (SYS-20260816-030 — real André-reported failure: the tool told
    * a user "widening would likely help" on a search where widening had
    * already run across every available dimension and genuinely found
-   * nothing, because Auto.dev's own inventory for that combination was
+   * nothing, because the provider's own inventory for that combination was
    * empty — the message contradicted what the tool itself had just done).
    */
   attemptedSteps: StepName[];
@@ -125,7 +125,7 @@ export interface WidenOutcome {
   stoppedEarly: boolean;
 }
 
-export type PriorityAxis = "best_for_budget" | "cheapest" | "lowest_mileage" | "newest" | "lower_risk";
+export type PriorityAxis = "best_for_budget" | "cheapest" | "lowest_mileage" | "newest";
 
 export interface WidenOptions {
   /** Injected so the caller keeps its own search strategy (lean vs full). */
@@ -165,7 +165,7 @@ export interface WidenOptions {
 // (protected) dimension gets a real shot: the 3 dimensions ahead of it can
 // cost up to 4 calls total (mileage alone can cost 2 — raise, then drop —
 // plus 1 each for the other two), then +1 more for the protected one = 5.
-const DEFAULT_MAX_CALLS = 10; // was 5 to bound paid Auto.dev calls; database steps are free
+const DEFAULT_MAX_CALLS = 10; // was 5 to bound paid provider calls; database steps are free
 
 export type StepName = "radius" | "mileage" | "year" | "price";
 
@@ -238,7 +238,7 @@ export async function widenSearchIfThin(
     if (count > best) {
       query = candidateQuery;
       data = retry.data;
-      // Preserve null (genuinely unknown, e.g. Auto.dev drops `total` under
+      // Preserve null (genuinely unknown, e.g. the provider drops `total` under
       // vehicle.doors) rather than coercing — matches count is used for the
       // widening decision itself (via `best`/`count` above), never `total`.
       total = retry.total;
