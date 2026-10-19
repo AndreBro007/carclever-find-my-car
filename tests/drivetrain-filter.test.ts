@@ -81,3 +81,18 @@ test("the card says the search did not complete when the data service failed, In
   assert.match(run({ results: [], meta: { scopeNote: "nationwide", serviceError: null } }), /No matching vehicles to show\./);
   assert.match(run({}), /No matching vehicles to show\./);
 });
+
+import { finalizeByDrive } from "../lib/drivetrain-filter";
+test("final check: a car now known to have the opposite drivetrain is removed, confirmed cars go first, silent cars follow in order", () => {
+  const w = wantedDriveClasses("AWD")!;
+  const cars = [{ v: "silent-high-score", d: null }, { v: "fwd-revealed-late", d: "FWD" }, { v: "confirmed-low-score", d: "AWD" }, { v: "silent-2", d: "" }, { v: "confirmed-2", d: "4WD" }];
+  const f = finalizeByDrive(cars, (x) => x.d, w);
+  assert.deepEqual(f.cards.map((x) => x.v), ["confirmed-low-score", "confirmed-2", "silent-high-score", "silent-2"]);
+  assert.equal(f.removed, 1);
+  assert.equal(f.allMismatch, false);
+});
+test("final check: if every car is a known mismatch the list is not emptied, the caller is told", () => {
+  const w = wantedDriveClasses("AWD")!;
+  const f = finalizeByDrive([{ d: "FWD" }, { d: "RWD" }], (x) => x.d, w);
+  assert.equal(f.cards.length, 2); assert.equal(f.removed, 0); assert.equal(f.allMismatch, true);
+});

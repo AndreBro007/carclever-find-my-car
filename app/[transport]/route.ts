@@ -8,7 +8,7 @@ import { notListedLinksText, titleCaseMake } from "@/lib/vin-not-listed";
 import { buildComparison, comparisonText, type CompareItem } from "@/lib/compare";
 import { closingExitLine, zeroResultsExitLine, sortByScoreThenDistance } from "@/lib/dead-end-links";
 import { attachNhtsaRatings } from "@/lib/nhtsa-ratings";
-import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, getTrimFacets } from "@/lib/listing-source";
+import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, getTrimFacets, lookupListingByVin } from "@/lib/listing-source";
 // Widening ladder re-enabled 2026-08-16 (SYS-20260816-008). It was bypassed on
 // Aug 13 per André's request — "search itself needs to work correctly before any
 // widening logic runs on top of it." That precondition is now met: the stage-2
@@ -19,8 +19,7 @@ import { widenSearchIfThin, type StepName } from "@/lib/loosening-ladder";
 import { isConfirmedOutsideRadius } from "@/lib/geo-verification";
 import { seatUnknownFootnote } from "@/lib/seat-note";
 import { rowByVin } from "@/lib/catalog-db/search";
-import { getCatalogPool } from "@/lib/catalog-db-source";
-import { buildTrackingUrl } from "@/lib/catalog-db/normalize";
+import { getCatalogPool, rowToListing, CATALOG_SERVICE_ERROR } from "@/lib/catalog-db-source";
 import { logSearchEvent } from "@/lib/search-log";
 import { verifyAgainstConstraints } from "@/lib/post-verify";
 import { parseIntent } from "@/lib/intent-parser";
@@ -40,8 +39,9 @@ import { FindMatchingVehicleInputCatalog } from "@/lib/find-matching-vehicle-inp
 import { fetchRecallStatus, clipRecallText, type RecallInfo } from "@/lib/nhtsa-recalls-client";
 import { nhtsaLinkField, nhtsaRecallCheckUrl, recallCheckFootnote, recallCheckLine, addRecallCheckStep, invalidVinMessage } from "@/lib/nhtsa-links";
 import { vinCheckDigitFails } from "@/lib/vin-anatomy";
-import { wantedDriveClasses, partitionByDrive, judgeDrive, drivetrainNote } from "@/lib/drivetrain-filter";
+import { wantedDriveClasses, partitionByDrive, judgeDrive, drivetrainNote, finalizeByDrive } from "@/lib/drivetrain-filter";
 import { isStrictAxis, strictAxisOrder } from "@/lib/explicit-axis-order";
+import zipcodes from "zipcodes";
 import { buildNoResultsAlternatives } from "@/lib/no-results-alternatives";
 import { broadBodyTypeHint, unappliedFilterNote, vehicleTypeNote } from "@/lib/broad-search-hint";
 import { normalizeToolArguments, invalidFieldsFromError, ignoredInputsNote, addNoteToMcpResponseText } from "@/lib/tool-input-normalizer";
@@ -867,10 +867,30 @@ const handler = createMcpHandler((server) => {
         }
 
 
-        const [fullListing, exactSearchRow] = await Promise.all([
-          getListingByVin(rawVin),
-          searchListingByVinExact(rawVin),
-        ]);
+        // One lookup (the two calls that used to be here read the same row twice). A failed lookup is a service problem, never "not listed".
+        const vinLookup = await lookupListingByVin(rawVin);
+        if (vinLookup.status === "error") {
+          return {
+            content: [{ type: "text" as const, text: `${CATALOG_SERVICE_ERROR} I could not check whether VIN ${rawVin} is listed, so this says nothing about our inventory. Please try again in a moment.` }],
+            structuredContent: {
+              meta: {
+                totalCandidatesConsidered: 0,
+                totalMatches: 0,
+                resultsShown: 0,
+                corpusSizeApprox: getCorpusCountForDescription(),
+                relaxations: [],
+                dataNotes: [],
+                scopeNote: "vin_lookup",
+                serviceError: CATALOG_SERVICE_ERROR,
+                interpretationNotes: [`Exact VIN lookup for ${rawVin} could not be completed (database did not answer).`],
+                qualifierAccounting: [],
+              },
+              results: [],
+            } satisfies FindMatchingVehicleOutput,
+          };
+        }
+        const fullListing = vinLookup.status === "found" ? vinLookup.listing : null;
+        const exactSearchRow = fullListing;
 
         if (!fullListing) {
           // A VIN that is not in the catalogue AND fails its check digit: say it is invalid (no guess about why) instead of "not listed".
@@ -1153,7 +1173,10 @@ const handler = createMcpHandler((server) => {
       const rawZip = intent.hardConstraints.location?.zip;
       const zipFormatValid = rawZip == null || /^\d{5}$/.test(rawZip);
       const zipNotAllSameDigit = rawZip == null || !/^(\d)\1{4}$/.test(rawZip);
-      const zipIsValid = zipFormatValid && zipNotAllSameDigit;
+      // Third check (review finding 5): the ZIP must exist in the same ZIP table the database search uses. A five-digit value that is not in it
+      // (for example 00123) made the database search nationwide while this route still called it local.
+      const zipKnown = rawZip == null || !(zipFormatValid && zipNotAllSameDigit) || zipcodes.lookup(rawZip) != null;
+      const zipIsValid = zipFormatValid && zipNotAllSameDigit && zipKnown;
 
       const baseQuery: ListingsQuery = {
         make: intent.hardConstraints.make,
@@ -2135,11 +2158,17 @@ const handler = createMcpHandler((server) => {
         cards.splice(0, cards.length, ...sorted);
       }
 
+      // Drivetrain request, last word: the shortlist stage may have read a drivetrain the first read missed. Cars now known to have a different
+      // one are removed, confirmed cars are listed first (the note below promises it), silent cars follow.
+      let driveLateRemoved = 0;
+      let driveAllMismatch = false;
+      { const dw = wantedDriveClasses(input.drivetrain); if (dw) { const fin = finalizeByDrive(cards, (c: any) => c.powertrain?.drivetrain, dw); driveLateRemoved = fin.removed; driveAllMismatch = fin.allMismatch; cards.splice(0, cards.length, ...fin.cards); } }
+
       const dataNotes: string[] = [];
       { const hint = broadBodyTypeHint(input); if (hint) dataNotes.push(hint); }
       { const note = unappliedFilterNote(input, cards); if (note) dataNotes.push(note); }
       { const vt = vehicleTypeNote(input); if (vt) dataNotes.push(vt); }
-      { const dw = wantedDriveClasses(input.drivetrain); if (dw) { const dn = drivetrainNote(String(input.drivetrain), cards.map((c: any) => c.powertrain?.drivetrain), dw, driveSplit?.excluded ?? 0); if (dn) dataNotes.push(dn); } }
+      { const dw = wantedDriveClasses(input.drivetrain); if (dw) { const dn = drivetrainNote(String(input.drivetrain), cards.map((c: any) => c.powertrain?.drivetrain), dw, (driveSplit?.excluded ?? 0) + driveLateRemoved); if (dn) dataNotes.push(dn); if (driveAllMismatch) dataNotes.push(`The VIN decode shows a different drivetrain than ${String(input.drivetrain)} for the cars listed here. Ask the dealer before relying on any of them.`); } }
       if (lowestMileageDefaultedToUsed) {
         dataNotes.push(
           "Showing used cars only, so the lowest mileage is a fair comparison. Ask for new cars if you want them.",
@@ -2399,7 +2428,8 @@ const handler = createMcpHandler((server) => {
                 );
                 const confirmedLine = confirmedItems.length > 0 ? `\n   Confirmed: ${confirmedItems.join(", ")}` : "";
                 const driveWanted = wantedDriveClasses(input.drivetrain);
-                const driveLine = driveWanted && judgeDrive(c.powertrain.drivetrain, driveWanted) === "unknown" ? "\n   Drivetrain not confirmed: ask the dealer." : "";
+                const driveJudged = driveWanted ? judgeDrive(c.powertrain.drivetrain, driveWanted) : null;
+                const driveLine = driveJudged === "unknown" ? "\n   Drivetrain not confirmed: ask the dealer." : driveJudged === "mismatch" ? `\n   Drivetrain: the VIN decode shows ${c.powertrain.drivetrain}, not the requested one.` : "";
                 const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
                 return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel}${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${driveLine}${conflictLine}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${linkStr}`;
               })
@@ -2463,9 +2493,11 @@ const handler = createMcpHandler((server) => {
             };
           }
 
-          const listing = await getListingByVin(rawVin);
+          const vinLookup = await lookupListingByVin(rawVin);
+          const listing = vinLookup.status === "found" ? vinLookup.listing : null;
+          const inventoryLookupFailed = vinLookup.status === "error"; // review finding 7: a failed lookup is not "not listed"
           if (!listing) {
-            if (vinCheckDigitFails(rawVin)) {
+            if (!inventoryLookupFailed && vinCheckDigitFails(rawVin)) {
               return { content: [{ type: "text" as const, text: invalidVinMessage(rawVin) }] }; // not in the catalogue and the check digit fails: a typo, no card
             }
             // V3.3 standalone VIN, no listing found: still decode the VIN
@@ -2496,7 +2528,8 @@ const handler = createMcpHandler((server) => {
                 ? `${formatVehicleTitle({ year: recallYear, make: recallMakeDisplay, model: recallModel, trim: identityCard.identity.trim })} — VIN ${rawVin}`
                 : `VIN ${rawVin} — decode unavailable, identity below is unconfirmed.`,
             );
-            lines.push("No listing found for this VIN in current inventory — this is an honest \"not currently listed here\" result, not a claim the vehicle doesn't exist.");
+            if (inventoryLookupFailed) lines.push(`${CATALOG_SERVICE_ERROR} I could not check whether this VIN is listed, so nothing here says anything about our inventory. Please try again in a moment.`);
+            else lines.push("No listing found for this VIN in current inventory — this is an honest \"not currently listed here\" result, not a claim the vehicle doesn't exist.");
             lines.push(standaloneRecall ? standaloneRecall.label : "Recalls: Data unavailable"); // the labels already start with "Recalls:"
             if (standaloneRecall && standaloneRecall.campaigns.length > 0) {
               lines.push(
@@ -2509,7 +2542,7 @@ const handler = createMcpHandler((server) => {
               lines.push(`NHTSA source: ${standaloneRecall.nhtsaSourceUrl}`);
             }
             if (nhtsaRecallCheckUrl(rawVin)) lines.push(`Open recalls on this exact VIN: check it with NHTSA's free lookup, ${nhtsaRecallCheckUrl(rawVin)}. ${"NHTSA's lookup covers participating manufacturers and does not show recalls that were already repaired"}.`);
-            lines.push("No Buyer Check available — that requires a listing to verify against, and none exists for this VIN here.");
+            if (!inventoryLookupFailed) lines.push("No Buyer Check available — that requires a listing to verify against, and none exists for this VIN here.");
             if ((identityCard as any).links?.affiliateFallbackUrl) lines.push(`Similar used vehicles on Edmunds: ${(identityCard as any).links.affiliateFallbackUrl}`);
 
             const standaloneVinResults = shapeCardsForSource([identityCard]);
@@ -2522,10 +2555,10 @@ const handler = createMcpHandler((server) => {
                   resultsShown: standaloneVinResults.length,
                   corpusSizeApprox: getCorpusCountForDescription(),
                   relaxations: [],
-                  dataNotes: ["No listing found for this VIN — identity/action card only, no listing data available."],
+                  dataNotes: [inventoryLookupFailed ? "The listings database did not answer, so whether this VIN is listed could not be checked — identity/action card only." : "No listing found for this VIN — identity/action card only, no listing data available."],
                   scopeNote: "vin_lookup",
-                  serviceError: null,
-                  interpretationNotes: [`check_vehicle standalone lookup for VIN ${rawVin} — no listing found; identity from NHTSA decode only.`],
+                  serviceError: inventoryLookupFailed ? CATALOG_SERVICE_ERROR : null,
+                  interpretationNotes: [inventoryLookupFailed ? `check_vehicle standalone lookup for VIN ${rawVin} — the listings database did not answer; identity from NHTSA decode only.` : `check_vehicle standalone lookup for VIN ${rawVin} — no listing found; identity from NHTSA decode only.`],
                   qualifierAccounting: [],
                 },
                 results: standaloneVinResults,
@@ -2770,7 +2803,10 @@ const handler = createMcpHandler((server) => {
         const bad = wanted.filter((v) => !/^[A-HJ-NPR-Z0-9]{17}$/.test(v));
         if (bad.length > 0) return plain(`These do not look like valid 17-character VINs (VINs never contain the letters I, O, or Q): ${bad.join(", ")} — double-check them and try again.`);
 
-        const fetched = await Promise.all(wanted.map((v) => getListingByVin(v)));
+        const lookups = await Promise.all(wanted.map((v) => lookupListingByVin(v)));
+        // Review finding 7: if any lookup failed, say so; do not report those VINs as "not in this inventory".
+        if (lookups.some((l) => l.status === "error")) return plain(`${CATALOG_SERVICE_ERROR} I could not look these vehicles up just now, so nothing here says whether they are listed. Please try again in a moment.`);
+        const fetched = lookups.map((l) => (l.status === "found" ? l.listing : null));
         const found = fetched.filter((l): l is NonNullable<typeof l> => !!l);
         const notFound = wanted.filter((_, i) => !fetched[i]);
         if (found.length < 2) {
@@ -2856,11 +2892,12 @@ const handler = createMcpHandler((server) => {
       // either way now, since dealerListingUrl is never routed to as the
       // resolved link regardless of Carvana status (see primary below).
       // Database mode: the same listing link as the card, so one car has one tracked link everywhere.
+      // Review finding 6: a VIN the catalogue lists resolves from the STORED vehicle (make, model, year) and the stored tracking link (including
+      // a feed-supplied exceptional link), exactly as the card does, never from what the caller typed. Only a VIN the catalogue does not list
+      // (or a lookup that failed) falls back to the caller's make, model and year.
       const catalogRow = vin ? await rowByVin(getCatalogPool(), vin).catch(() => null) : null;
-      const catalogTracking = catalogRow
-        ? buildTrackingUrl({ id: String((catalogRow as { id?: unknown }).id), vin, year: Number(year), make: String(make), model: String(model) })
-        : undefined;
-      const links = resolveLinks({ vin, vehicle: { make, model, year }, ...(catalogTracking ? { catalog: { trackingUrl: catalogTracking } } : {}) } as unknown as VehicleListing);
+      const storedListing = catalogRow ? rowToListing(catalogRow as never) : null;
+      const links = resolveLinks(storedListing ?? ({ vin, vehicle: { make, model, year } } as unknown as VehicleListing));
 
       if (links.linkStatus === "none-available") {
         return {

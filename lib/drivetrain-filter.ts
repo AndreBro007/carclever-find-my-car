@@ -61,3 +61,22 @@ export function drivetrainNote(requested: string, shown: Array<string | null | u
   if (confirmed === 0) return `Drivetrain ${requested} could not be confirmed on any of these.${left} Ask the dealer to confirm the drivetrain.`;
   return `Drivetrain ${requested}: confirmed on ${confirmed} of ${n} shown (listed first); the others are marked not confirmed.${left} Ask the dealer to confirm.`;
 }
+
+/**
+ * Last step before the reply (review finding 3): the VIN decode read at the shortlist stage can show a drivetrain the first read
+ * missed. Cars now known to have a different drivetrain are removed, confirmed cars go first, silent cars follow (stable order).
+ * If removal would leave nothing, the list is returned unchanged with `allMismatch` set so the reply can say so instead of going empty.
+ */
+export function finalizeByDrive<T>(cards: T[], driveOf: (t: T) => string | null | undefined, wanted: Set<WantedDrive>): { cards: T[]; removed: number; allMismatch: boolean } {
+  const confirmed: T[] = [];
+  const unknown: T[] = [];
+  let removed = 0;
+  for (const c of cards) {
+    const j = judgeDrive(driveOf(c), wanted);
+    if (j === "match") confirmed.push(c);
+    else if (j === "unknown") unknown.push(c);
+    else removed++;
+  }
+  if (confirmed.length + unknown.length === 0 && removed > 0) return { cards, removed: 0, allMismatch: true };
+  return { cards: [...confirmed, ...unknown], removed, allMismatch: false };
+}

@@ -745,12 +745,13 @@ test("D7b. every meta object literal in route.ts sets resultsShown from the same
   // Eighth site (V3, compare_vehicles success path, Oct 14 2026): its meta takes
   // resultsShown from the same compareResults array it returns as results.
   const resultsShownMatches = routeSource.match(/resultsShown:\s*[^,]+,/g) ?? [];
-  assert.equal(resultsShownMatches.length, 9, `expected exactly 9 resultsShown assignments, found ${resultsShownMatches.length} — every meta object must set it`);
+  // Tenth site (19 Oct 2026, review finding 7): find_matching_vehicle's exact-VIN lookup-failed reply (service error, empty results), literal 0.
+  assert.equal(resultsShownMatches.length, 10, `expected exactly 10 resultsShown assignments, found ${resultsShownMatches.length} — every meta object must set it`);
 
   // The three empty-result error paths must use the literal 0, not a variable
   // that could silently drift from the actual (empty) results array.
   const zeroAssignments = routeSource.match(/resultsShown:\s*0,/g) ?? [];
-  assert.equal(zeroAssignments.length, 3, "all three find_matching_vehicle VIN-error paths (invalid format, invalid check digit, not found) must set resultsShown: 0 to match their empty results: [] arrays");
+  assert.equal(zeroAssignments.length, 4, "all four find_matching_vehicle VIN-error paths (invalid format, invalid check digit, not found, lookup failed) must set resultsShown: 0 to match their empty results: [] arrays");
 
   // The five success paths (find_matching_vehicle VIN-success and normal-
   // search, plus check_vehicle's VIN-success, VIN-not-found, and no-VIN

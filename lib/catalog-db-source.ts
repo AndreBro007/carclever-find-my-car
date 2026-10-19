@@ -78,7 +78,8 @@ function modelsFor(q: ListingsQuery): string[] | null {
   return null;
 }
 
-const SERVICE_ERROR = "Our car database is on a coffee break.";
+export const CATALOG_SERVICE_ERROR = "Our car database is on a coffee break.";
+const SERVICE_ERROR = CATALOG_SERVICE_ERROR;
 
 export async function searchCatalogDbListings(q: ListingsQuery): Promise<ListingsResponse> {
   if (!catalogDbConfigured() && !pool) return { data: [], total: 0, source: "catalog_db", error: SERVICE_ERROR };
@@ -90,14 +91,22 @@ export async function searchCatalogDbListings(q: ListingsQuery): Promise<Listing
   }
 }
 
-export async function getCatalogDbListing(vin: string): Promise<VehicleListing | null> {
-  if (!catalogDbConfigured() && !pool) return null;
+/** Review finding 7: "no such VIN" and "the lookup failed" are different answers and must never be mixed up. */
+export type VinLookup = { status: "found"; listing: VehicleListing } | { status: "absent" } | { status: "error" };
+
+export async function lookupCatalogDbVin(vin: string): Promise<VinLookup> {
+  if (!catalogDbConfigured() && !pool) return { status: "error" };
   try {
     const row = await rowByVin(getPool() as unknown as Queryable, vin);
-    return row ? rowToListing(row) : null;
+    return row ? { status: "found", listing: rowToListing(row) } : { status: "absent" };
   } catch {
-    return null;
+    return { status: "error" };
   }
+}
+
+export async function getCatalogDbListing(vin: string): Promise<VehicleListing | null> {
+  const r = await lookupCatalogDbVin(vin);
+  return r.status === "found" ? r.listing : null;
 }
 
 export async function catalogDbModelFacets(q: ListingsQuery): Promise<Array<{ value: string; count: number }>> {
