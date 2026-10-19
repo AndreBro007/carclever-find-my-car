@@ -49,9 +49,10 @@ test("partition keeps order, puts confirmed and silent cars in separate groups a
 test("the search-level line says what is and is not confirmed", () => {
   const w = wantedDriveClasses("AWD")!;
   assert.match(drivetrainNote("AWD", ["AWD", "4WD"], w, 0)!, /confirmed by the VIN decode on all 2 shown/);
-  assert.match(drivetrainNote("AWD", ["AWD", null, null], w, 3)!, /confirmed on 1 of 3 shown \(listed first\).*not confirmed.*different drivetrain were left out.*Ask the dealer/);
+  assert.match(drivetrainNote("AWD", ["AWD", null, null], w, 3)!, /confirmed on 1 of 3 shown \(listed first\); the others are marked not confirmed.*different drivetrain were left out.*Ask the dealer/);
   const none = drivetrainNote("AWD", [null, ""], w, 0)!;
-  assert.match(none, /could not be confirmed on any of these: the VIN decode has no drivetrain for them/);
+  assert.match(none, /could not be confirmed on any of these\./);
+  assert.ok(!/VIN decode has no drivetrain/.test(none)); // no claim about why
   assert.ok(!/filtered/.test(none));
   assert.equal(drivetrainNote("AWD", [], w, 0), null);
 });

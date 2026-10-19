@@ -214,23 +214,34 @@ function buildSeatsSummary(
 
 /**
  * Drivetrain request (database mode), see lib/drivetrain-filter.ts: the VIN decode (NHTSA, cached) is read for the first
- * DRIVE_DECODE_POOL_SIZE candidates. The caller passes them in RANKED order, so the cars the buyer would be shown are the ones that get read. Cars decoded with a different drivetrain are left out; cars the decode confirms and cars
+ * DRIVE_DECODE_POOL_SIZE candidates (a second batch if too few are confirmed). The caller passes them in RANKED order, so the cars the buyer would be shown are the ones that get read. Cars decoded with a different drivetrain are left out; cars the decode confirms and cars
  * it is silent about are returned as two groups so the caller can list the confirmed ones first.
  * Returns null when the request has no recognised drivetrain (nothing is applied).
  */
 const DRIVE_DECODE_POOL_SIZE = 90; // read in parallel (cached per server instance); measured about 15 to 25 VINs a second cold, maxDuration is 60 s
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function splitByDrivetrain(candidates: any[], wantedRaw: string | undefined): Promise<{ confirmed: any[]; unknown: any[]; excluded: number } | null> {
+async function splitByDrivetrain(candidates: any[], wantedRaw: string | undefined, wantCount: number): Promise<{ confirmed: any[]; unknown: any[]; excluded: number } | null> {
   const wanted = wantedDriveClasses(wantedRaw);
   if (!wanted) return null;
-  const pool = candidates.slice(0, DRIVE_DECODE_POOL_SIZE);
-  const rest = candidates.slice(DRIVE_DECODE_POOL_SIZE);
-  const decoded = await Promise.all(
-    pool.map((c) => decodeNhtsaElectrification(c.vin, c.vehicle?.make, c.vehicle?.model, c.vehicle?.cylinders)),
-  );
-  const p = partitionByDrive(pool.map((c, i) => ({ c, d: decoded[i]?.driveType })), (x) => x.d, wanted);
-  return { confirmed: p.confirmed.map((x) => x.c), unknown: [...p.unknown.map((x) => x.c), ...rest], excluded: p.excluded };
+  const confirmed: any[] = [];
+  const unknown: any[] = [];
+  let excluded = 0;
+  let offset = 0;
+  // Up to two batches: a second one is read only when the first confirmed fewer cars than the shortlist needs.
+  for (let round = 0; round < 2 && offset < candidates.length; round++) {
+    const chunk = candidates.slice(offset, offset + DRIVE_DECODE_POOL_SIZE);
+    offset += chunk.length;
+    const decoded = await Promise.all(
+      chunk.map((c) => decodeNhtsaElectrification(c.vin, c.vehicle?.make, c.vehicle?.model, c.vehicle?.cylinders)),
+    );
+    const p = partitionByDrive(chunk.map((c, i) => ({ c, d: decoded[i]?.driveType })), (x) => x.d, wanted);
+    confirmed.push(...p.confirmed.map((x) => x.c));
+    unknown.push(...p.unknown.map((x) => x.c));
+    excluded += p.excluded;
+    if (confirmed.length >= wantCount) break;
+  }
+  return { confirmed, unknown: [...unknown, ...candidates.slice(offset)], excluded };
 }
 
 function resolveSort(
@@ -1664,7 +1675,7 @@ const handler = createMcpHandler((server) => {
             input.priceMax,
           )
         : electrificationResult.candidates;
-      const driveSplit = await splitByDrivetrain(driveRanked, input.drivetrain);
+      const driveSplit = await splitByDrivetrain(driveRanked, input.drivetrain, targetCount);
       const driveConfirmedVins = new Set<string>((driveSplit?.confirmed ?? []).map((c) => c.vin));
       // Confirmed cars always enter the ordering; cars the VIN decode is silent about only fill the rest of the shortlist pool.
       const electrificationFilteredCandidates = driveSplit

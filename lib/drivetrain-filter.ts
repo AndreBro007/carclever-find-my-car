@@ -58,6 +58,6 @@ export function drivetrainNote(requested: string, shown: Array<string | null | u
   const confirmed = shown.filter((d) => judgeDrive(d, wanted) === "match").length;
   const left = excluded > 0 ? " Cars the VIN decode shows with a different drivetrain were left out." : "";
   if (confirmed === n) return `Drivetrain ${requested}: confirmed by the VIN decode on all ${n} shown.${left}`;
-  if (confirmed === 0) return `Drivetrain ${requested} could not be confirmed on any of these: the VIN decode has no drivetrain for them.${left} Ask the dealer to confirm the drivetrain.`;
-  return `Drivetrain ${requested}: confirmed on ${confirmed} of ${n} shown (listed first); for the others the VIN decode has no drivetrain, so they are marked not confirmed.${left} Ask the dealer to confirm.`;
+  if (confirmed === 0) return `Drivetrain ${requested} could not be confirmed on any of these.${left} Ask the dealer to confirm the drivetrain.`;
+  return `Drivetrain ${requested}: confirmed on ${confirmed} of ${n} shown (listed first); the others are marked not confirmed.${left} Ask the dealer to confirm.`;
 }
