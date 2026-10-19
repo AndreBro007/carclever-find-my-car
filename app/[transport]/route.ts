@@ -214,16 +214,18 @@ function buildSeatsSummary(
 
 /**
  * Drivetrain request (database mode), see lib/drivetrain-filter.ts: the VIN decode (NHTSA, cached) is read for the first
- * ELECTRIFICATION_POOL_SIZE candidates. Cars decoded with a different drivetrain are left out; cars the decode confirms and cars
+ * DRIVE_DECODE_POOL_SIZE candidates. The caller passes them in RANKED order, so the cars the buyer would be shown are the ones that get read. Cars decoded with a different drivetrain are left out; cars the decode confirms and cars
  * it is silent about are returned as two groups so the caller can list the confirmed ones first.
  * Returns null when the request has no recognised drivetrain (nothing is applied).
  */
+const DRIVE_DECODE_POOL_SIZE = 90; // read in parallel (cached per server instance); measured about 15 to 25 VINs a second cold, maxDuration is 60 s
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function splitByDrivetrain(candidates: any[], wantedRaw: string | undefined): Promise<{ confirmed: any[]; unknown: any[]; excluded: number } | null> {
   const wanted = wantedDriveClasses(wantedRaw);
   if (!wanted) return null;
-  const pool = candidates.slice(0, ELECTRIFICATION_POOL_SIZE);
-  const rest = candidates.slice(ELECTRIFICATION_POOL_SIZE);
+  const pool = candidates.slice(0, DRIVE_DECODE_POOL_SIZE);
+  const rest = candidates.slice(DRIVE_DECODE_POOL_SIZE);
   const decoded = await Promise.all(
     pool.map((c) => decodeNhtsaElectrification(c.vin, c.vehicle?.make, c.vehicle?.model, c.vehicle?.cylinders)),
   );
@@ -1653,7 +1655,16 @@ const handler = createMcpHandler((server) => {
             shortfall: null as { requested: number; confirmed: number } | null,
             matchedVins: null as Set<string> | null,
           };
-      const driveSplit = await splitByDrivetrain(electrificationResult.candidates, input.drivetrain);
+      // Rank first (same function the ordering below uses), so the VIN decode is read for the cars that would be shown, not for the first rows of the search.
+      const driveRanked = input.drivetrain && (input.priorityAxis === "best_for_budget" || input.priorityAxis == null)
+        ? applyLocalBestForBudgetOrdering(
+            electrificationResult.candidates,
+            intent.semantic.trimPreference,
+            electrificationResult.matchedVins ? (c: VehicleListing) => electrificationResult.matchedVins!.has(c.vin) : undefined,
+            input.priceMax,
+          )
+        : electrificationResult.candidates;
+      const driveSplit = await splitByDrivetrain(driveRanked, input.drivetrain);
       const driveConfirmedVins = new Set<string>((driveSplit?.confirmed ?? []).map((c) => c.vin));
       // Confirmed cars always enter the ordering; cars the VIN decode is silent about only fill the rest of the shortlist pool.
       const electrificationFilteredCandidates = driveSplit
