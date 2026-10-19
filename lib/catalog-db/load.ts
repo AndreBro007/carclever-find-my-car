@@ -96,6 +96,9 @@ export async function loadFeed(pool: Pool, lines: AsyncIterable<string>, opts: L
         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, street = EXCLUDED.street, city = EXCLUDED.city,
           state = EXCLUDED.state, zip = EXCLUDED.zip, lat = EXCLUDED.lat, lon = EXCLUDED.lon`);
       const cols = "id, vin, year, make, make_key, model, model_key, trim, condition, price, odometer, body_raw, body_class, doors, ext_color, int_color, dealer_id, state, zip, lat, lon, image_url, link_override";
+      // Change test (review finding 1): every column the app reads must be in this tuple, or a corrected colour, door count, VIN or
+      // location is skipped as "unchanged". make_key and model_key follow make and model, which are already watched. Rows with no real
+      // change are still left alone (no rewrite just to touch loaded_at).
       const up = await client.query(`
         WITH up AS (
           INSERT INTO listing (${cols}, first_seen)
@@ -108,8 +111,8 @@ export async function loadFeed(pool: Pool, lines: AsyncIterable<string>, opts: L
             link_override = EXCLUDED.link_override, loaded_at = now(),
             price_prev = CASE WHEN listing.price IS NOT NULL AND EXCLUDED.price IS NOT NULL AND listing.price <> EXCLUDED.price THEN listing.price ELSE listing.price_prev END,
             price_changed_at = CASE WHEN listing.price IS NOT NULL AND EXCLUDED.price IS NOT NULL AND listing.price <> EXCLUDED.price THEN current_date ELSE listing.price_changed_at END
-          WHERE (listing.price, listing.odometer, listing.condition, listing.image_url, listing.link_override, listing.dealer_id, listing.body_class, listing.trim, listing.make, listing.model, listing.year)
-                IS DISTINCT FROM (EXCLUDED.price, EXCLUDED.odometer, EXCLUDED.condition, EXCLUDED.image_url, EXCLUDED.link_override, EXCLUDED.dealer_id, EXCLUDED.body_class, EXCLUDED.trim, EXCLUDED.make, EXCLUDED.model, EXCLUDED.year)
+          WHERE (listing.price, listing.odometer, listing.condition, listing.image_url, listing.link_override, listing.dealer_id, listing.body_class, listing.trim, listing.make, listing.model, listing.year, listing.vin, listing.body_raw, listing.doors, listing.ext_color, listing.int_color, listing.state, listing.zip, listing.lat, listing.lon)
+                IS DISTINCT FROM (EXCLUDED.price, EXCLUDED.odometer, EXCLUDED.condition, EXCLUDED.image_url, EXCLUDED.link_override, EXCLUDED.dealer_id, EXCLUDED.body_class, EXCLUDED.trim, EXCLUDED.make, EXCLUDED.model, EXCLUDED.year, EXCLUDED.vin, EXCLUDED.body_raw, EXCLUDED.doors, EXCLUDED.ext_color, EXCLUDED.int_color, EXCLUDED.state, EXCLUDED.zip, EXCLUDED.lat, EXCLUDED.lon)
           RETURNING (xmax = 0) AS inserted)
         SELECT count(*) FILTER (WHERE inserted)::int AS ins, count(*) FILTER (WHERE NOT inserted)::int AS upd FROM up`);
       report.inserted = up.rows[0].ins; report.updated = up.rows[0].upd;

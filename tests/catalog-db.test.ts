@@ -52,7 +52,8 @@ const CARS: Car[] = [
 ];
 // one row whose tracking link does not follow the standard rule
 const OVERRIDE_LINK = "https://edmunds.sjv.io/c/7765200/3913681/52125?prodsku=ovr&u=https%3A%2F%2Fwww.edmunds.com%2Fspecial%2Fpage&intsrc=CATF_34070";
-const OVERRIDE_CAR: Car = { id: "override0000000000000000000000ab", year: 2023, make: "Honda", model: "Accord", cond: "used", price: 27000, odo: 20000, body: "Sedan", dealer: 1, link: OVERRIDE_LINK };
+// Fixed VIN: the same listing keeps its VIN from one day to the next (a changed VIN on an existing id is now a real change the loader applies, review finding 1).
+const OVERRIDE_CAR: Car = { id: "override0000000000000000000000ab", vin: "2HGFC2F59NH000099", year: 2023, make: "Honda", model: "Accord", cond: "used", price: 27000, odo: 20000, body: "Sedan", dealer: 1, link: OVERRIDE_LINK };
 const BAD_VIN = feedLine({ year: 2020, make: "Honda", model: "Fit", cond: "used", price: 10000, body: "Hatchback", dealer: 1, vin: "SHORT" });
 const NO_MAKE = feedLine({ year: 2020, make: "", model: "X", cond: "used", price: 10000, body: "Sedan", dealer: 1 });
 const SOLD = feedLine({ year: 2020, make: "Honda", model: "Pilot", cond: "used", price: 30000, body: "SUV", dealer: 1, availability: "OutOfStock" });
