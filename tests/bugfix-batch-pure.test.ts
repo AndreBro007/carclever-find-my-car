@@ -94,7 +94,7 @@ test("several trims may be required: any one may match; an exact word is still e
 });
 
 test("with a price ceiling the candidate pool takes cars in the top quarter of the budget first; without one nothing changes", () => {
-  assert.equal(localSortFor(undefined, 40000), "(x.price >= 30000) DESC, ");
+  assert.equal(localSortFor(undefined, 40000), "(x.price >= 30000) DESC, x.year DESC NULLS LAST, x.odometer ASC NULLS LAST, ");
   assert.equal(localSortFor(undefined, undefined), "");
   assert.equal(localSortFor("price.asc", 40000), "(x.odometer IS NULL) ASC, x.price ASC NULLS LAST, ");
 });

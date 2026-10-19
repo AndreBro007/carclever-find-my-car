@@ -164,7 +164,7 @@ test("no results: none in the asked condition, so the same model in the other co
 test("no results because of the trim: the alternatives say so, and are never called over budget when they are not", opts, async () => {
   const txt = textOf(await call(28, { make: "Honda", model: "Civic", trimRequired: "Type R", priceMax: 90000, zip: "90210" }));
   assert.match(txt, /No vehicles matched Honda Civic Type R at up to \$90,000/);
-  assert.match(txt, /None is the Type R trim you asked for:/);
+  assert.match(txt, /None has the exact trim name "Type R":/);
   assert.ok(!/over your budget/.test(txt), "all of them cost less than the limit");
   assert.match(txt, /on Edmunds \(all trims, not filtered to Type R; enter your ZIP there for local results\)/);
 });
@@ -221,4 +221,23 @@ test("vehicle type: the reply says it was used only as a body style", opts, asyn
   assert.match(a, /Vehicle type "Midsize SUV" was not applied as a separate filter/);
   const b = textOf(await call(38, { vehicleType: "Hatchback" }));
   assert.match(b, /Vehicle type "Hatchback" was used only as body style hatchback/);
+});
+
+test("the link tool is listed under its new name only; the old name still works as a hidden alias", opts, async () => {
+  const list = await rpc({ jsonrpc: "2.0", id: 40, method: "tools/list" });
+  const names = (list.result.tools as Array<{ name: string }>).map((t) => t.name);
+  assert.ok(names.includes("get_edmunds_vehicle_link"), `listed: ${names.join(", ")}`);
+  assert.ok(!names.includes("resolve_dealer_url"), "the old name must not be listed");
+  const args = { vin: vinFor(1), make: "Honda", model: "Civic", year: 2022 };
+  for (const [id, name] of [[41, "get_edmunds_vehicle_link"], [42, "resolve_dealer_url"]] as Array<[number, string]>) {
+    const out = await callTool(id, name, args);
+    assert.notEqual(out.result.isError, true, `${name} must work`);
+    assert.match(textOf(out), /https:\/\/edmunds\.sjv\.io\//, `${name} returns a link`);
+  }
+});
+
+test("the 'search wider' offer never uses the word nationwide (Lite reads it as the search scope)", opts, async () => {
+  const txt = textOf(await call(43, { make: "Honda", model: "Civic", zip: "90210", radiusMiles: 100 }));
+  assert.match(txt, /Want me to search wider\? Ask for the whole state or the whole country/);
+  assert.ok(!/nationwide/i.test(txt));
 });

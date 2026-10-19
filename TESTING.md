@@ -1,3 +1,5 @@
+> Note (19 Oct 2026): the tool `resolve_dealer_url` mentioned in the history below was renamed `get_edmunds_vehicle_link`; the old name still works as a hidden alias. The history is left as written.
+
 > ## ⚠️ VERSION TERMINOLOGY — canonical, effective Sep 6, 2026, updated Sep 7, 2026 (read before touching any version-labeled content)
 >
 > **V1** — the submitted/production app.

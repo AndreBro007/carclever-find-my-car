@@ -71,7 +71,7 @@ Results include current matching listings, viewing links where available, and av
 
 This tool is for vehicle-listing searches — not general automotive education, maintenance, financing, leasing, unsupported categories, or comparisons not requiring current listings. Report only what this reply says: do not add claims from memory about what a manufacturer sells or has sold, model availability, or specifications.`;
 
-const ResolveDealerUrlOutput = z.object({
+const VehicleLinkOutput = z.object({
   affiliateUrl: z.string().nullable(),
   affiliateFallbackUrl: z.string().nullable(),
   dealerListingUrl: z.string().nullable(),
@@ -512,7 +512,7 @@ async function buildResultCard(
       linkStatus: links.linkStatus,
       ...nhtsaLinkField(listing.vin, rl?.used === true), // database app, used cars only: NHTSA's free VIN recall lookup (plain link)
       // Added 2026-09-03 (SYS-20260903-006) — was missing here the same way
-      // it was briefly missing from ResolveDealerUrlOutput (SYS-20260903-005);
+      // it was briefly missing from VehicleLinkOutput (SYS-20260903-005);
       // this is the OTHER place LinkResolution gets narrowed to a card-local
       // shape. Kept even though find_matching_vehicle always redacts the
       // URLs themselves — "none/unconfirmed" is still useful diagnostic
@@ -2298,7 +2298,7 @@ const handler = createMcpHandler((server) => {
       const thinAreaRadius = input.radiusMiles ?? 50;
       const thinAreaOffer =
         input.zip && cards.length > 0 && cards.length < SHORTLIST_SIZE
-          ? `Only ${cards.length} within ${thinAreaRadius} miles of ${input.zip}. Want me to search wider? Ask for ${thinAreaRadius < 100 ? "100 miles" : "the whole state or nationwide"} and I'll look again.\n\n`
+          ? `Only ${cards.length} within ${thinAreaRadius} miles of ${input.zip}. Want me to search wider? Ask for ${thinAreaRadius < 100 ? "100 miles" : "the whole state or the whole country"} and I'll look again.\n\n`
           : "";
 
       const summary =
@@ -2788,7 +2788,7 @@ const handler = createMcpHandler((server) => {
 
 
   server.registerTool(
-    "resolve_dealer_url",
+    "get_edmunds_vehicle_link",
     {
       title: "Get Edmunds Link for a Vehicle",
       description: "Resolves a usable link for viewing or purchasing a specific vehicle, given its VIN, make, model, and year. Returns the Edmunds VIN-specific link to the vehicle's current listing; otherwise a similar-vehicles link for the same make and model. Never returns the dealer's own listing URL.",
@@ -2798,7 +2798,7 @@ const handler = createMcpHandler((server) => {
         model: z.string().describe("Vehicle model name, e.g. Camry."),
         year: z.number().describe("Model year."),
       },
-      outputSchema: ResolveDealerUrlOutput,
+      outputSchema: VehicleLinkOutput,
       annotations: { title: "Get Edmunds Link for a Vehicle", readOnlyHint: true, openWorldHint: true, destructiveHint: false },
     },
     async ({ vin, make, model, year }) => {
@@ -2882,4 +2882,23 @@ const handler = createMcpHandler((server) => {
   },
 });
 
-export { handler as GET, handler as POST, handler as DELETE };
+// The tool was renamed from resolve_dealer_url to get_edmunds_vehicle_link (19 Oct 2026). Callers that still use the old name
+// (an older cached tool list, an older Lite) keep working: a tools/call for the old name is quietly pointed at the new tool.
+// The old name is NOT listed in tools/list, so reviewers and AI clients only ever see the new name.
+const OLD_LINK_TOOL = "resolve_dealer_url";
+const NEW_LINK_TOOL = "get_edmunds_vehicle_link";
+async function POST(req: Request): Promise<Response> {
+  try {
+    const raw = await req.clone().text();
+    if (raw.includes(OLD_LINK_TOOL)) {
+      const body = JSON.parse(raw);
+      const fix = (m: any) => { if (m && m.method === "tools/call" && m.params && m.params.name === OLD_LINK_TOOL) m.params.name = NEW_LINK_TOOL; return m; };
+      const patched = Array.isArray(body) ? body.map(fix) : fix(body);
+      return handler(new Request(req.url, { method: "POST", headers: req.headers, body: JSON.stringify(patched) }));
+    }
+  } catch {
+    /* not JSON or not ours to rewrite: pass it on untouched */
+  }
+  return handler(req);
+}
+export { handler as GET, POST, handler as DELETE };

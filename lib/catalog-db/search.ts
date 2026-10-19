@@ -112,7 +112,7 @@ export function localSortFor(sort: string | undefined, priceCap?: number | null)
     case "price.asc": return "(x.odometer IS NULL) ASC, x.price ASC NULLS LAST, ";
     case "mileage.asc": case "miles.asc": return "x.odometer ASC NULLS LAST, ";
     case "year.desc": return "x.year DESC NULLS LAST, ";
-    default: return priceCap != null && Number.isFinite(priceCap) && priceCap > 0 ? `(x.price >= ${Math.floor(priceCap * 0.75)}) DESC, ` : ""; // with a ceiling, cars in the top quarter of the budget enter the candidate pool first (nearest first), so cheap nearby cars cannot crowd them out
+    default: return priceCap != null && Number.isFinite(priceCap) && priceCap > 0 ? `(x.price >= ${Math.floor(priceCap * 0.75)}) DESC, x.year DESC NULLS LAST, x.odometer ASC NULLS LAST, ` : ""; // with a ceiling, cars in the top quarter of the budget enter the candidate pool first, newest and lowest mileage first, so cheap nearby cars cannot crowd them out (everything is already inside the asked radius)
   }
 }
 

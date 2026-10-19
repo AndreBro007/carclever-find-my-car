@@ -71,7 +71,7 @@ export async function buildNoResultsAlternatives(query: ListingsQuery, search: A
       if (shown.length) {
         // Say WHY nothing matched: only call them "over budget" when every one really is; otherwise it is the trim or the electric/hybrid requirement.
         const over = query.priceMax != null && shown.every((l) => (l.retailListing?.price as number) > (query.priceMax as number));
-        const why = over ? ` These are over your budget:` : opts.trim ? ` None is the ${opts.trim} trim you asked for:` : opts.unmet ? ` None is confirmed ${opts.unmet}:` : "";
+        const why = over ? ` These are over your budget:` : opts.trim ? ` None has the exact trim name "${opts.trim}":` : opts.unmet ? ` None is confirmed ${opts.unmet}:` : "";
         return trimList + `\n\nClosest ${condition}${make} ${model} options ${a.scope}, lowest price first.${why}\n` + items(a.rows, false) + (over ? `\n(Shown for comparison only: they are above your price limit.)` : "");
       }
       // 2. None in that condition at all: the same model in the other condition.
