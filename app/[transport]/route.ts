@@ -41,6 +41,7 @@ import { fetchRecallStatus, clipRecallText, type RecallInfo } from "@/lib/nhtsa-
 import { nhtsaLinkField, nhtsaRecallCheckUrl, recallCheckFootnote, recallCheckLine, addRecallCheckStep, invalidVinMessage } from "@/lib/nhtsa-links";
 import { vinCheckDigitFails } from "@/lib/vin-anatomy";
 import { wantedDriveClasses, partitionByDrive, judgeDrive, drivetrainNote } from "@/lib/drivetrain-filter";
+import { isStrictAxis, strictAxisOrder } from "@/lib/explicit-axis-order";
 import { buildNoResultsAlternatives } from "@/lib/no-results-alternatives";
 import { broadBodyTypeHint, unappliedFilterNote, vehicleTypeNote } from "@/lib/broad-search-hint";
 import { normalizeToolArguments, invalidFieldsFromError, ignoredInputsNote, addNoteToMcpResponseText } from "@/lib/tool-input-normalizer";
@@ -1678,9 +1679,10 @@ const handler = createMcpHandler((server) => {
       const driveSplit = await splitByDrivetrain(driveRanked, input.drivetrain, targetCount);
       const driveConfirmedVins = new Set<string>((driveSplit?.confirmed ?? []).map((c) => c.vin));
       // Confirmed cars always enter the ordering; cars the VIN decode is silent about only fill the rest of the shortlist pool.
-      const electrificationFilteredCandidates = driveSplit
-        ? [...driveSplit.confirmed, ...driveSplit.unknown.slice(0, driveSplit.confirmed.length > 0 ? Math.max(targetCount * 2 - driveSplit.confirmed.length, 0) : driveSplit.unknown.length)]
-        : electrificationResult.candidates;
+      const driveUnknownCapped = driveSplit
+        ? driveSplit.unknown.slice(0, driveSplit.confirmed.length > 0 ? Math.max(targetCount * 2 - driveSplit.confirmed.length, 0) : driveSplit.unknown.length)
+        : [];
+      const electrificationFilteredCandidates = driveSplit ? [...driveSplit.confirmed, ...driveUnknownCapped] : electrificationResult.candidates;
       const electrificationShortfall = electrificationResult.shortfall;
       // Predicate form for the ordering functions below. Deliberately
       // undefined (not a function that always returns false) when
@@ -1727,10 +1729,18 @@ const handler = createMcpHandler((server) => {
           : electrificationFilteredCandidates,
         targetCount * 2,
       );
+      // Cheapest, newest and lowest mileage are explicit objectives: strictly the best cars in that order, no per-model variety cap
+      // (the open best-for-budget search keeps its variety rule above). With a drivetrain request each group is ordered on its own.
+      const strictBase = isStrictAxis(input.priorityAxis)
+        ? (driveSplit && driveSplit.confirmed.length > 0 && driveUnknownCapped.length > 0
+            ? [...strictAxisOrder(driveSplit.confirmed, input.priorityAxis, targetCount * 2), ...strictAxisOrder(driveUnknownCapped, input.priorityAxis, targetCount * 2)].slice(0, targetCount * 2)
+            : strictAxisOrder(electrificationFilteredCandidates, input.priorityAxis, targetCount * 2))
+        : null;
+      const diversifiedBase = strictBase ?? diversified;
       // Drivetrain request: confirmed cars are listed first (stable order), cars the decode is silent about follow.
       const diversifiedOrdered = driveConfirmedVins.size > 0
-        ? [...diversified.filter((c) => driveConfirmedVins.has(c.vin)), ...diversified.filter((c) => !driveConfirmedVins.has(c.vin))]
-        : diversified;
+        ? [...diversifiedBase.filter((c) => driveConfirmedVins.has(c.vin)), ...diversifiedBase.filter((c) => !driveConfirmedVins.has(c.vin))]
+        : diversifiedBase;
       const leanShortlist = diversifiedOrdered.slice(0, targetCount);
       // Held in reserve for stage-2 backfill (SYS-20260817-013) if body-style
       // exclusion leaves the shortlist short — these already passed stage-1
