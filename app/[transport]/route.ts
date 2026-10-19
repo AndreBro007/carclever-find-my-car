@@ -42,7 +42,7 @@ import { nhtsaLinkField, nhtsaRecallCheckUrl, recallCheckFootnote, recallCheckLi
 import { vinCheckDigitFails } from "@/lib/vin-anatomy";
 import { buildNoResultsAlternatives } from "@/lib/no-results-alternatives";
 import { broadBodyTypeHint, unappliedFilterNote, vehicleTypeNote } from "@/lib/broad-search-hint";
-import { normalizeToolArguments } from "@/lib/tool-input-normalizer";
+import { normalizeToolArguments, invalidFieldsFromError, ignoredInputsNote, addNoteToMcpResponseText } from "@/lib/tool-input-normalizer";
 
 import { getCorpusCountForDescription } from "@/lib/corpus-count";
 import { CAPABILITIES } from "@/lib/capabilities";
@@ -2893,19 +2893,49 @@ async function POST(req: Request): Promise<Response> {
     const raw = await req.clone().text();
     if (raw.includes("tools/call")) {
       const body = JSON.parse(raw);
-      const fix = (m: any) => {
-        if (m && m.method === "tools/call" && m.params && typeof m.params.name === "string") {
-          if (m.params.name === OLD_LINK_TOOL) m.params.name = NEW_LINK_TOOL;
-          const r = normalizeToolArguments(m.params.name, m.params.arguments);
-          if (r.changes.length) {
-            m.params.arguments = r.args;
-            console.warn(`[tool-input] ${m.params.name}: ${r.changes.join("; ")}`); // field names only, never values
+      const rebuild = (b: unknown) => new Request(req.url, { method: "POST", headers: req.headers, body: JSON.stringify(b) });
+      if (Array.isArray(body)) {
+        // batches: repair each call, no notes or retry
+        const patched = body.map((m: any) => {
+          if (m && m.method === "tools/call" && m.params && typeof m.params.name === "string") {
+            if (m.params.name === OLD_LINK_TOOL) m.params.name = NEW_LINK_TOOL;
+            const r = normalizeToolArguments(m.params.name, m.params.arguments);
+            if (r.changes.length) { m.params.arguments = r.args; console.warn(`[tool-input] ${m.params.name}: ${r.changes.join("; ")}`); }
+          }
+          return m;
+        });
+        return handler(rebuild(patched));
+      }
+      if (body && body.method === "tools/call" && body.params && typeof body.params.name === "string") {
+        if (body.params.name === OLD_LINK_TOOL) body.params.name = NEW_LINK_TOOL;
+        const name: string = body.params.name;
+        const r = normalizeToolArguments(name, body.params.arguments);
+        if (r.changes.length) { body.params.arguments = r.args; console.warn(`[tool-input] ${name}: ${r.changes.join("; ")}`); } // field names only, never values
+        const ignored = [...r.ignored];
+        let res = await handler(rebuild(body));
+        let text = await res.clone().text();
+        if (text.includes("Input validation error")) {
+          // something the repair did not foresee: set the fields the error names aside and try once more
+          const bad = invalidFieldsFromError(name, text);
+          if (bad.length) {
+            const pruned: Record<string, unknown> = { ...(body.params.arguments as Record<string, unknown>) };
+            for (const f of bad) delete pruned[f];
+            const res2 = await handler(rebuild({ ...body, params: { ...body.params, arguments: pruned } }));
+            const text2 = await res2.clone().text();
+            if (!text2.includes("Input validation error")) {
+              console.warn(`[tool-input] ${name}: retried without ${bad.join(", ")}`);
+              ignored.push(...bad.map((f) => `${f} (value not accepted)`));
+              res = res2; text = text2;
+            }
           }
         }
-        return m;
-      };
-      const patched = Array.isArray(body) ? body.map(fix) : fix(body);
-      return handler(new Request(req.url, { method: "POST", headers: req.headers, body: JSON.stringify(patched) }));
+        if (ignored.length) {
+          const headers = new Headers(res.headers); headers.delete("content-length");
+          return new Response(addNoteToMcpResponseText(text, ignoredInputsNote(ignored)), { status: res.status, headers });
+        }
+        return res;
+      }
+      return handler(rebuild(body));
     }
   } catch {
     /* not JSON or not ours to rewrite: pass it on untouched */

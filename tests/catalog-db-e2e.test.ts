@@ -257,3 +257,21 @@ test("slips an AI makes are repaired instead of returning an error (null, text n
     assert.match(textOf(out), /Found \d+ closely matching|No vehicles matched|No location was specified/, `shape ${JSON.stringify(args)} gives a normal answer`);
   }
 });
+
+test("inputs that cannot be used are set aside and the reply says so; fixed-choice slips are repaired or reported", opts, async () => {
+  const cases: Array<[number, Record<string, unknown>, RegExp | null]> = [
+    [60, { make: "Honda", model: "Civic", priorityAxis: "", priceFlexibility: "", transmission: "", electrificationRequirement: "" }, null],
+    [61, { make: "Honda", model: "Civic", priorityAxis: "Best for budget", priceFlexibility: "Strict" }, null],
+    [62, { make: "Honda", model: "Civic", priorityAxis: "best_value" }, /^Note: these inputs could not be used and were ignored: priorityAxis/],
+    [63, { make: "Honda", model: "Civic", radiusMiles: "Any", zip: "90210" }, /^Note: these inputs could not be used and were ignored: radiusMiles/],
+    [64, { make: "Honda", model: "Civic", electrificationRequirement: "preferred" }, /electrificationRequirement/],
+    [65, { make: "Honda", model: "Civic", priorityAxis: "lower_risk" }, /^Note: these inputs could not be used and were ignored: priorityAxis \(value not accepted\)/], // accepted by the repair, rejected by this tool, set aside by the retry
+  ];
+  for (const [id, args, note] of cases) {
+    const out = await call(id, args);
+    assert.notEqual(out.result.isError, true, `${JSON.stringify(args)} must not error: ${textOf(out).slice(0, 140)}`);
+    const txt = textOf(out);
+    assert.match(txt, /Found \d+ closely matching|No vehicles matched|No location was specified/, `${JSON.stringify(args)} gives a normal answer`);
+    if (note) assert.match(txt, note, `${JSON.stringify(args)} says what was ignored`); else assert.ok(!/^Note: these inputs/.test(txt), `${JSON.stringify(args)} needs no note`);
+  }
+});
