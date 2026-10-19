@@ -214,6 +214,8 @@ const BuyerCheckSchema = z.object({
   concerns: z.array(z.string()),
   needsVerification: z.array(z.string()),
   nextSteps: z.array(z.string()),
+  // Present on direct-VIN results (null when there is nothing to add); it was sent but missing here, which made strict MCP clients reject the reply.
+  recall: z.unknown().optional(),
 });
 
 // Risk tier — see lib/risk-tier.ts's own
@@ -253,6 +255,9 @@ const ResultSchema = z.object({
   // on the direct-VIN-lookup result; normal search results never populate
   // this field, hence optional here rather than nullable.
   buyerCheck: BuyerCheckSchema.optional(),
+  // Database mode sets this to true on every result (lib/catalog-output.ts) so the card hides the RISK badge; it was sent but missing
+  // here, which made strict MCP clients (the Anthropic API connector, so CarClever Lite) reject every reply that had results.
+  hideRiskPill: z.boolean().optional(),
 });
 
 export const FindMatchingVehicleOutputSchema = z.object({

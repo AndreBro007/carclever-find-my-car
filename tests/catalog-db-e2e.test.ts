@@ -275,3 +275,44 @@ test("inputs that cannot be used are set aside and the reply says so; fixed-choi
     if (note) assert.match(txt, note, `${JSON.stringify(args)} says what was ignored`); else assert.ok(!/^Note: these inputs/.test(txt), `${JSON.stringify(args)} needs no note`);
   }
 });
+
+// Published-schema conformance: the Anthropic API's MCP connector rejects a reply whose structuredContent has a field the published
+// outputSchema does not declare ("Tool output schema validation failed ('additionalProperties')"). This walks a real reply against the
+// published JSON schema and lists every undeclared field.
+function extraProps(schema: any, value: any, path = ""): string[] {
+  if (!schema || typeof schema !== "object") return [];
+  const alts = schema.anyOf ?? schema.oneOf;
+  if (alts) { const r = alts.map((a: any) => extraProps(a, value, path)); return r.some((x: string[]) => x.length === 0) ? [] : r[0]; }
+  if (Array.isArray(value)) return schema.items ? value.flatMap((v: any, i: number) => extraProps(schema.items, v, `${path}[${i}]`)) : [];
+  if (value && typeof value === "object") {
+    const props = schema.properties ?? {}; const out: string[] = [];
+    for (const [k, v] of Object.entries(value)) {
+      if (k in props) out.push(...extraProps(props[k], v, `${path}.${k}`));
+      else if (schema.additionalProperties === false) out.push(`${path}.${k}`);
+    }
+    return out;
+  }
+  return [];
+}
+
+test("every reply's structured data matches the published output schema (no undeclared fields)", opts, async () => {
+  const list: any = await rpc({ jsonrpc: "2.0", id: 70, method: "tools/list" });
+  const schema = list.result.tools.find((t: any) => t.name === "find_matching_vehicle").outputSchema;
+  assert.ok(schema, "find_matching_vehicle publishes an output schema");
+  const scenarios: Array<Record<string, unknown>> = [
+    { make: "Honda", model: "Civic", zip: "90210" },
+    { make: "Honda", model: "Civic" },
+    { make: "Honda", model: "Civic", priceMax: 1000, zip: "90210" },
+    { vin: vinFor(1) },
+    { vin: "1C4RJFBG3KC123456" },
+    { bodyType: "SUV", priceMax: 90000 },
+  ];
+  let id = 71;
+  for (const args of scenarios) {
+    const out: any = await call(id++, args);
+    const sc = out.result.structuredContent;
+    if (!sc) continue;
+    const extra = extraProps(schema, sc);
+    assert.deepEqual(extra, [], `${JSON.stringify(args)} has fields the published schema does not declare: ${[...new Set(extra.map((e) => e.replace(/\[\d+\]/g, "[]")))].join(", ")}`);
+  }
+});
