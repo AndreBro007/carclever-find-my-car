@@ -21,7 +21,8 @@
  * elsewhere, rather than a second, possibly-inconsistent definition.
  */
 import { modelSatisfiesRequested } from "./model-match";
-import { trimMatches } from "./trim-match";
+import { trimMatchesAny } from "./trim-match";
+import { wantedDriveClasses, judgeDrive } from "./drivetrain-filter";
 
 export type ConstraintStatus = "verified" | "mismatch" | "unknown" | "relaxed";
 
@@ -238,7 +239,18 @@ export function buildConstraintChecks(
     }
   }
 
-  push(checkStringField("drivetrain", normDrivetrain(requested.drivetrain) ?? undefined, normDrivetrain(actual.drivetrain) ?? undefined, relaxedFields.has("drivetrain"), anyListValueMatches));
+  // Drivetrain: the same acceptable-set rule the search uses (lib/drivetrain-filter.ts): "AWD, FWD" accepts both, AWD and 4WD are one group,
+  // a request with no recognised drivetrain is reported as not applied by the accounting, so it makes no claim here.
+  {
+    const wantedDrive = wantedDriveClasses(requested.drivetrain);
+    if (wantedDrive) {
+      if (relaxedFields.has("drivetrain")) checks.push({ field: "drivetrain", status: "relaxed", requested: requested.drivetrain!, actual: actual.drivetrain ?? null });
+      else {
+        const j = judgeDrive(actual.drivetrain, wantedDrive);
+        checks.push({ field: "drivetrain", status: j === "match" ? "verified" : j === "mismatch" ? "mismatch" : "unknown", requested: requested.drivetrain!, actual: actual.drivetrain ?? null });
+      }
+    }
+  }
   push(checkStringField("transmission", requested.transmission, actual.transmission, relaxedFields.has("transmission"), anyListValueMatches));
   push(checkStringField("exteriorColor", requested.exteriorColor, actual.exteriorColor, relaxedFields.has("exteriorColor"), colorLikeMatches));
   push(checkStringField("interiorColor", requested.interiorColor, actual.interiorColor, relaxedFields.has("interiorColor"), colorLikeMatches));
@@ -258,7 +270,7 @@ export function buildConstraintChecks(
     } else {
       checks.push({
         field: "trimRequired",
-        status: trimMatches(requested.trimRequired, actual.trim) ? "verified" : "mismatch",
+        status: trimMatchesAny(requested.trimRequired, actual.trim) ? "verified" : "mismatch", // same acceptable-set rule as the eligibility check
         requested: requested.trimRequired,
         actual: actual.trim,
       });
@@ -281,10 +293,4 @@ export function aggregateSearchConstraintStatus(checks: ConstraintCheck[]): Sear
   if (checks.some((c) => c.status === "relaxed")) return "relaxed";
   if (checks.some((c) => c.status === "unknown")) return "partial";
   return "verified";
-}
-
-/** AWD and 4WD are the same drive system for matching purposes (general rule, not a model-specific case). */
-function normDrivetrain(v: string | null | undefined): string | null | undefined {
-  if (typeof v !== "string") return v;
-  return /\b(AWD|4WD|4X4|all-wheel|four-wheel)\b/i.test(v) ? "AWD" : v;
 }
