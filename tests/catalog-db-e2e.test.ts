@@ -104,3 +104,16 @@ test("database mode: a database outage becomes the quiet service error, never a 
   setCatalogDbPoolForTests(pool); await broken.end().catch(() => {});
   assert.equal(autoDev, 0);
 });
+
+test("slips an AI makes are repaired instead of returning an error (null, text numbers, list for text, unknown field)", { skip: !DB }, async () => {
+  const shapes: Array<[number, Record<string, unknown>]> = [
+    [50, { make: "Honda", model: "Civic", zip: null, priceMax: 90000 }],
+    [51, { make: "Honda", model: "Civic", priceMax: "90000" }],
+    [52, { make: "Honda", model: ["Civic", "Accord"], priceMax: 90000 }],
+    [53, { make: "Honda", model: "Civic", minSeats: 5 }],
+  ];
+  for (const [id, args] of shapes) {
+    const out: any = await call(id, args);
+    assert.notEqual(out.result.isError, true, `shape ${JSON.stringify(args)} must not error`);
+  }
+});

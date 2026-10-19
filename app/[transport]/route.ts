@@ -1,4 +1,5 @@
 import { createMcpHandler } from "mcp-handler";
+import { normalizeToolArguments } from "@/lib/tool-input-normalizer";
 import { z } from "zod";
 import { type AutoDevListing, type ListingsQuery } from "@/lib/auto-dev-client";
 // spike/edmunds-catalog-mode: same four functions, now routed through the source facade
@@ -2926,4 +2927,30 @@ const handler = createMcpHandler((server) => {
   },
 });
 
-export { handler as GET, handler as POST, handler as DELETE };
+// Forgiving input (19 Oct 2026): an AI's harmless slips (null for an optional field, a number sent as text, a list where text is
+// expected, an unknown field name) are repaired before the call is validated, instead of returning an error that ends the search.
+// The published tool schema is unchanged.
+async function POST(req: Request): Promise<Response> {
+  try {
+    const raw = await req.clone().text();
+    if (raw.includes("tools/call")) {
+      const body = JSON.parse(raw);
+      const fix = (m: any) => {
+        if (m && m.method === "tools/call" && m.params && typeof m.params.name === "string") {
+          const r = normalizeToolArguments(m.params.name, m.params.arguments);
+          if (r.changes.length) {
+            m.params.arguments = r.args;
+            console.warn(`[tool-input] ${m.params.name}: ${r.changes.join("; ")}`); // field names only, never values
+          }
+        }
+        return m;
+      };
+      const patched = Array.isArray(body) ? body.map(fix) : fix(body);
+      return handler(new Request(req.url, { method: "POST", headers: req.headers, body: JSON.stringify(patched) }));
+    }
+  } catch {
+    /* not JSON or not ours to rewrite: pass it on untouched */
+  }
+  return handler(req);
+}
+export { handler as GET, POST, handler as DELETE };
