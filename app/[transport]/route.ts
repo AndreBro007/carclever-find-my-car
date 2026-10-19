@@ -42,6 +42,7 @@ import { nhtsaLinkField, nhtsaRecallCheckUrl, recallCheckFootnote, recallCheckLi
 import { vinCheckDigitFails } from "@/lib/vin-anatomy";
 import { buildNoResultsAlternatives } from "@/lib/no-results-alternatives";
 import { broadBodyTypeHint, unappliedFilterNote, vehicleTypeNote } from "@/lib/broad-search-hint";
+import { normalizeToolArguments } from "@/lib/tool-input-normalizer";
 
 import { getCorpusCountForDescription } from "@/lib/corpus-count";
 import { CAPABILITIES } from "@/lib/capabilities";
@@ -2890,9 +2891,19 @@ const NEW_LINK_TOOL = "get_edmunds_vehicle_link";
 async function POST(req: Request): Promise<Response> {
   try {
     const raw = await req.clone().text();
-    if (raw.includes(OLD_LINK_TOOL)) {
+    if (raw.includes("tools/call")) {
       const body = JSON.parse(raw);
-      const fix = (m: any) => { if (m && m.method === "tools/call" && m.params && m.params.name === OLD_LINK_TOOL) m.params.name = NEW_LINK_TOOL; return m; };
+      const fix = (m: any) => {
+        if (m && m.method === "tools/call" && m.params && typeof m.params.name === "string") {
+          if (m.params.name === OLD_LINK_TOOL) m.params.name = NEW_LINK_TOOL;
+          const r = normalizeToolArguments(m.params.name, m.params.arguments);
+          if (r.changes.length) {
+            m.params.arguments = r.args;
+            console.warn(`[tool-input] ${m.params.name}: ${r.changes.join("; ")}`); // field names only, never values
+          }
+        }
+        return m;
+      };
       const patched = Array.isArray(body) ? body.map(fix) : fix(body);
       return handler(new Request(req.url, { method: "POST", headers: req.headers, body: JSON.stringify(patched) }));
     }

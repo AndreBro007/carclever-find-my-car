@@ -241,3 +241,19 @@ test("the 'search wider' offer never uses the word nationwide (Lite reads it as 
   assert.match(txt, /Want me to search wider\? Ask for the whole state or the whole country/);
   assert.ok(!/nationwide/i.test(txt));
 });
+
+test("slips an AI makes are repaired instead of returning an error (null, text numbers, list for text, text for list, unknown field)", opts, async () => {
+  const shapes: Array<[number, Record<string, unknown>]> = [
+    [50, { make: "Honda", model: "Civic", zip: null, priceMax: 90000 }],
+    [51, { make: "Honda", model: "Civic", priceMax: "90000" }],
+    [52, { make: "Honda", model: ["Civic", "Accord"], priceMax: 90000 }],
+    [53, { make: "Honda", model: "Civic", vehicleNeeds: "commuter car" }],
+    [54, { make: "Honda", model: "Civic", minSeats: 5 }],
+    [55, { make: "Honda", model: "Civic", used: "true", yearMin: "2018" }],
+  ];
+  for (const [id, args] of shapes) {
+    const out = await call(id, args);
+    assert.notEqual(out.result.isError, true, `shape ${JSON.stringify(args)} must not error: ${textOf(out).slice(0, 120)}`);
+    assert.match(textOf(out), /Found \d+ closely matching|No vehicles matched|No location was specified/, `shape ${JSON.stringify(args)} gives a normal answer`);
+  }
+});
