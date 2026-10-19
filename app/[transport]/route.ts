@@ -40,6 +40,7 @@ import { FindMatchingVehicleInputCatalog } from "@/lib/find-matching-vehicle-inp
 import { fetchRecallStatus, clipRecallText, type RecallInfo } from "@/lib/nhtsa-recalls-client";
 import { nhtsaLinkField, nhtsaRecallCheckUrl, recallCheckFootnote, recallCheckLine, addRecallCheckStep, invalidVinMessage } from "@/lib/nhtsa-links";
 import { vinCheckDigitFails } from "@/lib/vin-anatomy";
+import { wantedDriveClasses, partitionByDrive, judgeDrive, drivetrainNote } from "@/lib/drivetrain-filter";
 import { buildNoResultsAlternatives } from "@/lib/no-results-alternatives";
 import { broadBodyTypeHint, unappliedFilterNote, vehicleTypeNote } from "@/lib/broad-search-hint";
 import { normalizeToolArguments, invalidFieldsFromError, ignoredInputsNote, addNoteToMcpResponseText } from "@/lib/tool-input-normalizer";
@@ -212,20 +213,22 @@ function buildSeatsSummary(
 
 
 /**
- * Required AWD or 4WD (database mode): keep only candidates that NHTSA's VIN decode reports as all-wheel or four-wheel drive.
- * Unknown or two-wheel drive stays out of the main list rather than being shown as a match. The decode is cached, so this adds no extra calls on repeat searches.
+ * Drivetrain request (database mode), see lib/drivetrain-filter.ts: the VIN decode (NHTSA, cached) is read for the first
+ * ELECTRIFICATION_POOL_SIZE candidates. Cars decoded with a different drivetrain are left out; cars the decode confirms and cars
+ * it is silent about are returned as two groups so the caller can list the confirmed ones first.
+ * Returns null when the request has no recognised drivetrain (nothing is applied).
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function applyDrivetrainFilter(candidates: any[], wanted: string | undefined): Promise<any[]> {
-  if (!wanted) return candidates;
-  const want = wanted.toUpperCase();
-  if (!want.includes("AWD") && !want.includes("4WD")) return candidates;
+async function splitByDrivetrain(candidates: any[], wantedRaw: string | undefined): Promise<{ confirmed: any[]; unknown: any[]; excluded: number } | null> {
+  const wanted = wantedDriveClasses(wantedRaw);
+  if (!wanted) return null;
   const pool = candidates.slice(0, ELECTRIFICATION_POOL_SIZE);
+  const rest = candidates.slice(ELECTRIFICATION_POOL_SIZE);
   const decoded = await Promise.all(
     pool.map((c) => decodeNhtsaElectrification(c.vin, c.vehicle?.make, c.vehicle?.model, c.vehicle?.cylinders)),
   );
-  const keep = new Set(pool.filter((_, i) => /AWD|4WD|4X4/i.test(String(decoded[i]?.driveType ?? ""))).map((c) => c.vin));
-  return candidates.filter((c) => keep.has(c.vin));
+  const p = partitionByDrive(pool.map((c, i) => ({ c, d: decoded[i]?.driveType })), (x) => x.d, wanted);
+  return { confirmed: p.confirmed.map((x) => x.c), unknown: [...p.unknown.map((x) => x.c), ...rest], excluded: p.excluded };
 }
 
 function resolveSort(
@@ -856,7 +859,7 @@ const handler = createMcpHandler((server) => {
         ]);
 
         if (!fullListing) {
-          // A VIN that is not in the catalogue AND fails its check digit is almost certainly a typo: say so instead of "not listed".
+          // A VIN that is not in the catalogue AND fails its check digit: say it is invalid (no guess about why) instead of "not listed".
           if (vinCheckDigitFails(rawVin)) {
             return {
               content: [{ type: "text" as const, text: invalidVinMessage(rawVin) }],
@@ -1650,7 +1653,12 @@ const handler = createMcpHandler((server) => {
             shortfall: null as { requested: number; confirmed: number } | null,
             matchedVins: null as Set<string> | null,
           };
-      const electrificationFilteredCandidates = await applyDrivetrainFilter(electrificationResult.candidates, input.drivetrain);
+      const driveSplit = await splitByDrivetrain(electrificationResult.candidates, input.drivetrain);
+      const driveConfirmedVins = new Set<string>((driveSplit?.confirmed ?? []).map((c) => c.vin));
+      // Confirmed cars always enter the ordering; cars the VIN decode is silent about only fill the rest of the shortlist pool.
+      const electrificationFilteredCandidates = driveSplit
+        ? [...driveSplit.confirmed, ...driveSplit.unknown.slice(0, driveSplit.confirmed.length > 0 ? Math.max(targetCount * 2 - driveSplit.confirmed.length, 0) : driveSplit.unknown.length)]
+        : electrificationResult.candidates;
       const electrificationShortfall = electrificationResult.shortfall;
       // Predicate form for the ordering functions below. Deliberately
       // undefined (not a function that always returns false) when
@@ -1697,14 +1705,18 @@ const handler = createMcpHandler((server) => {
           : electrificationFilteredCandidates,
         targetCount * 2,
       );
-      const leanShortlist = diversified.slice(0, targetCount);
+      // Drivetrain request: confirmed cars are listed first (stable order), cars the decode is silent about follow.
+      const diversifiedOrdered = driveConfirmedVins.size > 0
+        ? [...diversified.filter((c) => driveConfirmedVins.has(c.vin)), ...diversified.filter((c) => !driveConfirmedVins.has(c.vin))]
+        : diversified;
+      const leanShortlist = diversifiedOrdered.slice(0, targetCount);
       // Held in reserve for stage-2 backfill (SYS-20260817-013) if body-style
       // exclusion leaves the shortlist short — these already passed stage-1
       // lean verification and the stage-1 body-style filter, they just
       // haven't had a stage-2 full-detail check yet. Capped at targetCount
       // spares (diversified is built to targetCount*2), so backfill is
       // bounded by construction — never an open-ended search for more.
-      const spareLean = diversified.slice(targetCount, targetCount * 2);
+      const spareLean = diversifiedOrdered.slice(targetCount, targetCount * 2);
 
       // Stage 2: full detail for exactly the shortlisted vehicles, in parallel.
       // Confirmed working, exact, fast (4.66s for 5 VINs), SYS-20260812-060.
@@ -2095,6 +2107,7 @@ const handler = createMcpHandler((server) => {
       { const hint = broadBodyTypeHint(input); if (hint) dataNotes.push(hint); }
       { const note = unappliedFilterNote(input, cards); if (note) dataNotes.push(note); }
       { const vt = vehicleTypeNote(input); if (vt) dataNotes.push(vt); }
+      { const dw = wantedDriveClasses(input.drivetrain); if (dw) { const dn = drivetrainNote(String(input.drivetrain), cards.map((c: any) => c.powertrain?.drivetrain), dw, driveSplit?.excluded ?? 0); if (dn) dataNotes.push(dn); } }
       if (lowestMileageDefaultedToUsed) {
         dataNotes.push(
           "Showing used cars only, so the lowest mileage is a fair comparison. Ask for new cars if you want them.",
@@ -2353,8 +2366,10 @@ const handler = createMcpHandler((server) => {
                   (x) => !(c.history.state === "known_issues" && x === c.history.note) && !x.startsWith("Seating capacity not reported"),
                 );
                 const confirmedLine = confirmedItems.length > 0 ? `\n   Confirmed: ${confirmedItems.join(", ")}` : "";
+                const driveWanted = wantedDriveClasses(input.drivetrain);
+                const driveLine = driveWanted && judgeDrive(c.powertrain.drivetrain, driveWanted) === "unknown" ? "\n   Drivetrain not confirmed: ask the dealer." : "";
                 const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
-                return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel}${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${conflictLine}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${linkStr}`;
+                return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel}${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${driveLine}${conflictLine}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${linkStr}`;
               })
               .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards) + seatUnknownFootnote(cards) + (Array.isArray(input.vehicleNeeds) && input.vehicleNeeds.length && cards.length ? `\n\nBefore you buy, ask the dealer about: ${input.vehicleNeeds.join(", ")}. These are not in our data, so ask for service and history records.` : "") + (cards.length ? "\n\nCheck each Edmunds listing, then contact the dealer to confirm price, history and availability." : "")
             + (["cheapest", "newest", "lowest_mileage"].includes(String(input.priorityAxis)) && input.yearMin == null && input.mileageMax == null

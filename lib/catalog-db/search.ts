@@ -1,7 +1,8 @@
 /**
  * Catalogue database search. Pure SQL building plus execution against anything with a pg-style query().
- * Filters mirror the app's ListingsQuery. Fields the feed cannot answer (drivetrain, transmission, colours,
- * accident history, owners) are ignored silently, exactly like the earlier catalogue source.
+ * Filters mirror the app's ListingsQuery. Colours are matched here (see colourRegex). Fields the feed cannot answer
+ * (transmission, cylinders, accident history, owners) are ignored here and reported as not applied in the reply.
+ * Drivetrain is not a column either: it is checked after the search against the VIN decode (lib/drivetrain-filter.ts).
  */
 import zipcodes from "zipcodes";
 import type { ListingsQuery } from "../listing-types";

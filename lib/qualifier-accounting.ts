@@ -20,6 +20,7 @@
  * is added for a field the user never asked about.
  */
 import type { VehicleListing } from "./listing-types";
+import { wantedDriveClasses } from "./drivetrain-filter";
 
 export interface CardIntentInput {
   exteriorColor?: string;
@@ -214,6 +215,15 @@ export function buildQualifierAccounting(input: CardIntentInput): QualifierAccou
   for (const [key, label] of structural) {
     const value = input[key];
     if (value != null && value !== "") {
+      if (key === "drivetrain") {
+        const dv = String(value);
+        entries.push((input as any).vin
+          ? { requested: label, tier: "structural_filter", applied: `checked against this listing: ${label} = ${dv}` }
+          : wantedDriveClasses(dv)
+          ? { requested: label, tier: "structural_filter", applied: `checked against the VIN decode (${label} = ${dv}): cars it shows with a different drivetrain are left out; cars it cannot show are kept after the confirmed ones and marked not confirmed` }
+          : { requested: label, tier: "disclosed_not_filtered", applied: `not applied as a filter: "${dv}" is not a drivetrain this tool can check (use AWD, 4WD, FWD or RWD)` });
+        continue;
+      }
       entries.push({ requested: label, tier: "structural_filter", applied: (input as any).vin ? `checked against this listing: ${label} = ${value}` : `filtered on ${label} = ${value}` });
     }
   }
