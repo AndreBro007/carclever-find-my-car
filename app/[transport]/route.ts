@@ -90,7 +90,7 @@ const VehicleLinkOutput = z.object({
   checkAvailSource: z.enum(["exact", "close", "none"]),
 });
 
-const SHORTLIST_SIZE = 5;
+const SHORTLIST_SIZE = 8;
 // Automatic widening is off: a thin result is reported and widening is offered in the reply (SYS-20261015-016).
 const AUTO_WIDEN = false;
 
@@ -2211,7 +2211,7 @@ const handler = createMcpHandler((server) => {
       }
       if (electrificationShortfall) {
         dataNotes.push(
-          `Only ${electrificationShortfall.confirmed} of the usual ${electrificationShortfall.requested} results matched your electric or hybrid requirement, as confirmed by NHTSA. ` +
+          `Only ${electrificationShortfall.confirmed} of the results matched your electric or hybrid requirement, as confirmed by NHTSA. ` +
             `Cars that could not be confirmed are left out. Check each listing, or ask the dealer about any others.`,
         );
       }

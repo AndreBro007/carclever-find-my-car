@@ -66,7 +66,7 @@ export function buildHistorySummary(
   if (!h || (h.accidentCount == null && h.accidents == null)) {
     return {
       state: "unreported",
-      note: `Accident history was not reported for this listing — this is common (roughly half of listings), not a red flag by itself.${carfaxHint}`,
+      note: `Accident history was not reported for this listing.${carfaxHint}`,
       ownerNote,
     };
   }

@@ -77,8 +77,9 @@ test("finding 4: cheapest, newest and lowest mileage are strict across several m
   const cheap = await get("cheapest"); const prices = cheap.map((c) => c.listing.price);
   assert.ok(cheap.length >= 4);
   assert.deepEqual(prices, [...prices].sort((a, b) => a - b), "ascending price");
-  assert.deepEqual(prices, [5000, 6000, 7000, 8000, 9000, 10000].slice(0, prices.length), "the globally cheapest cars, none left out for variety");
-  assert.ok(cheap.every((c) => c.identity.model === "Civic"), "all five cheapest are Civics: no RAV4 slipped in ahead of a cheaper Civic");
+  assert.deepEqual(prices.slice(0, 6), [5000, 6000, 7000, 8000, 9000, 10000], "the six globally cheapest cars come first, none left out for variety");
+  assert.ok(prices.slice(6).every((p) => p > 10000), "the remaining shortlist places are priced above the six cheapest");
+  assert.ok(cheap.slice(0, 6).every((c) => c.identity.model === "Civic"), "the six cheapest are Civics: no RAV4 slipped in ahead of a cheaper Civic");
   const newest = (await get("newest")).map((c) => c.identity.year);
   assert.deepEqual(newest, [...newest].sort((a, b) => b - a), "newest first");
   assert.equal(newest[0], 2026);

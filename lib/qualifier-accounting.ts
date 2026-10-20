@@ -254,7 +254,7 @@ export function buildQualifierAccounting(input: CardIntentInput): QualifierAccou
     entries.push({
       requested: "no accidents",
       tier: "disclosed_not_filtered",
-      applied: "never used to exclude results — disclosed per result instead (history is unreported for roughly half of listings)",
+      applied: "never used to exclude results — disclosed per result instead (history is unreported for some listings)",
     });
   }
   if (input.oneOwner === true) {
