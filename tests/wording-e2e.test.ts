@@ -58,10 +58,10 @@ const opts = { skip: DB ? false : "TEST_DATABASE_URL not set" };
 
 test("one closing line: availability, price and features; the history sentence only when a used car is shown", opts, async () => {
   const withUsed = textOf(await call(10, { make: "Honda", model: "CR-V", zip: "75201" }));
-  assert.equal(count(withUsed, "Check each Edmunds listing, then contact the dealer to confirm availability, price and features."), 1);
-  assert.match(withUsed, /For a used car, also ask for its history report\./);
+  assert.equal(count(withUsed, "Check each Edmunds listing, then contact the dealer to confirm availability, price, features and safety equipment."), 1);
+  assert.match(withUsed, /For a used car, also ask for its history report \(accidents, owners\)\./);
   const newOnly = textOf(await call(11, { make: "Honda", model: "CR-V", used: false, zip: "75201" }));
-  assert.equal(count(newOnly, "Check each Edmunds listing, then contact the dealer to confirm availability, price and features."), 1);
+  assert.equal(count(newOnly, "Check each Edmunds listing, then contact the dealer to confirm availability, price, features and safety equipment."), 1);
   assert.ok(!/history report/.test(newOnly), "a new car gets no history sentence");
 });
 
@@ -99,4 +99,29 @@ test("a no-result reply invites another try and makes no claim about the wider m
   const t = textOf(await call(31, { make: "Honda", model: "CR-V", priceMax: 1000, zip: "75201" }));
   assert.match(t, /Nothing was widened or substituted\. Listings change often, so try again soon or adjust the search\./);
   assert.ok(!/wider market/.test(t));
+});
+
+test("the pointer to the listing and the dealer is in ONE place of the tool text (rule 8), and the old 'does not establish' sentence is gone", opts, async () => {
+  const res = await rpc({ jsonrpc: "2.0", id: 40, method: "tools/list", params: {} });
+  const d: string = res.result.tools.find((t: { name: string }) => t.name === "find_matching_vehicle").description;
+  assert.equal(count(d, "send the buyer to the Edmunds listing and the dealer"), 1);
+  assert.ok(!/does not establish/.test(d));
+  assert.ok(!/point the buyer to the Edmunds listing and the dealer/.test(d), "rule 6 no longer repeats it");
+});
+
+test("a size or class label is not echoed as something to ask the dealer; a practical need still is", opts, async () => {
+  const sizeOnly = textOf(await call(41, { make: "Honda", model: "CR-V", used: false, vehicleNeeds: ["midsize SUV"], zip: "75201" }));
+  assert.ok(!/Also ask the dealer about/.test(sizeOnly));
+  assert.equal(count(sizeOnly, "Check each Edmunds listing"), 1);
+  const practical = textOf(await call(42, { make: "Honda", model: "CR-V", used: false, vehicleNeeds: ["midsize SUV", "towing 3,000 lbs"], zip: "75201" }));
+  assert.match(practical, /Also ask the dealer about: towing 3,000 lbs\./);
+  assert.ok(!/ask the dealer about: .*midsize/.test(practical));
+});
+
+test("'out of N in the area' is said only when nothing narrows the cars afterwards (a required trim does)", opts, async () => {
+  const plain = textOf(await call(43, { make: "Honda", model: "CR-V", zip: "75201" }));
+  assert.match(plain, /Found \d+ closely matching vehicles? out of \d+ in the area:/);
+  const trim = textOf(await call(44, { make: "Honda", model: "CR-V", trimRequired: "EX-L", zip: "75201" }));
+  assert.match(trim, /Found \d+ closely matching vehicles?:/);
+  assert.ok(!/in the area:/.test(trim));
 });

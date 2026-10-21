@@ -327,28 +327,15 @@ export function nhtsaIndicatesElectrified(result: NhtsaElectrificationResult | n
 }
 
 /**
- * Bounded pool size for electrificationRequirement pre-processing, both
- * "required" (pre-filter) and "preferred" (ranking-only match lookup).
+ * Bounded decode set for electrificationRequirement pre-processing, both "required" (pre-filter) and "preferred" (ranking-only match lookup).
  *
- * OPEN VALIDATION QUESTION — the value below (20) has NOT been derived
- * from a real measurement. No instrumented spike against live NHTSA
- * traffic has actually been run (attempted Sep 9 2026, blocked by a
- * sandbox network-egress restriction before any data was collected —
- * see DECISIONS.md SYS-20260909-001). Earlier comments in this file and
- * elsewhere in the repo cited a "live spike" with specific latency/
- * hit-rate numbers and an "André signed off on 20" claim; those citations
- * pointed to decision-log entries that do
- * not exist and should not be trusted. Treat 20 as an unvalidated
- * placeholder only, not an empirically justified or approved constant.
- * The real spike (pool-size vs. NHTSA latency/parallelism/hit-rate,
- * using real VINs) still needs to be run before this number can be
- * treated as settled.
+ * The value (24: three batches of 8) comes from measurement, not assumption. From the Claude sandbox on 21 Oct 2026 a parallel burst of 45 decodes had a 90th
+ * percentile near 2.2 s against the 3 s call limit, and groups of 8 about 0.27 s (getcarwise-docs EVIDENCE_CATALOGUE_MODEL_TRIM_NAMING_20261021.md sections 14 and 15;
+ * DECISIONS.md SYS-20261021-011 and -013). Small samples, one time window, not the Vercel region: revisit if NHTSA's behaviour changes. (Older comments cited a
+ * "live spike" behind the earlier value 20; no such record exists and that value is gone.)
  *
- * Moved here from route.ts alongside electrificationStateSatisfies() so
- * both are importable from a test file — Next.js Route Handler files
- * only permit a fixed set of named exports and cannot export arbitrary
- * functions/constants for direct unit testing (confirmed by a real local
- * build failure this session).
+ * Moved here from route.ts alongside electrificationStateSatisfies() so both are importable from a test file — Next.js Route Handler files only permit a fixed
+ * set of named exports and cannot export arbitrary functions/constants for direct unit testing (confirmed by a real local build failure).
  */
 /** Most cars decoded per electrified search: three batches of ELECTRIFICATION_BATCH_SIZE (T52, SYS-20261021-003). Was 45 in one parallel burst. */
 export const ELECTRIFICATION_POOL_SIZE = 24;

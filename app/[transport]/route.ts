@@ -8,7 +8,7 @@ import { notListedLinksText, titleCaseMake } from "@/lib/vin-not-listed";
 import { buildComparison, comparisonText, type CompareItem } from "@/lib/compare";
 import { closingExitLine, zeroResultsExitLine, sortByScoreThenDistance } from "@/lib/dead-end-links";
 import { attachNhtsaRatings } from "@/lib/nhtsa-ratings";
-import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, getAllModelNames, getTrimFacets, lookupListingByVin } from "@/lib/listing-source";
+import { searchListingsLean, getListingByVin, getModelFacets, getAllModelNames, getTrimFacets, lookupListingByVin } from "@/lib/listing-source";
 // Widening ladder re-enabled 2026-08-16 (SYS-20260816-008). It was bypassed on
 // Aug 13 per André's request — "search itself needs to work correctly before any
 // widening logic runs on top of it." That precondition is now met: the stage-2
@@ -51,9 +51,10 @@ import { CAPABILITIES } from "@/lib/capabilities";
 import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting, type CardIntentInput } from "@/lib/qualifier-accounting";
 import { RESULTS_CARD_RESOURCE_URI, buildResultsCardHtml, getAppOrigin } from "@/lib/results-card";
 import { signImageUrl } from "@/lib/image-proxy-sign";
-import { trimMatches, trimMatchesAny, trimContainsAllAny } from "@/lib/trim-match";
+import { trimMatchesAny, trimContainsAllAny } from "@/lib/trim-match";
 import { resolveRequiredTrims } from "@/lib/trim-resolution";
 import { electrifiedModelsFor, electrificationTypesOf, knownHybridOnlyFor, trimWordingRegex, type ElectrifiedType } from "@/lib/electrified-models";
+import { needsWorthAsking } from "@/lib/needs-note";
 import { requestedGroups, groupKeyOf, interleaveByGroup, coverageReached, applyModelCoverage, modelsNotShown } from "@/lib/model-coverage";
 import { formatVehicleTitle } from "@/lib/vehicle-title";
 import { CatalogDbOutputSchema, type FindMatchingVehicleOutput } from "@/lib/find-matching-vehicle-output";
@@ -73,9 +74,9 @@ Rules:
 3. Preserve any models the buyer named. For a broad search with no named model, translate a size, class or practical need into suitable real model names in model, with the need in vehicleNeeds. Size comes from your model choice: say so, and point the buyer to the listing for dimensions. Start with relevant candidates; if results are thin, widen within the same requirements. Do not copy examples from this description.
 4. For hybrid, plug-in or electric requests, pass the accepted types and whether they are required or preferred. For required searches, NHTSA confirmation determines eligibility; preferred searches may retain unconfirmed or non-electrified alternatives. Pass base models that offer that version; the tool also searches their electrified versions. A model family offering a hybrid does not show that a listing is one. A fuel label alone does not decide hybrid status.
 5. Use trimRequired when the buyer requires a particular trim; use trimPreference when it is optional or a confident preference. Do not infer a trim from a seat count or any other need. Leave trim unset when uncertain.
-6. Drivetrain and electrification use NHTSA VIN data; seating uses available NHTSA seat data. Unconfirmed drivetrain, seating or required electrification is marked; vehicles NHTSA shows as another electrified type are left out. For certification, accident, ownership and history, point the buyer to the Edmunds listing and the dealer. Each result links to Edmunds; changed criteria are stated.
+6. Drivetrain and electrification use NHTSA VIN data; seating uses available NHTSA seat data. Unconfirmed drivetrain, seating or required electrification is marked; vehicles NHTSA shows as another electrified type are left out. Each result links to Edmunds; changed criteria are stated.
 7. For an unambiguous city-only request, use a valid representative ZIP for that city. Use a previously supplied location only when continuing the same search; never assume an unrelated location. Report the actual scope and any location fallback.
-8. Use your knowledge to choose search inputs. Report only listing availability, specifications and verification that the returned evidence supports. Do not present inferred models or trims as confirmed facts. The tool does not establish reliability, safety, running cost, towing suitability or condition. Missing data stays unknown and never proves a car meets or fails a request.
+8. Use your knowledge to choose search inputs. Report only listing availability, specifications and verification that the returned evidence supports. Do not present inferred models or trims as confirmed facts. For anything not shown (history, certification, reliability, safety, running cost, towing suitability, condition), send the buyer to the Edmunds listing and the dealer. Missing data stays unknown and never proves a car meets or fails a request.
 9. A VIN refers to one listing. If it is not listed, say so and link to similar vehicles without substituting another car. If lookup is unavailable, say so; that is not proof the car is absent or sold.
 10. Do not rerun with a larger radius unless the buyer asks or agrees. If local results are thin, offer a wider search. Report the actual scope and any location fallback.`;
 
@@ -99,22 +100,11 @@ const AUTO_WIDEN = false;
 
 
 /**
- * Result-count strategy (SYS-20260816-008).
- *
- * Broad, exploratory searches ("SUV good for a family under 40k") get a larger
- * shortlist than precise ones ("blue 2020 Civic EX manual"). Real reason: on a
- * broad search the host model tends to narrow the list further in its own
- * answer — a live Aug 16 run returned 5 good vehicles and the user was shown 3
- * — so a set of 5 can reach the user as 2-3 and read as thin inventory when the
- * underlying pool was in the thousands. A precise search has no such problem
- * and padding it would only add weaker matches.
- *
- * Costs nothing extra upstream in the common case: the diversity step already
- * over-fetches to SHORTLIST_SIZE * 2 candidates and then discards the surplus.
- * Only stage-2 per-VIN detail calls scale with this, and those run in parallel.
+ * Result count (SYS-20260816-008; every search shows up to 8 cars since 21 Oct 2026, SYS-20261021-001, where precise searches used to show 5).
+ * A short list can reach the buyer shorter still: a live Aug 16 run returned 5 good vehicles and the buyer was shown 3, which reads as thin inventory when the pool
+ * was in the thousands. The diversity step over-fetches to SHORTLIST_SIZE * 2 candidates and discards the surplus; only the stage-2 per-VIN detail calls scale with
+ * this, and those run in parallel.
  */
-const BROAD_SHORTLIST_SIZE = 8;
-
 // ELECTRIFICATION_POOL_SIZE and electrificationStateSatisfies() moved to
 // lib/nhtsa-client.ts — imported at the top of this file
 // — so they're unit-testable; Next.js Route Handler files can't export
@@ -1472,13 +1462,8 @@ const handler = createMcpHandler((server) => {
         }
       }
 
-      // --- Result-count target (SYS-20260816-008) ---
-      // A search is "broad" when it isn't anchored to specific model names, or
-      // when the need was expressed as vehicleNeeds rather than exact hard filters.
-      // Those are the searches where the host model tends to narrow the answer
-      // further on its own, so they get the larger shortlist.
-      const isBroadSearch = !baseQuery.model || (input.vehicleNeeds != null && input.vehicleNeeds.length > 0);
-      const targetCount = isBroadSearch ? BROAD_SHORTLIST_SIZE : SHORTLIST_SIZE;
+      // --- Result-count target (SYS-20260816-008): every search, broad or precise, shows up to SHORTLIST_SIZE cars ---
+      const targetCount = SHORTLIST_SIZE;
 
       // How many results the user would actually SEE: post-verification AND
       // post-diversity. Widening decisions must use this rather than the raw
@@ -1654,43 +1639,24 @@ const handler = createMcpHandler((server) => {
         : trimFilteredCandidates;
 
       // Electrification-required pre-filter.
-      // Runs BEFORE diversity/shortlist slicing, on a BOUNDED pool of up to
-      // ELECTRIFICATION_POOL_SIZE (currently 20 — an UNVALIDATED placeholder,
-      // not a measured value; see the open validation question documented
-      // on ELECTRIFICATION_POOL_SIZE in lib/nhtsa-client.ts) candidates from
-      // the front of the already-ranked list — never the full candidate set,
-      // to keep the added NHTSA-call latency bounded. Only runs for electrificationRequirement: "required";
-      // "preferred" and unset are zero-cost here (existing shortlist-stage
-      // decode at the getListingByVin refetch below still runs regardless,
-      // for the badge logic).
+      // Runs BEFORE diversity/shortlist slicing, on a bounded set of cars from the front of the ranked list, decoded by NHTSA in batches of 8 up to
+      // ELECTRIFICATION_POOL_SIZE (24): see decodePoolInBatches in lib/nhtsa-client.ts (T52, SYS-20261021-003, -012, -013). Only runs for
+      // electrificationRequirement: "required"; "preferred" uses the same batches for ranking only, and unset costs nothing here (the shortlist-stage decode at the
+      // getListingByVin refetch below still runs regardless, for the badge logic).
       //
-      // A vehicle is kept only if NHTSA's own decode CONFIRMS one of the
-      // requested electrificationTypes — unknown/ambiguous/not_electrified
-      // are all excluded, never assumed to satisfy the request (audit
-      // Section C, "unknown != false" standing principle). Per André
-      // (Sep 9 2026): "hybrid" implicitly includes "mild_hybrid";
-      // "plug_in_hybrid"/"electric" are never implied by "hybrid".
+      // A car counts as confirmed only if NHTSA's own decode CONFIRMS one of the requested electrificationTypes ("hybrid" implicitly includes "mild_hybrid";
+      // "plug_in_hybrid" and "electric" are never implied by "hybrid", André Sep 9 2026). A car NHTSA gives no usable answer for (timeout, error, undecodable
+      // VIN, ambiguous) is KEPT, marked "not confirmed" on its card, and only fills what the confirmed cars leave; a car NHTSA shows as another type or as not
+      // electrified is left out and counted. Unknown is never assumed to satisfy the request or to fail it (audit Section C, "unknown != false").
       //
-      // KNOWN LIMITATION, flagged not hidden: this decodes the top-20 pool
-      // by rank, not the full trimOrderedCandidates set. If fewer than
-      // targetCount of those 20 confirm, the shortlist is genuinely shorter
-      // — the code deliberately does NOT expand the pool past 20 to backfill,
-      // since that's the exact bounded-latency tradeoff the spike measured
-      // and André signed off on. `electrificationShortfall` below surfaces
-      // this to the response's dataNotes rather than silently truncating.
+      // KNOWN LIMITATION, stated openly: only the first ELECTRIFICATION_POOL_SIZE cars (in rank order, taken in turn across the requested models) are decoded. If
+      // fewer than targetCount of them are kept, the shortlist is genuinely shorter and `electrificationShortfall` below says so in the reply.
       const electrificationRequired =
         input.electrificationRequirement === "required" &&
         input.electrificationTypes != null &&
         input.electrificationTypes.length > 0;
-      // "preferred" reuses the exact same bounded top-20
-      // pool/decode mechanism as "required" — never an additional/unbounded
-      // NHTSA call budget, and never both required+preferred at once since
-      // they're mutually exclusive enum values. Unlike "required", nothing
-      // is excluded here: candidates outside the top-20 pool (rank 21+)
-      // simply have no decode data and electrificationMatchOf() returns
-      // false for them — they're neither promoted nor penalized, just not
-      // preferentially reordered, which keeps this genuinely bounded-latency
-      // rather than decoding the whole candidate set.
+      // "preferred" uses the same batches, for ranking only: nothing is excluded. Cars beyond the decoded ones have no decode data and electrificationMatchOf()
+      // is false for them, so they are neither promoted nor penalised.
       const electrificationPreferred =
         input.electrificationRequirement === "preferred" &&
         input.electrificationTypes != null &&
@@ -1775,8 +1741,8 @@ const handler = createMcpHandler((server) => {
         ? (c: VehicleListing) => electrificationResult.matchedVins!.has(c.vin)
         : undefined;
       // (SYS-20260924-008) "preferred" electrification, unlike "required",
-      // never excludes anything — so when the bounded top-20 pool
-      // (ELECTRIFICATION_POOL_SIZE) happens to contain zero matches for the
+      // never excludes anything — so when the decoded cars (at most
+      // ELECTRIFICATION_POOL_SIZE) happen to contain zero matches for the
       // requested type(s), the search silently proceeds with no reordering
       // and no signal that the preference went unsatisfied. Surfaced
       // explicitly via dataNotes below rather than left silent, mirroring
@@ -2337,7 +2303,8 @@ const handler = createMcpHandler((server) => {
       // Real testing (Aug 13) showed the model only surfaced a one-line
       // summary and couldn't answer follow-ups about the other results, so
       // every result's key detail now goes directly into this text.
-      const totalPhrase = typeof total === "number" ? ` out of ${total} in the area` : "";
+      // The count is taken before NHTSA and trim checks narrow the cars (a required hybrid, a drivetrain or a required trim), so it would overstate; say it only when nothing narrowed afterwards.
+      const totalPhrase = typeof total === "number" && !electrificationRequired && !input.drivetrain && !trimRequired ? ` out of ${total} in the area` : "";
 
       // Honest disclosure prefix — any relaxation or data quality note must
       // reach the model's text, not just structuredContent (SYS-20260812-011
@@ -2518,7 +2485,7 @@ const handler = createMcpHandler((server) => {
                 const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
                 return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel}${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${driveLine}${elecLine}${conflictLine}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${linkStr}`;
               })
-              .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards) + seatUnknownFootnote(cards) + (cards.length ? `\n\nCheck each Edmunds listing, then contact the dealer to confirm availability, price and features.${(cards as Array<{ condition?: { inventoryType?: string } }>).some((c) => c.condition?.inventoryType === "used") ? " For a used car, also ask for its history report." : ""}${Array.isArray(input.vehicleNeeds) && input.vehicleNeeds.length ? ` Also ask the dealer about: ${input.vehicleNeeds.join(", ")}.` : ""}` : "")
+              .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards) + seatUnknownFootnote(cards) + (cards.length ? `\n\nCheck each Edmunds listing, then contact the dealer to confirm availability, price, features and safety equipment.${(cards as Array<{ condition?: { inventoryType?: string } }>).some((c) => c.condition?.inventoryType === "used") ? " For a used car, also ask for its history report (accidents, owners)." : ""}${needsWorthAsking(input.vehicleNeeds).length ? ` Also ask the dealer about: ${needsWorthAsking(input.vehicleNeeds).join(", ")}.` : ""}` : "")
             + (["cheapest", "newest", "lowest_mileage"].includes(String(input.priorityAxis)) && input.yearMin == null && input.mileageMax == null
               ? "\n\nFor a closer match, tell me a minimum year, a maximum mileage or your budget, and I'll narrow the list." : "");
 
