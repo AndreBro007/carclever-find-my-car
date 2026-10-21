@@ -11,20 +11,6 @@ import { z } from "zod";
  * for MCP tool registration (inputSchema) and, implicitly, as the shape
  * the SDK validates incoming tool calls against.
  */
-/** electrificationRequirement needs a non-empty electrificationTypes to apply to (shared by both schemas below). */
-function electrificationRefine(data: { electrificationRequirement?: unknown; electrificationTypes?: unknown[] }, ctx: z.RefinementCtx): void {
-  if (data.electrificationRequirement !== undefined) {
-    const types = data.electrificationTypes;
-    if (types === undefined || types.length === 0) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["electrificationTypes"],
-        message: "electrificationTypes must be present and non-empty when electrificationRequirement is set — required/preferred has nothing to apply to otherwise.",
-      });
-    }
-  }
-}
-
 export const FindMatchingVehicleInput = z.object({
   vin: z.string().optional().describe("Exact 17-character VIN for one current listing. Other criteria are evaluated against that listing; no similar-vehicle substitute is returned."),
   priceMax: z.number().optional().describe("Maximum price in USD."),
@@ -89,7 +75,18 @@ export const FindMatchingVehicleInput = z.object({
   // enforces the refinement during real parsing. See DECISIONS.md for
   // the corrected finding — this replaces the prior avoidance rationale
   // rather than sitting alongside it as an unresolved contradiction.
-  .superRefine(electrificationRefine);
+  .superRefine((data, ctx) => {
+    if (data.electrificationRequirement !== undefined) {
+      const types = data.electrificationTypes;
+      if (types === undefined || types.length === 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["electrificationTypes"],
+          message: "electrificationTypes must be present and non-empty when electrificationRequirement is set — required/preferred has nothing to apply to otherwise.",
+        });
+      }
+    }
+  });
   //
   // The legacy-`goals`-rejection mechanism above (`.strict()`) is
   // unaffected by this addition: `.strict()` already ran and rejected
@@ -103,16 +100,11 @@ export const FindMatchingVehicleInput = z.object({
  * Database app: the same inputs, with notes that say what this inventory can and cannot do. The the provider
  * notes stay as they are for the other apps. Only descriptions differ; the accepted fields and types are identical.
  */
-// The tool's `used` boolean is published as a required `condition` (new, used or either): an AI that must choose says so on every call, where an optional boolean it often left out
-// (SYS-20261021-033). The call repair (lib/tool-input-normalizer.ts) still accepts the older `used`, and fills `either` when nothing is given, so no client breaks.
-const { used: _publishedAsCondition, ...SHARED_FIELDS } = FindMatchingVehicleInput.shape;
-export const FindMatchingVehicleInputCatalog = z.object({
-  ...SHARED_FIELDS,
+export const FindMatchingVehicleInputCatalog = FindMatchingVehicleInput.safeExtend({
   vin: z.string().optional().describe("Exact 17-character VIN for one current listing. Other criteria are evaluated against that listing; if the VIN is not listed, a link to similar vehicles on Edmunds is returned, but no different vehicle is substituted."),
   exteriorColor: z.string().optional().describe("Requested exterior colour (for example white, black, gray, blue), matched against the dealer's colour name. If fewer than 3 cars match, colour only influences ranking."),
   interiorColor: z.string().optional().describe("Requested interior colour, matched against the dealer's colour name. If fewer than 3 cars match, colour only influences ranking."),
   cpo: z.boolean().optional().describe("Request for certified pre-owned status. Reported as unconfirmed; the buyer confirms with the dealer."),
   noAccidents: z.boolean().optional().describe("Request for no reported accidents. Reported as unconfirmed; the buyer checks the listing and the dealer."),
   oneOwner: z.boolean().optional().describe("Request for one-owner history. Reported as unconfirmed; the buyer checks the listing and the dealer."),
-  condition: z.enum(["new", "used", "either"]).describe("Required. new = new cars only; used = used, pre-owned or certified only; either = the buyer said neither. Use new when the request says new, for example \"looking for a new SUV\"."),
-}).strict().superRefine(electrificationRefine);
+});

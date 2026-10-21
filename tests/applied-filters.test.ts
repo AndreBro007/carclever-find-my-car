@@ -3,16 +3,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { appliedFiltersLine } from "../lib/applied-filters";
 
-test("André's request with condition new: new cars, hybrid required, price strict, radius and ZIP, models, ranking; no correction hint", () => {
+test("André's request with used false: new cars, hybrid required, price strict, radius and ZIP, models, ranking", () => {
   const l = appliedFiltersLine({ used: false, bodyType: "SUV", model: "Highlander, Grand Highlander, RAV4", electrificationTypes: ["hybrid"], electrificationRequirement: "required", priceMax: 70000, priceFlexibility: "strict", zip: "75201", radiusMiles: 100, priorityAxis: "best_for_budget" });
   assert.equal(l, "Searched: new cars; models Highlander, Grand Highlander, RAV4; body style SUV; hybrid required; up to $70,000 (strict); within 100 miles of ZIP 75201; ranked best for budget.");
-  assert.ok(!/search again/.test(l));
+  assert.ok(!/search again/.test(l), "the line never carries a correction sentence");
 });
 
-test("condition either says so and tells the AI how to correct it", () => {
+test("no condition given: the line says new and used, so the AI and the buyer can see it", () => {
   const l = appliedFiltersLine({ model: "RAV4", zip: "75201" });
-  assert.match(l, /^Searched: new and used \(condition: either\); models RAV4; within 50 miles of ZIP 75201\./);
-  assert.match(l, / If the buyer asked for new or used only, search again with condition set to new or used\.$/);
+  assert.equal(l, "Searched: new and used; models RAV4; within 50 miles of ZIP 75201.");
+  assert.ok(!/either|condition|search again/.test(l));
 });
 
 test("used cars, the default 50-mile radius is named, a given radius replaces it", () => {

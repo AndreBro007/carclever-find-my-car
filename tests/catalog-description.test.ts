@@ -5,17 +5,16 @@ import { FindMatchingVehicleInput, FindMatchingVehicleInputCatalog } from "../li
 import { notListedLinksText } from "../lib/vin-not-listed";
 
 test("input variant: same fields and types, only the notes for vin, colours, cpo, noAccidents, oneOwner differ", () => {
-  const a = Object.keys(FindMatchingVehicleInput.shape).filter((k) => k !== "used").concat("condition").sort(), b = Object.keys(FindMatchingVehicleInputCatalog.shape).sort();
-  assert.deepEqual(a, b); assert.equal(a.length, 31); // the same fields; the optional boolean used is published here as the required condition
+  const a = Object.keys(FindMatchingVehicleInput.shape).sort(), b = Object.keys(FindMatchingVehicleInputCatalog.shape).sort();
+  assert.deepEqual(a, b); assert.equal(a.length, 31);
   const d = (k: string, s: any) => String(s.shape[k].description);
   for (const k of ["cpo", "noAccidents", "oneOwner"]) assert.ok(/Reported as unconfirmed; the buyer (confirms|checks) /.test(d(k, FindMatchingVehicleInputCatalog)), k);
   assert.ok(/a link to similar vehicles on Edmunds/.test(d("vin", FindMatchingVehicleInputCatalog)));
   assert.ok(/fewer than 3 cars match/.test(d("exteriorColor", FindMatchingVehicleInputCatalog)));
   assert.ok(!/no similar-vehicle substitute/.test(d("vin", FindMatchingVehicleInputCatalog))); assert.ok(/no similar-vehicle substitute/.test(d("vin", FindMatchingVehicleInput)));
   // the parsing behaviour is identical
-  assert.deepEqual(FindMatchingVehicleInputCatalog.safeParse({ make: "Honda", condition: "used", cpo: true }).success, FindMatchingVehicleInput.safeParse({ make: "Honda", used: true, cpo: true }).success);
-  assert.equal(FindMatchingVehicleInputCatalog.safeParse({ condition: "yes" }).success, false);
-  assert.equal(FindMatchingVehicleInputCatalog.safeParse({ make: "Honda" }).success, false, "condition is required in the published schema");
+  assert.deepEqual(FindMatchingVehicleInputCatalog.safeParse({ make: "Honda", used: true, cpo: true }).success, FindMatchingVehicleInput.safeParse({ make: "Honda", used: true, cpo: true }).success);
+  assert.equal(FindMatchingVehicleInputCatalog.safeParse({ used: "yes" }).success, false);
 });
 
 const fakeDecode = (o: object) => (async () => ({ make: "TOYOTA", model: "RAV4", modelYear: "2021", trimOptions: ["LE"], ...o })) as any;

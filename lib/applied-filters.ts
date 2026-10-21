@@ -2,7 +2,7 @@
  * The "Searched:" line at the top of every find_matching_vehicle reply (SYS-20261021-036, proposal G).
  * It states what the search really used, from the call as repaired, so the AI can compare it with what the buyer asked for and search again when they differ:
  * a real run sent condition "either" for a buyer who said "new", added values nobody stated (strict, a radius) and left a stated one out. Only fields that were set appear;
- * the defaults that apply (the 50-mile radius) are named. When the condition is either, one sentence tells the AI how to correct it.
+ * the defaults that apply (the 50-mile radius) are named.
  */
 export interface AppliedFilters {
   used?: boolean;
@@ -22,7 +22,7 @@ const AXIS_WORDS: Record<string, string> = { best_for_budget: "best for budget",
 
 export function appliedFiltersLine(f: AppliedFilters): string {
   const parts: string[] = [];
-  parts.push(f.used === false ? "new cars" : f.used === true ? "used cars" : "new and used (condition: either)");
+  parts.push(f.used === false ? "new cars" : f.used === true ? "used cars" : "new and used");
   const make = text(f.make), model = text(f.model);
   if (make && model) parts.push(`${make}, models ${model}`); else if (make) parts.push(`make ${make}`); else if (model) parts.push(`models ${model}`);
   if (text(f.bodyType)) parts.push(`body style ${text(f.bodyType)}`);
@@ -48,6 +48,5 @@ export function appliedFiltersLine(f: AppliedFilters): string {
   else if (text(f.state)) parts.push(`state ${text(f.state).toUpperCase()}`);
   else parts.push("nationwide");
   if (f.priorityAxis && AXIS_WORDS[f.priorityAxis]) parts.push(`ranked ${AXIS_WORDS[f.priorityAxis]}`);
-  const hint = f.used === undefined ? " If the buyer asked for new or used only, search again with condition set to new or used." : "";
-  return `Searched: ${parts.join("; ")}.${hint}`;
+  return `Searched: ${parts.join("; ")}.`;
 }
