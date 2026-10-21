@@ -20,7 +20,7 @@ const ELECTRIFICATION_TYPES = ["hybrid", "plug_in_hybrid", "electric"];
 const ELECTRIFICATION_ALIASES: Record<string, string> = { ev: "electric", bev: "electric", phev: "plug_in_hybrid", plug_in: "plug_in_hybrid", plugin_hybrid: "plug_in_hybrid", plug_in_hybrid_electric: "plug_in_hybrid", mild_hybrid: "hybrid", full_hybrid: "hybrid" };
 
 const TOOL_FIELDS: Record<string, string[]> = {
-  find_matching_vehicle: ["bodyType", "cpo", "cylinders", "doors", "drivetrain", "electrificationRequirement", "electrificationTypes", "exteriorColor", "interiorColor", "make", "mileageMax", "model", "noAccidents", "oneOwner", "priceFlexibility", "priceMax", "priceMin", "priorityAxis", "radiusMiles", "seatsMinPreference", "state", "transmission", "trimPreference", "trimRequired", "used", "vehicleNeeds", "vehicleType", "vin", "yearMax", "yearMin", "zip"],
+  find_matching_vehicle: ["condition", "bodyType", "cpo", "cylinders", "doors", "drivetrain", "electrificationRequirement", "electrificationTypes", "exteriorColor", "interiorColor", "make", "mileageMax", "model", "noAccidents", "oneOwner", "priceFlexibility", "priceMax", "priceMin", "priorityAxis", "radiusMiles", "seatsMinPreference", "state", "transmission", "trimPreference", "trimRequired", "used", "vehicleNeeds", "vehicleType", "vin", "yearMax", "yearMin", "zip"],
   check_vehicle: ["make", "model", "vin", "year"],
   get_edmunds_vehicle_link: ["vin", "make", "model", "year"],
   resolve_dealer_url: ["vin", "make", "model", "year"], // the old name of the link tool (still called by older clients)
@@ -33,6 +33,13 @@ export type NormalizeResult = {
   changes: string[];
   /** inputs that had to be set aside because they could not be used; the reply tells the buyer */
   ignored: string[];
+};
+
+// condition (new, used or either): the published field since SYS-20261021-033. Words an AI may use are understood; the older boolean `used` still works.
+const CONDITION_WORDS: Record<string, "new" | "used" | "either"> = {
+  new: "new", brand_new: "new", new_only: "new", new_cars: "new", new_car: "new", new_vehicles: "new",
+  used: "used", pre_owned: "used", preowned: "used", used_only: "used", certified: "used", certified_pre_owned: "used", cpo: "used", pre_owned_only: "used",
+  either: "either", any: "either", both: "either", all: "either", neither: "either", new_or_used: "either", new_and_used: "either", no_preference: "either", unspecified: "either", not_specified: "either",
 };
 
 const key = (s: string): string => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
@@ -69,6 +76,10 @@ export function normalizeToolArguments(toolName: string, args: unknown): Normali
         if (n !== null) { v = n; changes.push(`${k}: text to number`); }
         else { changes.push(`dropped ${k}: not a number`); ignored.push(`${k} (not a number)`); continue; }
       } else if (typeof v !== "number") { changes.push(`dropped unusable ${k}`); ignored.push(`${k} (not a number)`); continue; }
+    } else if (k === "condition") {
+      const c = typeof v === "string" ? CONDITION_WORDS[key(v)] : undefined;
+      if (c) { if (c !== v) changes.push("condition: understood"); v = c; }
+      else { changes.push("dropped condition: value not recognised"); ignored.push(`condition (value "${String(v).slice(0, 40)}" not recognised; both new and used were searched)`); continue; }
     } else if (BOOLEAN_FIELDS.has(k)) {
       if (typeof v === "string") {
         const t = v.trim().toLowerCase();
@@ -103,6 +114,14 @@ export function normalizeToolArguments(toolName: string, args: unknown): Normali
       else if (typeof v !== "string") { changes.push(`dropped unusable ${k}`); continue; }
     }
     out[k] = v;
+  }
+  if (toolName === "find_matching_vehicle") {
+    // the older boolean `used` becomes condition (an explicit condition wins); nothing given means either: lenient, so no client breaks
+    if (typeof out.used === "boolean") {
+      if (out.condition === undefined) { out.condition = out.used ? "used" : "new"; changes.push(`used: ${out.used} became condition: ${out.condition}`); }
+      delete out.used;
+    }
+    if (out.condition === undefined) { out.condition = "either"; changes.push("condition: not given, set to either"); }
   }
   if (out.electrificationRequirement !== undefined && out.electrificationTypes === undefined) {
     delete out.electrificationRequirement;

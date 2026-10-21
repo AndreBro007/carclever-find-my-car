@@ -127,11 +127,14 @@ test("'out of N in the area' is said only when nothing narrows the cars afterwar
   assert.ok(!/in the area:/.test(trim));
 });
 
-test("F1: the used field says how to pass new, used, pre-owned and certified", opts, async () => {
+test("B: condition is published as a required choice (new, used, either) in place of the optional used boolean", opts, async () => {
   const res = await rpc({ jsonrpc: "2.0", id: 50, method: "tools/list", params: {} });
   const tool = res.result.tools.find((t: { name: string }) => t.name === "find_matching_vehicle");
-  const d: string = tool.inputSchema.properties.used.description;
-  assert.match(d, /false for new only, true for used or pre-owned only; omit when the buyer says neither/);
+  const sch = tool.inputSchema;
+  assert.deepEqual(sch.properties.condition.enum, ["new", "used", "either"]);
+  assert.ok((sch.required ?? []).includes("condition"), "condition is in the published required list");
+  assert.equal(sch.properties.used, undefined, "the old boolean is no longer published");
+  assert.match(sch.properties.condition.description, /^Required\. new = new cars only; used = used, pre-owned or certified only; either = the buyer said neither\.$/);
 });
 
 test("F3: rule 3 has the AI say the models are its picks for the size, with no contrast word to complete", opts, async () => {
@@ -170,10 +173,12 @@ async function toolText(): Promise<{ description: string; fields: Record<string,
   return { description: tool.description as string, fields };
 }
 
-test("T76: rule 1 says how to pass new, used and pre-owned, in the words the used field repeats", opts, async () => {
+test("B: rule 1 and the condition field say the same thing in the same words", opts, async () => {
   const { description: d, fields } = await toolText();
-  assert.equal(count(d, "New means used: false; used or pre-owned means used: true."), 1);
-  assert.match(fields.used, /^false for new only, true for used or pre-owned only/);
+  assert.equal(count(d, "Always set condition: new, used (pre-owned and certified count as used), or either when the buyer says neither."), 1);
+  assert.ok(!/used: false|used: true/.test(d), "the description no longer speaks of the old boolean");
+  assert.match(fields.condition, /^Required\. new = new cars only; used = used, pre-owned or certified only; either = the buyer said neither\.$/);
+  assert.equal(fields.used, undefined);
 });
 
 test("the description is numbered 1..9 in order, and every 'rule N' named in the description or a field exists", opts, async () => {
