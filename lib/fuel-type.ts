@@ -62,17 +62,16 @@ export function isStrictEV(rawFuel: string | null | undefined): boolean {
 }
 
 /**
- * Known hybrid-only model overrides.
- * Applied AFTER the provider returns fuel type; fires only when the provider returns
- * "Gasoline" (or unknown) for a model that is unambiguously hybrid in the
- * given model year.
+ * Known hybrid-only models.
+ * Used in two places: (1) the fuel-label override below, which fires only when the provider returns "Gasoline" (or unknown) for a model that is
+ * unambiguously hybrid in the given model year; (2) the electrified search (lib/electrified-models.ts, SYS-20261021-004 R4), which lists these cars first
+ * for a hybrid request, because the catalogue feed names them with no hybrid wording ("RAV4", "Camry", "Sienna", "Prius"). In both uses the list is a hint:
+ * NHTSA still decides whether a car is a hybrid.
  *
  * Conservative inclusion rules:
- *   - Only models where EVERY trim sold in that year range is hybrid.
- *   - Do NOT include Camry, Highlander, RAV4, Sienna (non-hybrid base trims
- *     exist or have existed in the same era).
- *   - Do NOT include Sorento Hybrid, Forester Hybrid, Crosstrek Hybrid,
- *     Santa Fe Hybrid, Crown Signia — these share a model line with gas trims.
+ *   - Only models where EVERY trim sold in that year range is hybrid, with a first model year (`fromYear`) where gas trims existed before.
+ *   - Do NOT include Highlander (gas trims still sold; the feed names the hybrid "Highlander Hybrid").
+ *   - Do NOT include Sorento Hybrid, Forester Hybrid, Crosstrek Hybrid, Santa Fe Hybrid, Crown Signia as gas lines — these share a model line with gas trims.
  *
  * Confirmed hybrid-only:
  *   - Toyota Sequoia: redesigned to hybrid-only in MY2023+
@@ -81,19 +80,55 @@ export function isStrictEV(rawFuel: string | null | undefined): boolean {
  *   - Toyota Corolla Cross Hybrid: US-market Corolla Cross is hybrid-only MY2023+
  *   - Toyota Grand Highlander Hybrid: US-market Grand Highlander is hybrid-only MY2024+
  *   - Kia Niro: base Niro sold in US is hybrid-only MY2017+
- *   - Honda Insight: all years (2000–2014, 2018–2022; no gas-only US variant)
+ *   - Honda Insight: all years (2000-2014, 2018-2022; no gas-only US variant)
  *   - Toyota Venza: hybrid-only since US relaunch MY2021+
  *   - Toyota Crown Signia: hybrid-only since US launch MY2024+
  *   - Toyota Land Cruiser: hybrid-only since MY2022+ US relaunch
  *   - Ford F-150 PowerBoost: PowerBoost is the hybrid trim name; gas F-150s use different trim names
- *   - Lexus ES 300h: hybrid-only nameplate (ES 350 is the gas variant)
- *   - Lexus LX 600h: hybrid-only nameplate (LX 600h replaced the V8 LX 570)
- *   - Lexus RX 500h/450h/450h+/350h: hybrid-only nameplates (h suffix)
- *   - Lexus NX 350h/450h+: hybrid-only nameplates (h suffix)
- *   - Lexus UX 250h: hybrid-only
- *   - Lexus LC 500h: hybrid-only
- *   - Lexus LS 500h: hybrid-only
+ *   - Lexus ES 300h, LX 600h, RX 500h/450h/450h+/350h, NX 350h/450h+, UX 250h, LC 500h, LS 500h: hybrid-only nameplates (h suffix). Note: the catalogue
+ *     feed names these cars with the plain model ("ES", "RX") and the h in the TRIM ("350h Premium"), so these entries do not match feed data.
+ *   - Toyota RAV4: hybrid-only from MY2026 (added 21 Oct 2026)
+ *   - Toyota Camry: hybrid-only from MY2025 (added 21 Oct 2026)
+ *   - Toyota Sienna: hybrid-only from MY2021 (added 21 Oct 2026)
+ *     Evidence for the last three: NHTSA decode of 6 real catalogue VINs per model year, 21 Oct 2026: 2026 RAV4, 2025 and 2026 Camry, 2021, 2023 and 2025
+ *     Sienna all hybrid; controls 2025 RAV4 and 2024 Camry all not electrified; 2024 CR-V correctly mixed (see getcarwise-docs
+ *     EVIDENCE_CATALOGUE_MODEL_TRIM_NAMING_20261021.md).
  */
+export interface KnownHybridOnly {
+  make: string;
+  model: string;
+  /** First model year in which every US trim is hybrid; omitted means all years. */
+  fromYear?: number;
+}
+
+export const KNOWN_HYBRID_ONLY: readonly KnownHybridOnly[] = [
+  { make: "Toyota", model: "Sequoia", fromYear: 2023 },
+  { make: "Toyota", model: "Prius" },
+  { make: "Toyota", model: "Crown", fromYear: 2023 },
+  { make: "Toyota", model: "Corolla Cross Hybrid", fromYear: 2023 },
+  { make: "Toyota", model: "Grand Highlander Hybrid", fromYear: 2024 },
+  { make: "Kia", model: "Niro", fromYear: 2017 },
+  { make: "Honda", model: "Insight" },
+  { make: "Toyota", model: "Venza", fromYear: 2021 },
+  { make: "Toyota", model: "Crown Signia", fromYear: 2024 },
+  { make: "Toyota", model: "Land Cruiser", fromYear: 2022 },
+  { make: "Ford", model: "F-150 PowerBoost" },
+  { make: "Lexus", model: "ES 300h" },
+  { make: "Lexus", model: "LX 600h" },
+  { make: "Lexus", model: "RX 500h" },
+  { make: "Lexus", model: "RX 450h" },
+  { make: "Lexus", model: "RX 450h+" },
+  { make: "Lexus", model: "RX 350h" },
+  { make: "Lexus", model: "NX 350h" },
+  { make: "Lexus", model: "NX 450h+" },
+  { make: "Lexus", model: "UX 250h" },
+  { make: "Lexus", model: "LC 500h" },
+  { make: "Lexus", model: "LS 500h" },
+  { make: "Toyota", model: "RAV4", fromYear: 2026 },
+  { make: "Toyota", model: "Camry", fromYear: 2025 },
+  { make: "Toyota", model: "Sienna", fromYear: 2021 },
+];
+
 function buildKnownHybridKey(make: string, model: string): string {
   return `${String(make).toLowerCase().trim()}|${String(model).toLowerCase().trim()}`;
 }
@@ -110,62 +145,10 @@ export function isKnownHybridOnly(
 ): boolean {
   if (!make || !model) return false;
   const key = buildKnownHybridKey(make, model);
-
-  // Toyota Sequoia: hybrid-only from MY2023
-  if (key === buildKnownHybridKey("Toyota", "Sequoia")) {
-    return year != null && year >= 2023;
-  }
-  // Toyota Prius: all years
-  if (key === buildKnownHybridKey("Toyota", "Prius")) return true;
-  // Toyota Crown: hybrid-only since US launch MY2023
-  if (key === buildKnownHybridKey("Toyota", "Crown")) {
-    return year != null && year >= 2023;
-  }
-  // Toyota Corolla Cross Hybrid: US market is hybrid-only from MY2023
-  if (key === buildKnownHybridKey("Toyota", "Corolla Cross Hybrid")) {
-    return year != null && year >= 2023;
-  }
-  // Toyota Grand Highlander Hybrid: US market is hybrid-only from MY2024
-  if (key === buildKnownHybridKey("Toyota", "Grand Highlander Hybrid")) {
-    return year != null && year >= 2024;
-  }
-  // Kia Niro: US-market base Niro is hybrid-only from MY2017
-  if (key === buildKnownHybridKey("Kia", "Niro")) {
-    return year != null && year >= 2017;
-  }
-  // Honda Insight: every US trim is hybrid-only (2000–2014, 2018–2022)
-  if (key === buildKnownHybridKey("Honda", "Insight")) return true;
-  // Toyota Venza: hybrid-only since US relaunch MY2021
-  if (key === buildKnownHybridKey("Toyota", "Venza")) {
-    return year != null && year >= 2021;
-  }
-  // Toyota Crown Signia: hybrid-only since US launch MY2024
-  if (key === buildKnownHybridKey("Toyota", "Crown Signia")) {
-    return year != null && year >= 2024;
-  }
-  // Toyota Land Cruiser: hybrid-only since US relaunch MY2022
-  if (key === buildKnownHybridKey("Toyota", "Land Cruiser")) {
-    return year != null && year >= 2022;
-  }
-  // Ford F-150 PowerBoost: "PowerBoost" is the hybrid trim family name; gas F-150s don't use it
-  if (key === buildKnownHybridKey("Ford", "F-150 PowerBoost")) return true;
-  // Lexus hybrid-only nameplates (h-suffix models, ES 300h, and LX 600h)
-  const lexusHybridModels = new Set([
-    buildKnownHybridKey("Lexus", "ES 300h"),
-    buildKnownHybridKey("Lexus", "LX 600h"),
-    buildKnownHybridKey("Lexus", "RX 500h"),
-    buildKnownHybridKey("Lexus", "RX 450h"),
-    buildKnownHybridKey("Lexus", "RX 450h+"),
-    buildKnownHybridKey("Lexus", "RX 350h"),
-    buildKnownHybridKey("Lexus", "NX 350h"),
-    buildKnownHybridKey("Lexus", "NX 450h+"),
-    buildKnownHybridKey("Lexus", "UX 250h"),
-    buildKnownHybridKey("Lexus", "LC 500h"),
-    buildKnownHybridKey("Lexus", "LS 500h"),
-  ]);
-  if (lexusHybridModels.has(key)) return true;
-
-  return false;
+  const hit = KNOWN_HYBRID_ONLY.find((e) => buildKnownHybridKey(e.make, e.model) === key);
+  if (!hit) return false;
+  if (hit.fromYear == null) return true;
+  return year != null && year >= hit.fromYear;
 }
 
 /**

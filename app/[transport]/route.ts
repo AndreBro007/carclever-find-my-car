@@ -53,7 +53,7 @@ import { RESULTS_CARD_RESOURCE_URI, buildResultsCardHtml, getAppOrigin } from "@
 import { signImageUrl } from "@/lib/image-proxy-sign";
 import { trimMatches, trimMatchesAny, trimContainsAllAny } from "@/lib/trim-match";
 import { resolveRequiredTrims } from "@/lib/trim-resolution";
-import { electrifiedModelsFor, trimWordingRegex, type ElectrifiedType } from "@/lib/electrified-models";
+import { electrifiedModelsFor, knownHybridOnlyFor, trimWordingRegex, type ElectrifiedType } from "@/lib/electrified-models";
 import { formatVehicleTitle } from "@/lib/vehicle-title";
 import { CatalogDbOutputSchema, type FindMatchingVehicleOutput } from "@/lib/find-matching-vehicle-output";
 import { buildConstraintChecks, aggregateSearchConstraintStatus, type ConstraintEvidenceRequest } from "@/lib/constraint-evidence";
@@ -1144,15 +1144,15 @@ const handler = createMcpHandler((server) => {
       // strings. Without it the trim is only applied after the database returns its first 300 rows, so a rare trim of a popular model could be missed.
       // If nothing matches (or the list cannot be read) the search runs as before and the no-match reply lists the database's trims.
       // Electrified request (SYS-20261021-004, R4): the AI passes the BASE model; the feed names electrified cars in the model ("RAV4 Hybrid", "RAV4 Prime") or
-      // in the trim ("Sport-L Hybrid"), so search the base model's electrified variants as well and list cars with matching wording first. Wording is a hint
-      // only: NHTSA still decides below. If the model list cannot be read the search runs as before.
+      // in the trim ("Sport-L Hybrid"), so search the base model's electrified variants as well and list cars with matching wording first, together with model
+      // years known to be hybrid-only that carry no wording (the 2026 RAV4 is plain "RAV4"; lib/fuel-type.ts). Wording is a hint only: NHTSA still decides below. If the model list cannot be read the search runs as before.
       const electrifiedTypes = (input.electrificationTypes ?? []) as ElectrifiedType[];
       const withElectrifiedFilter = async (q: ListingsQuery): Promise<ListingsQuery> => {
         if (!electrifiedTypes.length || !q.make) return q;
         const facets = await getModelFacets({ make: q.make, yearMin: q.yearMin, yearMax: q.yearMax, used: q.used }, 1000);
         const requested = q.model ? q.model.split(",").map((m) => m.trim()).filter(Boolean) : [];
         const { variants, worded } = electrifiedModelsFor(requested, facets.map((f) => f.value), electrifiedTypes);
-        return { ...q, electrified: { extraModels: variants, wordedModels: worded, trimWording: trimWordingRegex(electrifiedTypes) } };
+        return { ...q, electrified: { extraModels: variants, wordedModels: worded, trimWording: trimWordingRegex(electrifiedTypes), knownHybridOnly: knownHybridOnlyFor(q.make, electrifiedTypes) } };
       };
       const withResolvedTrim = async (q: ListingsQuery): Promise<ListingsQuery> => {
         if (!trimRequired || !q.make || q.trimIn) return q;

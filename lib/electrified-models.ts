@@ -6,6 +6,9 @@
  * model and the electrification field, and the route works out which model names of that make are electrified variants of it. Nothing here proves a car is
  * electrified: NHTSA still decides (lib/nhtsa-client.ts). The wording only decides which cars are looked at first, and which model names are searched.
  */
+import { KNOWN_HYBRID_ONLY } from "./fuel-type";
+import { alnumKey } from "./catalog-db/normalize";
+
 export type ElectrifiedType = "hybrid" | "plug_in_hybrid" | "electric";
 
 /** Removes the electrification words from a trim before comparing (only used when an electrified type was requested; lib/trim-match.ts). */
@@ -71,4 +74,14 @@ export function trimWordingRegex(types: ElectrifiedType[]): string {
   if (types.includes("plug_in_hybrid")) alt.push("plug[^a-z0-9]*in", "phev", "prime");
   if (types.includes("electric")) alt.push("electric", "ev");
   return alt.length ? `\\y(${alt.join("|")})\\y` : "";
+}
+
+/**
+ * Model years of this make that are hybrid with no hybrid wording in the feed (the 2026 RAV4 is plain "RAV4"): listed first for a hybrid request.
+ * Only for a request that includes the hybrid type; plug-in and electric requests get none. The list is in lib/fuel-type.ts (SYS-20261021-004, T58).
+ */
+export function knownHybridOnlyFor(make: string | undefined, types: ElectrifiedType[]): Array<{ modelKey: string; fromYear: number }> {
+  if (!make || !types.includes("hybrid")) return [];
+  const m = alnumKey(make);
+  return KNOWN_HYBRID_ONLY.filter((e) => alnumKey(e.make) === m).map((e) => ({ modelKey: alnumKey(e.model), fromYear: e.fromYear ?? 0 }));
 }

@@ -122,6 +122,7 @@ function electrifiedRank(q: ListingsQuery, p: Params): string {
   const worded = (e.wordedModels ?? []).map(alnumKey).filter(Boolean);
   if (worded.length) parts.push(`l.model_key = ANY(${p.add(worded)})`);
   if (e.trimWording) parts.push(`(l.trim IS NOT NULL AND l.trim ~* ${p.add(e.trimWording)})`);
+  for (const k of e.knownHybridOnly ?? []) parts.push(`(l.model_key = ${p.add(k.modelKey)} AND l.year >= ${p.add(k.fromYear)})`);
   return parts.length ? `(CASE WHEN ${parts.join(" OR ")} THEN 0 ELSE 1 END)` : "0";
 }
 
