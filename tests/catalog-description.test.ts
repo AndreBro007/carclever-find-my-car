@@ -8,7 +8,7 @@ test("input variant: same fields and types, only the notes for vin, colours, cpo
   const a = Object.keys(FindMatchingVehicleInput.shape).sort(), b = Object.keys(FindMatchingVehicleInputCatalog.shape).sort();
   assert.deepEqual(a, b); assert.equal(a.length, 31);
   const d = (k: string, s: any) => String(s.shape[k].description);
-  for (const k of ["cpo", "noAccidents", "oneOwner"]) assert.ok(/no .* data, so results are reported as unconfirmed/.test(d(k, FindMatchingVehicleInputCatalog)), k);
+  for (const k of ["cpo", "noAccidents", "oneOwner"]) assert.ok(/Reported as unconfirmed; the buyer (confirms|checks) /.test(d(k, FindMatchingVehicleInputCatalog)), k);
   assert.ok(/a link to similar vehicles on Edmunds/.test(d("vin", FindMatchingVehicleInputCatalog)));
   assert.ok(/fewer than 3 cars match/.test(d("exteriorColor", FindMatchingVehicleInputCatalog)));
   assert.ok(!/no similar-vehicle substitute/.test(d("vin", FindMatchingVehicleInputCatalog))); assert.ok(/no similar-vehicle substitute/.test(d("vin", FindMatchingVehicleInput)));

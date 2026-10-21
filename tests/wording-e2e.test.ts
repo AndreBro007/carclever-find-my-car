@@ -66,8 +66,8 @@ test("one closing line: availability, price and features; the history sentence o
 });
 
 test("the buyer's stated needs are echoed once, positively, inside the same closing line", opts, async () => {
-  const t = textOf(await call(12, { make: "Honda", model: "CR-V", used: false, vehicleNeeds: ["family SUV"], zip: "75201" }));
-  assert.match(t, /Also ask the dealer about: family SUV\./);
+  const t = textOf(await call(12, { make: "Honda", model: "CR-V", used: false, vehicleNeeds: ["good in snow"], zip: "75201" }));
+  assert.match(t, /Also ask the dealer about: good in snow\./);
   assert.equal(count(t, "Check each Edmunds listing"), 1);
 });
 
@@ -131,7 +131,7 @@ test("F1: the used field says how to pass new, used, pre-owned and certified", o
   const res = await rpc({ jsonrpc: "2.0", id: 50, method: "tools/list", params: {} });
   const tool = res.result.tools.find((t: { name: string }) => t.name === "find_matching_vehicle");
   const d: string = tool.inputSchema.properties.used.description;
-  assert.match(d, /set false when the buyer asks for new, true for used, pre-owned or certified; omit only when they say neither/);
+  assert.match(d, /false for new only, true for used or pre-owned only; omit when the buyer says neither/);
 });
 
 test("F3: rule 3 has the AI say the models are its picks for the size, with no contrast word to complete", opts, async () => {
@@ -159,4 +159,52 @@ test("7.1: single-car replies (VIN lookup and check_vehicle) do not repeat the d
   assert.match(chk, /Check this VIN for open recalls: https:\/\/www\.nhtsa\.gov\/recalls\?vymm=/);
   assert.ok(!/many dealers provide one free|then call or email the dealer to confirm/.test(chk));
   assert.equal(count(chk, "vehicle history report"), 1);
+});
+
+// ---- The tool text as a whole (SYS-20261021-030): short, numbered, consistent, no repeated sentences ----
+async function toolText(): Promise<{ description: string; fields: Record<string, string> }> {
+  const res = await rpc({ jsonrpc: "2.0", id: 70, method: "tools/list", params: {} });
+  const tool = res.result.tools.find((t: { name: string }) => t.name === "find_matching_vehicle");
+  const fields: Record<string, string> = {};
+  for (const [k, v] of Object.entries(tool.inputSchema.properties as Record<string, { description?: string }>)) fields[k] = v.description ?? "";
+  return { description: tool.description as string, fields };
+}
+
+test("T76: rule 1 says how to pass new, used and pre-owned, in the words the used field repeats", opts, async () => {
+  const { description: d, fields } = await toolText();
+  assert.equal(count(d, "New means used: false; used or pre-owned means used: true."), 1);
+  assert.match(fields.used, /^false for new only, true for used or pre-owned only/);
+});
+
+test("the description is numbered 1..9 in order, and every 'rule N' named in the description or a field exists", opts, async () => {
+  const { description: d, fields } = await toolText();
+  const nums = [...d.matchAll(/^(\d+)\. /gm)].map((m) => Number(m[1]));
+  assert.deepEqual(nums, [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  const named = new Set<number>();
+  for (const text of [d, ...Object.values(fields)]) for (const m of text.matchAll(/rules? (\d+)(?: and (\d+))?/g)) { named.add(Number(m[1])); if (m[2]) named.add(Number(m[2])); }
+  for (const n of named) assert.ok(nums.includes(n), `rule ${n} is named but does not exist`);
+  assert.ok(/vehicleNeeds/.test(d.split("\n").find((l) => l.startsWith("3. ")) ?? ""), "rule 3 is the one that covers vehicleNeeds");
+  assert.ok(/NHTSA/.test(d.split("\n").find((l) => l.startsWith("4. ")) ?? ""), "rule 4 is the electrified rule");
+  assert.ok(/ZIP/.test(d.split("\n").find((l) => l.startsWith("7. ")) ?? ""), "rule 7 is the location rule");
+});
+
+test("no sentence is repeated in the description, and it stays short", opts, async () => {
+  const { description: d } = await toolText();
+  const sentences = d.split(/(?<=\.)\s+|\n+/).map((s) => s.trim()).filter((s) => s.length > 25);
+  const seen = new Map<string, number>(); for (const s of sentences.map((x) => x.replace(/^\d+\. /, ""))) seen.set(s, (seen.get(s) ?? 0) + 1);
+  assert.deepEqual([...seen].filter(([, n]) => n > 1).map(([s]) => s), [], "a sentence appears twice");
+  assert.ok(d.length <= 3000, `description is ${d.length} characters; keep it at 3,000 or fewer`);
+});
+
+test("field texts do not describe what the tool lacks: they say what the reply does or where the buyer looks", opts, async () => {
+  const { fields } = await toolText();
+  for (const [k, v] of Object.entries(fields)) assert.ok(!/carries no|has no .* field|inventory carries|catalog/i.test(v), `${k}: ${v}`);
+  for (const k of ["cpo", "noAccidents", "oneOwner"]) assert.match(fields[k], /Reported as unconfirmed; the buyer (confirms|checks) /);
+});
+
+test("T77: 'midsize family SUV' and 'family SUV' are not echoed as questions for the dealer", opts, async () => {
+  for (const need of ["midsize family SUV", "family SUV"]) {
+    const t = textOf(await call(71, { make: "Honda", model: "CR-V", used: false, vehicleNeeds: [need], zip: "75201" }));
+    assert.ok(!/Also ask the dealer about/.test(t), need);
+  }
 });
