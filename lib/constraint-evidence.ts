@@ -58,6 +58,8 @@ export interface ConstraintEvidenceRequest {
   used?: boolean;
   state?: string;
   trimRequired?: string;
+  /** True when the buyer asked for an electrified type (required or preferred): electrification words are then neutral in the trim check (SYS-20261021-004, R3). */
+  electrified?: boolean;
 }
 
 /**
@@ -270,7 +272,7 @@ export function buildConstraintChecks(
     } else {
       checks.push({
         field: "trimRequired",
-        status: trimMatchesAny(requested.trimRequired, actual.trim) ? "verified" : "mismatch", // same acceptable-set rule as the eligibility check
+        status: trimMatchesAny(requested.trimRequired, actual.trim, { electrified: requested.electrified }) ? "verified" : "mismatch", // same acceptable-set rule as the eligibility check
         requested: requested.trimRequired,
         actual: actual.trim,
       });

@@ -51,7 +51,9 @@ import { CAPABILITIES } from "@/lib/capabilities";
 import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting, type CardIntentInput } from "@/lib/qualifier-accounting";
 import { RESULTS_CARD_RESOURCE_URI, buildResultsCardHtml, getAppOrigin } from "@/lib/results-card";
 import { signImageUrl } from "@/lib/image-proxy-sign";
-import { trimMatches, trimMatchesAny } from "@/lib/trim-match";
+import { trimMatches, trimMatchesAny, trimContainsAllAny } from "@/lib/trim-match";
+import { resolveRequiredTrims } from "@/lib/trim-resolution";
+import { electrifiedModelsFor, trimWordingRegex, type ElectrifiedType } from "@/lib/electrified-models";
 import { formatVehicleTitle } from "@/lib/vehicle-title";
 import { CatalogDbOutputSchema, type FindMatchingVehicleOutput } from "@/lib/find-matching-vehicle-output";
 import { buildConstraintChecks, aggregateSearchConstraintStatus, type ConstraintEvidenceRequest } from "@/lib/constraint-evidence";
@@ -1130,19 +1132,49 @@ const handler = createMcpHandler((server) => {
       // At stage 2, a still-missing or non-matching trim must NOT satisfy
       // the requirement — see trimRequiredFullFilter below.
       const trimRequired = intent.trimRequired;
+      // Electrification words in a trim ("Sport-L Hybrid") are neutral in the trim match only when the buyer asked for an electrified type (SYS-20261021-004, R3).
+      const trimOpts = { electrified: !!(input.electrificationTypes && input.electrificationTypes.length > 0) };
+      // Close trim match (SYS-20261021-004, R8): true only when no trim in the database matches the request exactly but some contain every requested word.
+      // Decided once, by withResolvedTrim below, before any search; the checks that follow use the same rule so the search and the reply agree.
+      let trimClose = false;
+      let trimCloseNames: string[] = [];
+      const trimTest = (required: string, actual: string | null | undefined): boolean =>
+        trimClose ? trimContainsAllAny(required, actual, trimOpts) : trimMatchesAny(required, actual, trimOpts);
+      // Resolve a required trim against the trim names the database holds for this make and model (any price, nationwide), then search for exactly those
+      // strings. Without it the trim is only applied after the database returns its first 300 rows, so a rare trim of a popular model could be missed.
+      // If nothing matches (or the list cannot be read) the search runs as before and the no-match reply lists the database's trims.
+      // Electrified request (SYS-20261021-004, R4): the AI passes the BASE model; the feed names electrified cars in the model ("RAV4 Hybrid", "RAV4 Prime") or
+      // in the trim ("Sport-L Hybrid"), so search the base model's electrified variants as well and list cars with matching wording first. Wording is a hint
+      // only: NHTSA still decides below. If the model list cannot be read the search runs as before.
+      const electrifiedTypes = (input.electrificationTypes ?? []) as ElectrifiedType[];
+      const withElectrifiedFilter = async (q: ListingsQuery): Promise<ListingsQuery> => {
+        if (!electrifiedTypes.length || !q.make) return q;
+        const facets = await getModelFacets({ make: q.make, yearMin: q.yearMin, yearMax: q.yearMax, used: q.used }, 1000);
+        const requested = q.model ? q.model.split(",").map((m) => m.trim()).filter(Boolean) : [];
+        const { variants, worded } = electrifiedModelsFor(requested, facets.map((f) => f.value), electrifiedTypes);
+        return { ...q, electrified: { extraModels: variants, wordedModels: worded, trimWording: trimWordingRegex(electrifiedTypes) } };
+      };
+      const withResolvedTrim = async (q: ListingsQuery): Promise<ListingsQuery> => {
+        if (!trimRequired || !q.make || q.trimIn) return q;
+        const res = resolveRequiredTrims(trimRequired, await getTrimFacets(q, 2000), trimOpts);
+        if (res.tier === "none") return q;
+        trimClose = res.tier === "close";
+        trimCloseNames = trimClose ? res.trims : [];
+        return { ...q, trimIn: res.trims };
+      };
       const trimRequiredLeanFilter = (c: VehicleListing): boolean => {
         if (!trimRequired) return true;
         const reported = c.vehicle?.trim;
         if (reported == null || reported === "") return true; // provisional — stage 2 may resolve it
-        return trimMatchesAny(trimRequired, reported);
+        return trimTest(trimRequired, reported);
       };
       const trimIsConfirmedMatch = (c: VehicleListing): boolean =>
-        !!trimRequired && trimMatchesAny(trimRequired, c.vehicle?.trim);
+        !!trimRequired && trimTest(trimRequired, c.vehicle?.trim);
       const trimRequiredFullFilter = (c: VehicleListing): boolean => {
         if (!trimRequired) return true;
         // Full detail is the last word — a still-missing or non-matching
         // trim can no longer stay provisional here.
-        return trimMatchesAny(trimRequired, c.vehicle?.trim);
+        return trimTest(trimRequired, c.vehicle?.trim);
       };
 
       // "Lowest mileage" almost always means "lowest mileage used car" in
@@ -1207,6 +1239,8 @@ const handler = createMcpHandler((server) => {
         sort: resolveSort(input.priorityAxis, intent.hardConstraints.priceMax),
         limit: CANDIDATE_POOL_SIZE,
       };
+      baseQuery.electrified = (await withElectrifiedFilter(baseQuery)).electrified; // before the trim lookup, so it sees the variant models too
+      baseQuery.trimIn = (await withResolvedTrim(baseQuery)).trimIn;
 
       // Two-stage search (SYS-20260812-060): lean ?select= primary search for
       // the full candidate pool (smaller payload, faster), then full-detail
@@ -1344,7 +1378,7 @@ const handler = createMcpHandler((server) => {
           const correctedModelString = corrections
             .map((c) => c.corrected ?? c.requested)
             .join(",");
-          const retryQuery: ListingsQuery = { ...baseQuery, model: correctedModelString };
+          const retryQuery: ListingsQuery = await withResolvedTrim(await withElectrifiedFilter({ ...baseQuery, model: correctedModelString, trimIn: undefined, electrified: undefined }));
           const retryResult = await searchListingsLean(retryQuery);
 
           if (retryResult.data.length > 0) {
@@ -1699,6 +1733,7 @@ const handler = createMcpHandler((server) => {
             intent.semantic.trimPreference,
             electrificationResult.matchedVins ? (c: VehicleListing) => electrificationResult.matchedVins!.has(c.vin) : undefined,
             input.priceMax,
+            trimOpts.electrified,
           )
         : electrificationResult.candidates;
       const driveSplit = await splitByDrivetrain(driveRanked, input.drivetrain, targetCount);
@@ -1749,7 +1784,7 @@ const handler = createMcpHandler((server) => {
         // (default).
         input.priorityAxis === "best_for_budget" || input.priorityAxis == null
           ? applyConfigurationVarietyPass(
-              applyLocalBestForBudgetOrdering(electrificationFilteredCandidates, intent.semantic.trimPreference, electrificationMatchOf, input.priceMax),
+              applyLocalBestForBudgetOrdering(electrificationFilteredCandidates, intent.semantic.trimPreference, electrificationMatchOf, input.priceMax, trimOpts.electrified),
             )
           : electrificationFilteredCandidates,
         targetCount * 2,
@@ -2099,6 +2134,7 @@ const handler = createMcpHandler((server) => {
         // "radius" and the model-name-correction steps don't correspond to
         // any evidence field above — intentionally not mapped.
       }
+      if (trimClose) relaxedFields.add("trimRequired"); // close trim match: the requested trim was relaxed, and the card says so
       if (droppedBodyTypeField) relaxedFields.add("bodyType");
       if (droppedVehicleTypeField) relaxedFields.add("vehicleType");
 
@@ -2121,6 +2157,7 @@ const handler = createMcpHandler((server) => {
         used: input.used,
         state: input.state,
         trimRequired: intent.trimRequired,
+        electrified: trimOpts.electrified,
       };
 
       const cards = (
@@ -2189,6 +2226,11 @@ const handler = createMcpHandler((server) => {
       } else if (bodyStyleDriftDetected) {
         dataNotes.push(
           `One or more listings turned out not to be a genuine ${droppedBodyStyle ?? "match for the requested body style"} at the detailed lookup stage, despite passing the initial search — excluded rather than shown as a mismatch.`,
+        );
+      }
+      if (trimClose && trimRequired) {
+        dataNotes.push(
+          `No listing has the exact trim "${trimRequired}". These are close trim matches: their trim includes those words (${trimCloseNames.slice(0, 3).join(", ")}).`,
         );
       }
       if (trimDriftDetected) {
@@ -2369,7 +2411,7 @@ const handler = createMcpHandler((server) => {
 
       const alternativesText =
         cards.length === 0 && !serviceFailureMessage && !zipLikelyInvalid && !rawResult.error
-          ? await buildNoResultsAlternatives(effectiveQuery, searchListingsLean, { trim: typeof input.trimRequired === "string" ? input.trimRequired : undefined, trimFacets: () => getTrimFacets(effectiveQuery), unmet: input.electrificationRequirement === "required" ? "as the electric or hybrid car you asked for" : undefined })
+          ? await buildNoResultsAlternatives(effectiveQuery, searchListingsLean, { trim: typeof input.trimRequired === "string" ? input.trimRequired : undefined, trimFacets: () => getTrimFacets(effectiveQuery), modelFacets: () => getModelFacets({ ...effectiveQuery, model: undefined, priceMin: undefined, priceMax: undefined, zip: undefined, state: undefined, radius: undefined }), unmet: input.electrificationRequirement === "required" ? "as the electric or hybrid car you asked for" : undefined })
           : "";
 
       const thinAreaRadius = input.radiusMiles ?? 50;

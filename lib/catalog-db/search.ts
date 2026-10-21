@@ -77,7 +77,14 @@ function haversine(p: Params, lat: number, lon: number): string {
 export function whereFor(q: ListingsQuery, models: string[] | null, p: Params, opts: { skipModel?: boolean; strictColour?: boolean } = {}): string[] {
   const w: string[] = [];
   if (q.make) w.push(`l.make_key = ${p.add(alnumKey(q.make))}`);
-  if (!opts.skipModel && models && models.length) w.push(`l.model_key = ANY(${p.add(models.map(alnumKey).filter(Boolean))})`);
+  // A required trim, already resolved to the exact trim strings the database holds (lib/trim-resolution.ts). Cars with no trim stay in so the
+  // later checks decide them as before; without this filter a rare trim could fall outside the candidate rows for a popular model.
+  if (q.trimIn && q.trimIn.length) w.push(`(l.trim = ANY(${p.add(q.trimIn)}) OR l.trim IS NULL)`);
+  if (!opts.skipModel && models && models.length) {
+    const keys = models.map(alnumKey).filter(Boolean);
+    const extra = (q.electrified?.extraModels ?? []).map(alnumKey).filter(Boolean);
+    w.push(extra.length ? `(l.model_key = ANY(${p.add(keys)}) OR l.model_key = ANY(${p.add(extra)}))` : `l.model_key = ANY(${p.add(keys)})`);
+  }
   const bodies = bodyClassesFor(q.bodyType) ?? bodyClassesFor(q.vehicleType);
   if (bodies) w.push(`l.body_class = ANY(${p.add(bodies)})`);
   if (q.priceMin != null) w.push(`l.price >= ${p.add(q.priceMin)}`);
@@ -105,6 +112,17 @@ function colourRank(q: ListingsQuery, p: Params): string {
   if (ext) parts.push(`(CASE WHEN l.ext_color ~* ${p.add(ext)} THEN 0 ELSE 1 END)`);
   if (int) parts.push(`(CASE WHEN l.int_color ~* ${p.add(int)} THEN 0 ELSE 1 END)`);
   return parts.length ? parts.join(" + ") : "0";
+}
+
+/** Electrified request (R4): cars whose model or trim wording matches sort first, so a bounded candidate pool is spent on them. Wording only ranks; nothing is excluded. */
+function electrifiedRank(q: ListingsQuery, p: Params): string {
+  const e = q.electrified;
+  if (!e) return "0";
+  const parts: string[] = [];
+  const worded = (e.wordedModels ?? []).map(alnumKey).filter(Boolean);
+  if (worded.length) parts.push(`l.model_key = ANY(${p.add(worded)})`);
+  if (e.trimWording) parts.push(`(l.trim IS NOT NULL AND l.trim ~* ${p.add(e.trimWording)})`);
+  return parts.length ? `(CASE WHEN ${parts.join(" OR ")} THEN 0 ELSE 1 END)` : "0";
 }
 
 /** The requested priority (cheapest, lowest mileage, newest) goes first in the local search; distance is the tie-break. */
@@ -144,7 +162,8 @@ async function plainSearch(db: Queryable, q: ListingsQuery, models: string[] | n
   const whereSql = w.length ? `WHERE ${w.join(" AND ")}` : "";
   const nWhere = p.values.length; // the count query uses only the filter parameters, not the ranking ones added below
   const cr = colourRank(q, p);
-  const rows = await db.query(`SELECT ${SELECT_COLS}, NULL::float AS distance ${FROM} ${whereSql} ORDER BY ${cr === "0" ? "" : cr + ", "}${orderFor(q.sort, q.priceMax != null)} LIMIT ${limitOf(q)}`, p.values);
+  const er = electrifiedRank(q, p);
+  const rows = await db.query(`SELECT ${SELECT_COLS}, NULL::float AS distance ${FROM} ${whereSql} ORDER BY ${er === "0" ? "" : er + ", "}${cr === "0" ? "" : cr + ", "}${orderFor(q.sort, q.priceMax != null)} LIMIT ${limitOf(q)}`, p.values);
   const total = await countCapped(db, whereSql, p.values.slice(0, nWhere));
   return { rows: rows.rows as unknown as DbRow[], total, localApplied: false };
 }
@@ -161,8 +180,9 @@ async function localSearch(db: Queryable, q: ListingsQuery, models: string[] | n
       w.push(`l.lat BETWEEN ${p.add(origin.lat - dLat)} AND ${p.add(origin.lat + dLat)}`, `l.lon BETWEEN ${p.add(origin.lon - dLon)} AND ${p.add(origin.lon + dLon)}`);
     }
     const cr = colourRank(q, p);
-    const inner = `SELECT ${SELECT_COLS}, ${dist} AS distance, ${cr} AS colour_rank ${FROM} WHERE ${w.join(" AND ")}`;
-    const rows = await db.query(`SELECT * FROM (${inner}) x ${r != null ? `WHERE x.distance <= ${p.add(r)}` : ""} ORDER BY x.colour_rank ASC, ${localSortFor(q.sort, q.priceMax)}x.distance ASC, x.price ASC NULLS LAST LIMIT ${limit}`, p.values);
+    const er = electrifiedRank(q, p);
+    const inner = `SELECT ${SELECT_COLS}, ${dist} AS distance, ${cr} AS colour_rank, ${er} AS elec_rank ${FROM} WHERE ${w.join(" AND ")}`;
+    const rows = await db.query(`SELECT * FROM (${inner}) x ${r != null ? `WHERE x.distance <= ${p.add(r)}` : ""} ORDER BY x.elec_rank ASC, x.colour_rank ASC, ${localSortFor(q.sort, q.priceMax)}x.distance ASC, x.price ASC NULLS LAST LIMIT ${limit}`, p.values);
     return rows.rows as unknown as DbRow[];
   };
   // Only the radius the buyer asked for. Never widened here: a thin result is reported, and widening is offered in the reply.
@@ -193,18 +213,18 @@ export async function rowByVin(db: Queryable, vin: string): Promise<DbRow | null
   return (r.rows[0] as unknown as DbRow) ?? null;
 }
 
-export async function modelFacets(db: Queryable, q: ListingsQuery): Promise<Array<{ value: string; count: number }>> {
+export async function modelFacets(db: Queryable, q: ListingsQuery, limit = 30): Promise<Array<{ value: string; count: number }>> {
   const p = new Params();
-  const w = whereFor(q, null, p, { skipModel: true });
-  const r = await db.query(`SELECT l.model AS value, count(*)::int AS count ${FROM} ${w.length ? `WHERE ${w.join(" AND ")}` : ""} GROUP BY l.model ORDER BY count DESC, l.model LIMIT 30`, p.values);
+  const w = whereFor({ ...q, trimIn: undefined, electrified: undefined }, null, p, { skipModel: true });
+  const r = await db.query(`SELECT l.model AS value, count(*)::int AS count ${FROM} ${w.length ? `WHERE ${w.join(" AND ")}` : ""} GROUP BY l.model ORDER BY count DESC, l.model LIMIT ${Math.max(1, Math.floor(limit))}`, p.values);
   return r.rows.map((x) => ({ value: String(x.value), count: Number(x.count) }));
 }
 
 /** The trim names that exist for the asked make and model (any price, nationwide), with counts: lets the AI retry with a real trim name. */
-export async function trimFacets(db: Queryable, q: ListingsQuery, models: string[] | null): Promise<Array<{ value: string; count: number }>> {
+export async function trimFacets(db: Queryable, q: ListingsQuery, models: string[] | null, limit = 12): Promise<Array<{ value: string; count: number }>> {
   const p = new Params();
-  const w = whereFor({ ...q, priceMin: undefined, priceMax: undefined, zip: undefined, state: undefined }, models, p);
+  const w = whereFor({ ...q, priceMin: undefined, priceMax: undefined, zip: undefined, state: undefined, trimIn: undefined }, models, p);
   w.push("l.trim IS NOT NULL AND l.trim <> ''");
-  const r = await db.query(`SELECT l.trim AS value, count(*)::int AS count ${FROM} WHERE ${w.join(" AND ")} GROUP BY l.trim ORDER BY count DESC, l.trim LIMIT 12`, p.values);
+  const r = await db.query(`SELECT l.trim AS value, count(*)::int AS count ${FROM} WHERE ${w.join(" AND ")} GROUP BY l.trim ORDER BY count DESC, l.trim LIMIT ${Math.max(1, Math.floor(limit))}`, p.values);
   return r.rows.map((x) => ({ value: String(x.value), count: Number(x.count) }));
 }

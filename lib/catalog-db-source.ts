@@ -109,19 +109,19 @@ export async function getCatalogDbListing(vin: string): Promise<VehicleListing |
   return r.status === "found" ? r.listing : null;
 }
 
-export async function catalogDbModelFacets(q: ListingsQuery): Promise<Array<{ value: string; count: number }>> {
+export async function catalogDbModelFacets(q: ListingsQuery, limit?: number): Promise<Array<{ value: string; count: number }>> {
   if (!catalogDbConfigured() && !pool) return [];
   try {
-    return await modelFacets(getPool() as unknown as Queryable, q);
+    return await modelFacets(getPool() as unknown as Queryable, q, limit);
   } catch {
     return [];
   }
 }
 
-export async function catalogDbTrimFacets(q: ListingsQuery): Promise<Array<{ value: string; count: number }>> {
+export async function catalogDbTrimFacets(q: ListingsQuery, limit?: number): Promise<Array<{ value: string; count: number }>> {
   if (!catalogDbConfigured() && !pool) return [];
   try {
-    return await trimFacets(getPool() as unknown as Queryable, q, modelsFor(q));
+    return await trimFacets(getPool() as unknown as Queryable, q, modelsFor(q), limit);
   } catch {
     return [];
   }

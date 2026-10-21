@@ -109,6 +109,8 @@ export function applyLocalBestForBudgetOrdering(
   trimPreference: string | undefined,
   electrificationMatchOf?: (c: VehicleListing) => boolean,
   priceCap?: number,
+  /** True when an electrified type was requested: electrification words are neutral in the trim-preference match (SYS-20261021-004, R3). */
+  electrified?: boolean,
 ): VehicleListing[] {
   if (candidates.length === 0) return candidates;
 
@@ -152,7 +154,7 @@ export function applyLocalBestForBudgetOrdering(
       ? 0.4 * yearRank(c.vehicle?.year) + 0.4 * mileageRank(c.retailListing?.miles) + 0.2 * budgetUseRank(c)
       : (yearRank(c.vehicle?.year) + mileageRank(c.retailListing?.miles) + priceRank(c)) / 3;
   const trimMatchRank = (c: VehicleListing): number =>
-    trimPreference && trimMatches(trimPreference, c.vehicle?.trim) ? 0 : 1;
+    trimPreference && trimMatches(trimPreference, c.vehicle?.trim, { electrified }) ? 0 : 1;
   const anomalyRank = (c: VehicleListing): number => (isAnomalousPrice(c.retailListing?.price) ? 1 : 0);
   const electrificationMatchRank = (c: VehicleListing): number =>
     electrificationMatchOf && electrificationMatchOf(c) ? 0 : 1;

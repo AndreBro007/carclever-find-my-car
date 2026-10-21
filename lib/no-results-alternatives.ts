@@ -3,7 +3,8 @@
  *
  *   Tier 1  same make and model with the price limit removed (the closest options over budget), nearest area first,
  *           then anywhere in the country, always labelled so the buyer can see what is being shown and why.
- *   Tier 2  when the model has no listings at all: other models from the same make inside the buyer's own filters.
+ *   Tier 2  when the model has no listings at all: the model names the database does hold for that make (so a different spelling can be retried by
+ *           its exact name; SYS-20261021-004, R5), then other models from the same make inside the buyer's own filters.
  *
  * Text only: the result list stays empty, so nothing here is presented as a match.
  */
@@ -39,12 +40,13 @@ function pick(rows: VehicleListing[], max: number, distinctModels: boolean): Veh
   return out;
 }
 
-export async function buildNoResultsAlternatives(query: ListingsQuery, search: AlternativesSearch, opts: { trim?: string; unmet?: string; trimFacets?: () => Promise<Array<{ value: string; count: number }>> } = {}): Promise<string> {
+export async function buildNoResultsAlternatives(query: ListingsQuery, search: AlternativesSearch, opts: { trim?: string; unmet?: string; trimFacets?: () => Promise<Array<{ value: string; count: number }>>; modelFacets?: () => Promise<Array<{ value: string; count: number }>> } = {}): Promise<string> {
   const make = one(query.make), model = one(query.model);
   if (!make) return "";
   const single = model && !model.includes(",") && !make.includes(",");
   const condition = query.used === false ? "new " : query.used === true ? "used " : "";
   let failed = false;
+  let modelList = ""; // filled only when the model has no listings at all (tier 2); still shown if no alternative cars can be listed
   const items = (rows: VehicleListing[], distinct: boolean): string => pick(rows, 3, distinct).map((l, i) => describe(l, i + 1)).join("\n");
   /** Nearest area first (when a ZIP was given), then the whole country; says which one it used. */
   const nearThenNationwide = async (q: ListingsQuery): Promise<{ rows: VehicleListing[]; scope: string }> => {
@@ -84,17 +86,22 @@ export async function buildNoResultsAlternatives(query: ListingsQuery, search: A
         }
       }
     }
-    // 3. The model has no listings at all: other models from the same make inside the buyer's own filters.
+    // 3. The model has no listings at all: say which model names the database holds for this make (a prefix such as "GLA" for "GLA-Class" is already
+    //    corrected by the route; this covers other spellings), then other models from the same make inside the buyer's own filters.
+    if (single && opts.modelFacets) {
+      const f = await opts.modelFacets().catch(() => []);
+      if (f.length) modelList = `\n\nModels we have for ${make}: ${f.slice(0, 12).map((x) => `${x.value} (${x.count})`).join(", ")}. If you meant one of these, ask for it by that exact name.`;
+    }
     const wide: ListingsQuery = { ...query, model: undefined, sort: "price.asc", limit: 60 };
     const r3 = await search(wide);
     if (r3.error) failed = true;
     const top3 = r3.error ? [] : pick(r3.data, 3, true);
-    if (top3.length) return `\n\nNo ${condition}${make} ${model || "vehicles"} listings matched. Other ${make} models inside your filters:\n` + top3.map((l, i) => describe(l, i + 1)).join("\n");
+    if (top3.length) return modelList + `\n\nNo ${condition}${make} ${model || "vehicles"} listings matched. Other ${make} models inside your filters:\n` + top3.map((l, i) => describe(l, i + 1)).join("\n");
     // 4. Still nothing: other models of the make with the price limit and condition removed, clearly labelled.
     const r4 = await search({ ...wide, priceMin: undefined, priceMax: undefined, used: undefined });
     if (r4.error) failed = true;
     const top4 = r4.error ? [] : pick(r4.data, 3, true);
-    if (top4.length) return `\n\nNo ${condition}${make} ${model || "vehicles"} listings matched. Other ${make} models, lowest price first (these do not match your price limit or condition):\n` + top4.map((l, i) => describe(l, i + 1)).join("\n");
+    if (top4.length) return modelList + `\n\nNo ${condition}${make} ${model || "vehicles"} listings matched. Other ${make} models, lowest price first (these do not match your price limit or condition):\n` + top4.map((l, i) => describe(l, i + 1)).join("\n");
   } catch (e) {
     failed = true;
     console.error("[no-results-alternatives] failed:", e instanceof Error ? e.message : String(e)); // a courtesy, never allowed to break the reply, but never silent either
@@ -103,5 +110,5 @@ export async function buildNoResultsAlternatives(query: ListingsQuery, search: A
     console.error("[no-results-alternatives] no alternatives shown because a search failed");
     return "\n\n(Similar-vehicle options could not be loaded just now; trying again in a moment may show them.)";
   }
-  return "";
+  return modelList;
 }

@@ -22,10 +22,12 @@ export function lookupListingByVin(vin: string): Promise<VinLookup> {
   return lookupCatalogDbVin(vin);
 }
 
-export function getModelFacets(query: ListingsQuery): Promise<Array<{ value: string; count: number }>> {
-  return catalogDbModelFacets(query);
+/** The model names the database holds for the filters given, most common first. `limit` defaults to 30; route electrified-model lookup asks for all of a make's. */
+export function getModelFacets(query: ListingsQuery, limit?: number): Promise<Array<{ value: string; count: number }>> {
+  return catalogDbModelFacets(query, limit);
 }
 
-export function getTrimFacets(query: ListingsQuery): Promise<Array<{ value: string; count: number }>> {
-  return catalogDbTrimFacets(query);
+/** The trim names the database holds for the asked make and model (any price, nationwide), most common first. `limit` defaults to 12 (the no-match list); route trim resolution asks for all of them. */
+export function getTrimFacets(query: ListingsQuery, limit?: number): Promise<Array<{ value: string; count: number }>> {
+  return catalogDbTrimFacets(query, limit);
 }

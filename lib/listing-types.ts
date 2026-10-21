@@ -95,7 +95,17 @@ export interface ListingsQuery {
   ownerCount?: number; // history.ownerCount — facet-verified filterable
   sort?: string; // e.g. "price.asc"
   includeFacets?: boolean;
-  /** Set by the route when a class (e.g. large 3-row SUV) was described without model names; used by the catalogue source only. */
+  /**
+   * Exact trim strings the database may return, plus cars with no trim (the later checks decide those). Set by the route after it resolves a
+   * required trim against the database's own trim names (SYS-20261021-004, R8); never set by the AI.
+   */
+  trimIn?: string[];
+  /**
+   * Set by the route when the buyer asked for an electrified type (SYS-20261021-004, R4); never set by the AI. `extraModels` are further model names of the same
+   * family as the asked ones whose wording matches ("RAV4 Hybrid", "RAV4 Prime" for "RAV4"), searched as well; `wordedModels` and `trimWording` mark the cars
+   * whose model or trim wording matches, which are listed first. Wording is a hint only: NHTSA still decides (lib/electrified-models.ts).
+   */
+  electrified?: { extraModels: string[]; wordedModels: string[]; trimWording: string };
 }
 
 export interface ListingsResponse {
