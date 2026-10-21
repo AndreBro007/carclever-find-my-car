@@ -29,7 +29,7 @@ export const FindMatchingVehicleInput = z.object({
   trimRequired: z.string().optional().describe("Real trim or variant the buyer requires (for example, AMG GLA 35); comma-separated alternatives accepted. Results must match a listed trim. If none match, the reply lists the model's trims."),
   seatsMinPreference: z.number().optional().describe("Preferred minimum seats, from available NHTSA seat data. Missing means unknown, not a failure. Ranks and reports only; not a seating filter or confirmation of a third row."),
   vehicleNeeds: z.array(z.string()).optional().describe("Short list of practical needs (for example, large family SUV, commuter car), resolved into candidates per rule 3."),
-  electrificationTypes: z.array(z.enum(["hybrid", "plug_in_hybrid", "electric"])).optional().describe("hybrid (includes mild hybrid), plug_in_hybrid and/or electric. Pair with candidates that offer that version (rule 4)."),
+  electrificationTypes: z.array(z.enum(["hybrid", "plug_in_hybrid", "electric"])).optional().describe("hybrid (includes mild hybrid), plug_in_hybrid and/or electric. See rule 4."),
   electrificationRequirement: z.enum(["required", "preferred"]).optional().describe("Whether the stated electrification types are required or preferred."),
   // Widened per design doc §2 — all live-verified filterable.
   drivetrain: z.string().optional().describe("AWD, 4WD, FWD, RWD or a comma-separated set. Cars decoded with a different drivetrain are left out; confirmed cars come first; unconfirmed cars follow, marked."),
