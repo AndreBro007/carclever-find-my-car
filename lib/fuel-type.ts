@@ -86,7 +86,8 @@ export function isStrictEV(rawFuel: string | null | undefined): boolean {
  *   - Toyota Land Cruiser: hybrid-only since MY2022+ US relaunch
  *   - Ford F-150 PowerBoost: PowerBoost is the hybrid trim name; gas F-150s use different trim names
  *   - Lexus ES 300h, LX 600h, RX 500h/450h/450h+/350h, NX 350h/450h+, UX 250h, LC 500h, LS 500h: hybrid-only nameplates (h suffix). Note: the catalogue
- *     feed names these cars with the plain model ("ES", "RX") and the h in the TRIM ("350h Premium"), so these entries do not match feed data.
+ *     feed names newer cars with the plain model ("ES", "RX") and the h in the TRIM ("350h Premium"), so for those these entries do not match feed data; the
+ *     electrified search finds them by the letter suffix instead (lib/electrified-models.ts, R9). Older cars use the model name ("RX 450h", "ES 300h").
  *   - Toyota RAV4: hybrid-only from MY2026 (added 21 Oct 2026)
  *   - Toyota Camry: hybrid-only from MY2025 (added 21 Oct 2026)
  *   - Toyota Sienna: hybrid-only from MY2021 (added 21 Oct 2026)

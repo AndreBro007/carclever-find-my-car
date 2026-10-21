@@ -52,6 +52,7 @@
 
 import { specsFromRow, fuelFor, modelsAgree, type NhtsaSpecs } from "./nhtsa-specs";
 import { isKnownHybridOnly } from "./fuel-type";
+import { hasLetterSuffixWording } from "./electrified-models";
 
 const NHTSA_BASE_URL = "https://vpic.nhtsa.dot.gov/api/vehicles/decodevinvalues";
 const NHTSA_TIMEOUT_MS = 3_000;
@@ -355,9 +356,11 @@ const ELECTRIFIED_HINT = /\b(hybrid|hev|phev|plug-?in|prime|electric|ev\d*|e-?tr
  * trim already hints at electrification first (stable order inside each group), so the bounded pool is spent where hybrids are.
  */
 export function prioritizeElectrificationCandidates<T extends { vehicle?: { make?: unknown; model?: unknown; trim?: unknown; year?: unknown } | null }>(cands: T[]): T[] {
-  // Wording in the make, model or trim, or a model year known to be hybrid-only with no wording (the 2026 RAV4; lib/fuel-type.ts, SYS-20261021-004, T58).
+  // Wording in the make, model or trim, a letter suffix such as "350h" or "xDrive50e" (R9), or a model year known to be hybrid-only with no wording (the 2026 RAV4;
+  // lib/fuel-type.ts, SYS-20261021-004, T58). Wording first, so the bounded pool is spent where electrified cars are.
   const hinted = (c: T) =>
     ELECTRIFIED_HINT.test([c.vehicle?.make, c.vehicle?.model, c.vehicle?.trim].map((x) => (x == null ? "" : String(x))).join(" ")) ||
+    hasLetterSuffixWording([c.vehicle?.model, c.vehicle?.trim].map((x) => (x == null ? "" : String(x))).join(" ")) ||
     isKnownHybridOnly(c.vehicle?.year == null ? null : Number(c.vehicle.year), c.vehicle?.make == null ? null : String(c.vehicle.make), c.vehicle?.model == null ? null : String(c.vehicle.model));
   return [...cands.filter(hinted), ...cands.filter((c) => !hinted(c))];
 }

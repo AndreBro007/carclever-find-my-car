@@ -6,6 +6,7 @@ import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { Pool } from "pg";
 import { electrifiedModelsFor, electrificationTypesOf, trimWordingRegex, stripElectrificationWords } from "../lib/electrified-models";
+import { prioritizeElectrificationCandidates } from "../lib/nhtsa-client";
 import { SCHEMA_SQL } from "../lib/catalog-db/schema";
 import { searchCatalogDbListings, setCatalogDbPoolForTests } from "../lib/catalog-db-source";
 
@@ -54,7 +55,7 @@ test("R4: a broad search (no model) lists every model name with matching wording
 test("no types, no work; the trim wording regex follows the types", () => {
   assert.deepEqual(electrifiedModelsFor(["RAV4"], FEED, []), { variants: [], worded: [] });
   assert.equal(trimWordingRegex([]), "");
-  assert.equal(trimWordingRegex(["hybrid"]), "\\y(hybrid)\\y");
+  assert.match(trimWordingRegex(["hybrid"]), /^\\y\(hybrid\)\\y\|/);
   assert.match(trimWordingRegex(["plug_in_hybrid", "electric"]), /plug\[\^a-z0-9\]\*in\|phev\|prime\|electric\|ev/);
   assert.equal(stripElectrificationWords("Sport-L Hybrid").trim(), "Sport-L");
 });
@@ -111,4 +112,61 @@ describe("electrified search in a real database", { skip: DB ? false : "TEST_DAT
     assert.equal(r.localApplied, true);
     assert.equal(r.data.slice(0, 6).filter((l) => /Hybrid/.test(`${l.vehicle?.model} ${l.vehicle?.trim}`)).length, 6);
   });
+});
+
+test("R9: letter suffixes in trims and models (real names from the catalogue) point to the right types", () => {
+  const t = (n: string) => [...electrificationTypesOf(n)].sort();
+  assert.deepEqual(t("350h Premium"), ["hybrid"]);          // Lexus RX, NX, ES
+  assert.deepEqual(t("500h F SPORT Premium"), ["hybrid"]);  // Lexus TX
+  assert.deepEqual(t("700h Luxury"), ["hybrid"]);           // Lexus LX
+  assert.deepEqual(t("450h+ Premium"), ["plug_in_hybrid"]); // Lexus NX, RX plug-in
+  assert.deepEqual(t("xDrive50e"), ["electric", "plug_in_hybrid"]); // BMW X5
+  assert.deepEqual(t("330e"), ["electric", "plug_in_hybrid"]);      // BMW 3 Series
+  assert.deepEqual(t("GLC 350e 4MATIC"), ["electric", "plug_in_hybrid"]);
+  assert.deepEqual(t("P550e SE"), ["electric", "plug_in_hybrid"]);  // Land Rover
+  assert.deepEqual(t("350e Premium"), ["electric", "plug_in_hybrid"]); // Lexus ES 350e is battery-electric
+  assert.deepEqual(t("RX 450h"), ["hybrid"]);               // older Lexus: the suffix is in the model
+  assert.deepEqual(t("ES 300h"), ["hybrid"]);
+  assert.deepEqual(t("CT 200h"), ["hybrid"]);
+});
+
+test("R9: names that only look similar get no wording", () => {
+  for (const n of ["350 Premium", "xDrive40i", "330i xDrive", "GLC 300 4MATIC", "2.0T Premium Plus quattro", "M50 xDrive", "40 xDrive", "SE", "LE", "350hx", "RX 350"]) {
+    assert.equal(electrificationTypesOf(n).size, 0, n);
+  }
+});
+
+test("R9: the base model finds its suffix-named variants, and the suffix is not part of the family", () => {
+  const feed = ["RX", "RX 450h", "ES", "ES 300h", "NX", "NX 300h", "UX", "UX 250h", "CT 200h", "LS"];
+  assert.deepEqual(electrifiedModelsFor(["RX"], feed, ["hybrid"]), { variants: ["RX 450h"], worded: ["RX 450h"] });
+  assert.deepEqual(electrifiedModelsFor(["ES"], feed, ["hybrid"]).variants, ["ES 300h"]);
+  assert.deepEqual(electrifiedModelsFor(["NX"], feed, ["hybrid"]).variants, ["NX 300h"]);
+  assert.deepEqual(electrifiedModelsFor(["RX"], feed, ["electric"]).variants, []);
+});
+
+test("R9: the ranking regex follows the requested types and matches the real trims", () => {
+  const re = (types: Array<"hybrid" | "plug_in_hybrid" | "electric">) => new RegExp(trimWordingRegex(types).replace(/\\y/g, "\\b"), "i");
+  assert.ok(re(["hybrid"]).test("350h Premium Plus"));
+  assert.ok(re(["hybrid"]).test("450h+ Luxury"));
+  assert.ok(!re(["hybrid"]).test("xDrive50e"));
+  assert.ok(re(["plug_in_hybrid"]).test("xDrive50e"));
+  assert.ok(re(["plug_in_hybrid"]).test("450h+ Luxury"));
+  assert.ok(!re(["plug_in_hybrid"]).test("350h Premium"));
+  assert.ok(re(["electric"]).test("350e Premium"));
+  assert.ok(!re(["electric"]).test("350h Premium"));
+  assert.ok(!re(["hybrid"]).test("350 Premium"));
+  assert.ok(!re(["hybrid"]).test("xDrive40i"));
+  assert.ok(re(["hybrid"]).test("Sport-L Hybrid"));
+});
+
+test("the NHTSA pool prioritizer puts letter-suffix and known hybrid-only cars ahead of plain ones (R9, T58)", () => {
+  const car = (make: string, model: string, trim: string | null, year: number) => ({ vehicle: { make, model, trim, year } });
+  const plain = car("Lexus", "RX", "350 Premium", 2025);
+  const suffix = car("Lexus", "RX", "350h Premium", 2022);
+  const worded = car("Toyota", "RAV4 Hybrid", "XLE", 2025);
+  const knownYear = car("Toyota", "RAV4", "LE", 2026);
+  const knownOld = car("Toyota", "RAV4", "LE", 2025);
+  const bmw = car("BMW", "X5", "xDrive50e", 2023);
+  const out = prioritizeElectrificationCandidates([plain, suffix, knownOld, worded, knownYear, bmw]);
+  assert.deepEqual(out, [suffix, worded, knownYear, bmw, plain, knownOld]); // hinted first, stable inside each group
 });
