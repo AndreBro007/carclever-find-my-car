@@ -126,3 +126,25 @@ test("'out of N in the area' is said only when nothing narrows the cars afterwar
   assert.match(trim, /Found \d+ closely matching vehicles?:/);
   assert.ok(!/in the area:/.test(trim));
 });
+
+test("F1: the used field says how to pass new, used, pre-owned and certified", opts, async () => {
+  const res = await rpc({ jsonrpc: "2.0", id: 50, method: "tools/list", params: {} });
+  const tool = res.result.tools.find((t: { name: string }) => t.name === "find_matching_vehicle");
+  const d: string = tool.inputSchema.properties.used.description;
+  assert.match(d, /set false when the buyer asks for new, true for used, pre-owned or certified; omit only when they say neither/);
+});
+
+test("F3: rule 3 has the AI say the models are its picks for the size, with no contrast word to complete", opts, async () => {
+  const res = await rpc({ jsonrpc: "2.0", id: 51, method: "tools/list", params: {} });
+  const d: string = res.result.tools.find((t: { name: string }) => t.name === "find_matching_vehicle").description;
+  assert.equal(count(d, "Say the models are your picks for the size, and point the buyer to the listing for dimensions."), 1);
+  assert.ok(!/Size comes from your model choice/.test(d));
+});
+
+test("F2: in a reply with a used car the history report is asked for once, in the closing line", opts, async () => {
+  const t = textOf(await call(52, { make: "Honda", model: "CR-V", used: true, zip: "75201" }));
+  assert.match(t, /Before contacting a dealer: check a specific car for open \(unrepaired\) recalls/);
+  assert.equal(count(t, "history report"), 1);
+  assert.ok(!/call or email the dealer/.test(t));
+  assert.ok(!/many dealers provide one free/.test(t));
+});

@@ -39,7 +39,7 @@ export const FindMatchingVehicleInput = z.object({
   vehicleType: z.string().optional().describe("Finer class only when the buyer names it (Crossover, Wagon, Hatchback, Coupe). Do not repeat bodyType."),
   doors: z.number().optional().describe("Requested door count."),
   cylinders: z.number().optional().describe("Not used to filter results in this version, because the listing data has no cylinder-count field. Engine details are shown on a result when known."),
-  used: z.boolean().optional().describe("Vehicle condition: true for used only, false for new only; omitted includes both."),
+  used: z.boolean().optional().describe("Vehicle condition: set false when the buyer asks for new, true for used, pre-owned or certified; omit only when they say neither."),
   cpo: z.boolean().optional().describe("Request for certified pre-owned status. Results distinguish confirmed, reported-not-CPO, and unreported evidence."),
   state: z.string().optional().describe("Two-letter US state code for a state-wide search when no local ZIP is available."),
   noAccidents: z.boolean().optional().describe("Request for no reported accidents. Results distinguish reported-clean, reported issues, and unreported history."), // maps to history.accidentCount=0

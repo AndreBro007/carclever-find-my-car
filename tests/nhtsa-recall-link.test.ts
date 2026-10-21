@@ -26,7 +26,9 @@ const fresh = { condition: { inventoryType: "new" }, links: {} };
 describe("guidance wording", () => {
   test("list footnote: how to check ANY listed car, then contact the dealer, honest about what the lookup covers", () => {
     const t = recallCheckFootnote([used, fresh]);
-    for (const must of ["open (unrepaired) recalls", "NHTSA's free VIN lookup", "https://www.nhtsa.gov/recalls?vymm=<the car's VIN>", "call or email the dealer", "vehicle history report", "many dealers provide one free", "participating manufacturers", "already repaired"]) assert.ok(t.includes(must), must);
+    for (const must of ["open (unrepaired) recalls", "NHTSA's free VIN lookup", "https://www.nhtsa.gov/recalls?vymm=<the car's VIN>", "participating manufacturers", "already repaired"]) assert.ok(t.includes(must), must);
+    // The dealer and history-report advice lives in the one closing line of the reply; the recall paragraph does not repeat it (SYS-20261021-026, F2).
+    for (const gone of ["call or email the dealer", "vehicle history report", "many dealers provide one free"]) assert.ok(!t.includes(gone), gone);
     assert.ok(!/carfax|all recalls|no recalls|safe to buy|guarantee/i.test(t));
     assert.equal(recallCheckFootnote([fresh]), ""); assert.equal(recallCheckFootnote([]), "");
   });

@@ -22,7 +22,7 @@ const SCOPE = "NHTSA's lookup covers participating manufacturers and does not sh
 /** One footnote under a list that contains used cars: how to check ANY listed car for an unrepaired recall. "" otherwise. */
 export function recallCheckFootnote(cards: any[]): string {
   if (!Array.isArray(cards) || !cards.some((c) => c?.links?.nhtsaRecallCheckUrl)) return "";
-  return `\n\nBefore contacting a dealer: check a specific car for open (unrepaired) recalls with NHTSA's free VIN lookup, ${NHTSA_RECALLS_URL}?vymm=<the car's VIN>, ${ADVICE}. ${SCOPE}.`;
+  return `\n\nBefore contacting a dealer: check a specific car for open (unrepaired) recalls with NHTSA's free VIN lookup, ${NHTSA_RECALLS_URL}?vymm=<the car's VIN>. ${SCOPE}.`; // the dealer and history-report advice is in the one closing line, not repeated here
 }
 /** The same advice with the car's own link, for a single car (VIN lookup, check_vehicle). "" for new cars. */
 export function recallCheckLine(card: any): string {
