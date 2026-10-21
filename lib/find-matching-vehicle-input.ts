@@ -114,5 +114,5 @@ export const FindMatchingVehicleInputCatalog = z.object({
   cpo: z.boolean().optional().describe("Request for certified pre-owned status. Reported as unconfirmed; the buyer confirms with the dealer."),
   noAccidents: z.boolean().optional().describe("Request for no reported accidents. Reported as unconfirmed; the buyer checks the listing and the dealer."),
   oneOwner: z.boolean().optional().describe("Request for one-owner history. Reported as unconfirmed; the buyer checks the listing and the dealer."),
-  condition: z.enum(["new", "used", "either"]).describe("Required. new = new cars only; used = used, pre-owned or certified only; either = the buyer said neither."),
+  condition: z.enum(["new", "used", "either"]).describe("Required. new = new cars only; used = used, pre-owned or certified only; either = the buyer said neither. Use new when the request says new, for example \"looking for a new SUV\"."),
 }).strict().superRefine(electrificationRefine);

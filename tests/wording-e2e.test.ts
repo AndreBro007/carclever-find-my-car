@@ -134,7 +134,7 @@ test("B: condition is published as a required choice (new, used, either) in plac
   assert.deepEqual(sch.properties.condition.enum, ["new", "used", "either"]);
   assert.ok((sch.required ?? []).includes("condition"), "condition is in the published required list");
   assert.equal(sch.properties.used, undefined, "the old boolean is no longer published");
-  assert.match(sch.properties.condition.description, /^Required\. new = new cars only; used = used, pre-owned or certified only; either = the buyer said neither\.$/);
+  assert.match(sch.properties.condition.description, /^Required\. new = new cars only; used = used, pre-owned or certified only; either = the buyer said neither\. Use new when the request says new, for example "looking for a new SUV"\.$/);
 });
 
 test("F3: rule 3 has the AI say the models are its picks for the size, with no contrast word to complete", opts, async () => {
@@ -177,7 +177,7 @@ test("B: rule 1 and the condition field say the same thing in the same words", o
   const { description: d, fields } = await toolText();
   assert.equal(count(d, "Always set condition: new, used (pre-owned and certified count as used), or either when the buyer says neither."), 1);
   assert.ok(!/used: false|used: true/.test(d), "the description no longer speaks of the old boolean");
-  assert.match(fields.condition, /^Required\. new = new cars only; used = used, pre-owned or certified only; either = the buyer said neither\.$/);
+  assert.match(fields.condition, /^Required\. new = new cars only; used = used, pre-owned or certified only; either = the buyer said neither\. Use new when the request says new, for example "looking for a new SUV"\.$/);
   assert.equal(fields.used, undefined);
 });
 

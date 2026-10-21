@@ -96,3 +96,24 @@ test("a value that is not understood is reported, and both conditions are search
   assert.ok(kinds.includes("new") && kinds.includes("used"));
   assert.match(text, /these inputs could not be used and were ignored: condition \(value "maybe" not recognised; both new and used were searched\)/);
 });
+
+test("G: every reply starts with a Searched line that states what ran; the correction hint appears only for either", opts, async () => {
+  const n = await search({ condition: "new", priceMax: 40000, radiusMiles: 100 });
+  assert.match(n.text, /^Searched: new cars; Honda, models CR-V; up to \$40,000; within 100 miles of ZIP 75201\.\n\n/);
+  assert.ok(!/search again with condition/.test(n.text), "no hint when the buyer's choice was explicit");
+  const e = await search({ condition: "either" });
+  assert.match(e.text, /^Searched: new and used \(condition: either\); Honda, models CR-V; within 50 miles of ZIP 75201\. If the buyer asked for new or used only, search again with condition set to new or used\.\n\n/);
+  const m = await search({});
+  assert.match(m.text, /^Searched: new and used \(condition: either\)/, "a missing condition is shown as either, so the AI sees it");
+});
+
+test("G: the line comes before any notes, and a no-match reply carries it too", opts, async () => {
+  const t = await search({ condition: "used", trimRequired: "Nonexistent" });
+  assert.match(t.text, /^Searched: used cars; Honda, models CR-V; trim Nonexistent \(required\); within 50 miles of ZIP 75201\./);
+  assert.ok(t.text.indexOf("Searched:") < t.text.search(/No vehicles matched|Found \d+/));
+});
+
+test("G: the line shows the older used boolean as the condition it became, and a corrected value", opts, async () => {
+  assert.match((await search({ used: false })).text, /^Searched: new cars;/);
+  assert.match((await search({ condition: "pre-owned" })).text, /^Searched: used cars;/);
+});
