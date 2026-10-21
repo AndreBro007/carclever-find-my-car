@@ -33,12 +33,13 @@ describe("guidance wording", () => {
     assert.equal(recallCheckFootnote([fresh]), ""); assert.equal(recallCheckFootnote([]), "");
   });
   test("single-car line carries that car's own link; nothing for new cars or other apps", () => {
-    const t = recallCheckLine(used); assert.ok(t.includes(`https://www.nhtsa.gov/recalls?vymm=${VIN}`) && t.includes("THIS car") && t.includes("call or email the dealer"));
+    const t = recallCheckLine(used); assert.ok(t.includes(`https://www.nhtsa.gov/recalls?vymm=${VIN}`) && t.includes("THIS car") && t.includes("already repaired"));
+    assert.ok(!t.includes("call or email the dealer") && !t.includes("vehicle history report"), "the dealer and history advice is in the reply's own next steps, not repeated in the recall line (SYS-20261021-028)");
     assert.equal(recallCheckLine(fresh), ""); assert.equal(recallCheckLine(null), "");
   });
   test("Buyer Check next steps gain one step for used cars; the object is otherwise untouched", () => {
     const bc = { outcome: "verify_before_proceeding", goodSigns: ["x"], concerns: [], needsVerification: [], nextSteps: ["Have a pre-purchase inspection done."] };
-    const out = addRecallCheckStep(bc, used); assert.equal(out.nextSteps.length, 2); assert.equal(out.nextSteps[0], bc.nextSteps[0]); assert.ok(out.nextSteps[1].includes(`vymm=${VIN}`) && out.nextSteps[1].includes("dealer"));
+    const out = addRecallCheckStep(bc, used); assert.equal(out.nextSteps.length, 2); assert.equal(out.nextSteps[0], bc.nextSteps[0]); assert.ok(out.nextSteps[1].includes(`vymm=${VIN}`) && /NHTSA/.test(out.nextSteps[1]) && !/dealer|history report/.test(out.nextSteps[1]));
     assert.equal(out.outcome, bc.outcome); assert.equal(bc.nextSteps.length, 1); // input not mutated
     assert.equal(addRecallCheckStep(bc, fresh), bc);
   });

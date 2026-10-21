@@ -148,3 +148,15 @@ test("F2: in a reply with a used car the history report is asked for once, in th
   assert.ok(!/call or email the dealer/.test(t));
   assert.ok(!/many dealers provide one free/.test(t));
 });
+
+test("7.1: single-car replies (VIN lookup and check_vehicle) do not repeat the dealer and history advice in the recall lines", opts, async () => {
+  const usedVin = vin(5); // the first used CR-V in the seed
+  const lookup = textOf(await call(60, { vin: usedVin }));
+  assert.match(lookup, /Open recalls on THIS car: check its VIN with NHTSA's free lookup, https:\/\/www\.nhtsa\.gov\/recalls\?vymm=/);
+  assert.ok(!/many dealers provide one free|then call or email the dealer to confirm/.test(lookup));
+  assert.equal(count(lookup, "vehicle history report"), 1, "the history report is asked for once");
+  const chk = textOf(await rpc({ jsonrpc: "2.0", id: 61, method: "tools/call", params: { name: "check_vehicle", arguments: { vin: usedVin } } }));
+  assert.match(chk, /Check this VIN for open recalls: https:\/\/www\.nhtsa\.gov\/recalls\?vymm=/);
+  assert.ok(!/many dealers provide one free|then call or email the dealer to confirm/.test(chk));
+  assert.equal(count(chk, "vehicle history report"), 1);
+});

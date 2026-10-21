@@ -16,7 +16,6 @@ export function nhtsaLinkField(vin: string | null | undefined, used: boolean): {
   return u ? { nhtsaRecallCheckUrl: u } : {};
 }
 
-const ADVICE = "then call or email the dealer to confirm, and ask for a vehicle history report (many dealers provide one free)";
 const SCOPE = "NHTSA's lookup covers participating manufacturers and does not show recalls that were already repaired";
 
 /** One footnote under a list that contains used cars: how to check ANY listed car for an unrepaired recall. "" otherwise. */
@@ -27,12 +26,12 @@ export function recallCheckFootnote(cards: any[]): string {
 /** The same advice with the car's own link, for a single car (VIN lookup, check_vehicle). "" for new cars. */
 export function recallCheckLine(card: any): string {
   const u = card?.links?.nhtsaRecallCheckUrl;
-  return u ? `\nOpen recalls on THIS car: check its VIN with NHTSA's free lookup, ${u}, ${ADVICE}. ${SCOPE}.` : "";
+  return u ? `\nOpen recalls on THIS car: check its VIN with NHTSA's free lookup, ${u}. ${SCOPE}.` : "";
 }
 /** Adds the recall-check step to a Buyer Check's next steps (used cars). Returns the same object when nothing applies. */
 export function addRecallCheckStep<T extends { nextSteps: string[] }>(bc: T, card: any): T {
   const u = card?.links?.nhtsaRecallCheckUrl;
-  return u ? { ...bc, nextSteps: [...bc.nextSteps, `Check this VIN for open (unrepaired) recalls with NHTSA's free lookup (${u}), ${ADVICE}.`] } : bc;
+  return u ? { ...bc, nextSteps: [...bc.nextSteps, `Check this VIN for open (unrepaired) recalls with NHTSA's free lookup (${u}).`] } : bc;
 }
 
 /** Reply for a VIN whose check digit does not calculate: a clear "invalid" message and NHTSA's free lookup, no vehicle card. */
