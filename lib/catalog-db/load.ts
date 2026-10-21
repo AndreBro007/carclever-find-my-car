@@ -20,6 +20,8 @@ export interface LoadOptions {
   log?: (msg: string) => void;
 }
 export interface LoadReport {
+  /** Cars whose body class came from their model (the feed gave none, or a label that is no body style). */
+  bodyClassInferred: number;
   linesRead: number;
   parsed: number;
   skipped: Record<string, number>;
@@ -45,6 +47,27 @@ export function stageLine(r: CatalogRow): string {
   return vals.map(cell).join("\t") + "\n";
 }
 
+/**
+ * Body class for cars the feed does not classify (SYS-20261021-047). In the real data 2.2% of cars have no body label and 0.9% have a label that is no body style (a trim such as XLE or
+ * HYBRID AWD, or "Car", "Passenger", "Fastback"), so a search that names a body style never found them. A car like that takes the class of its own make and model when the other cars of that
+ * model agree: at least 5 classified cars and at least 80% of them in one class. Where they do not agree the car stays unclassified (a model that is sold as both a sedan and a coupe is
+ * not guessed). Cars the feed did classify are never touched.
+ */
+export const INFER_BODY_CLASS_SQL = `
+  WITH votes AS (
+    SELECT make_key, model_key, body_class, count(*) AS n, sum(count(*)) OVER (PARTITION BY make_key, model_key) AS total
+    FROM listing_stage
+    WHERE body_class IS NOT NULL AND body_class <> 'other'
+    GROUP BY make_key, model_key, body_class
+  ), pick AS (
+    SELECT DISTINCT ON (make_key, model_key) make_key, model_key, body_class
+    FROM votes WHERE total >= 5 AND n >= 0.8 * total
+    ORDER BY make_key, model_key, n DESC
+  )
+  UPDATE listing_stage s SET body_class = p.body_class
+  FROM pick p
+  WHERE (s.body_class IS NULL OR s.body_class = 'other') AND s.make_key = p.make_key AND s.model_key = p.model_key`;
+
 export async function loadFeed(pool: Pool, lines: AsyncIterable<string>, opts: LoadOptions = {}): Promise<LoadReport> {
   const log = opts.log ?? (() => {});
   const t0 = Date.now();
@@ -53,7 +76,7 @@ export async function loadFeed(pool: Pool, lines: AsyncIterable<string>, opts: L
   let copyDone = false;
   let copyError: Error | null = null;
   let dropConnection = false;
-  const report: LoadReport = { linesRead: 0, parsed: 0, skipped: {}, staged: 0, inserted: 0, updated: 0, deleted: 0, seconds: 0 };
+  const report: LoadReport = { bodyClassInferred: 0, linesRead: 0, parsed: 0, skipped: {}, staged: 0, inserted: 0, updated: 0, deleted: 0, seconds: 0 };
   try {
     await client.query(SCHEMA_SQL);
     await client.query("TRUNCATE listing_stage");
@@ -86,6 +109,10 @@ export async function loadFeed(pool: Pool, lines: AsyncIterable<string>, opts: L
     report.staged = staged;
     const floor = Math.max(opts.minRows ?? 1, Math.floor(existing * (opts.keepRatio ?? 0.9)));
     if (staged < floor) throw new Error(`refusing to merge: feed has ${staged} rows but at least ${floor} are required (stored: ${existing})`);
+
+    const inferred = await client.query(INFER_BODY_CLASS_SQL);
+    report.bodyClassInferred = inferred.rowCount ?? 0;
+    log(`body class taken from the model for ${report.bodyClassInferred} cars`);
 
     await client.query("BEGIN");
     try {

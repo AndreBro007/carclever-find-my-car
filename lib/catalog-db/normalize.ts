@@ -74,7 +74,7 @@ export function normalizeBodyClass(raw: string | null | undefined): BodyClass | 
   if (/\bmini-?\s?vans?\b|\bminivans?\b/.test(s)) return "minivan";
   if (/\bvans?\b/.test(s)) return "van";
   if (/pickup|truck|crew ?cab|double cab|extended cab|regular cab|quad cab|crewmax|supercrew|king cab|super cab|access cab|\bcab\b/.test(s)) return "truck";
-  if (/sport utility|\bsuv\b|crossover|\butility\b|\bsav\b|multi-?purpose/.test(s)) return "suv";
+  if (/sport utility|\bsuv\b|crossover|\butility\b|\bsav\b|sports? activity|multi-?purpose/.test(s)) return "suv"; // "Sports Activity Vehicle" is BMW's name for its SUVs
   if (/hatchback|liftback/.test(s)) return "hatchback";
   if (/convertible|roadster|cabriolet|spyder|spider/.test(s)) return "convertible";
   if (/wagon|estate/.test(s)) return "wagon";
