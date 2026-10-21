@@ -221,6 +221,12 @@ export async function modelFacets(db: Queryable, q: ListingsQuery, limit = 30): 
   return r.rows.map((x) => ({ value: String(x.value), count: Number(x.count) }));
 }
 
+/** Every model name in the catalogue, whatever the make. The caller caches it (lib/catalog-db-source.ts); used to find a model's electrified variants when a request names models but no make. */
+export async function allModelNames(db: Queryable): Promise<string[]> {
+  const r = await db.query("SELECT l.model AS value FROM listing l WHERE l.model IS NOT NULL AND l.model <> '' GROUP BY l.model");
+  return r.rows.map((x) => String(x.value));
+}
+
 /** The trim names that exist for the asked make and model (any price, nationwide), with counts: lets the AI retry with a real trim name. */
 export async function trimFacets(db: Queryable, q: ListingsQuery, models: string[] | null, limit = 12): Promise<Array<{ value: string; count: number }>> {
   const p = new Params();

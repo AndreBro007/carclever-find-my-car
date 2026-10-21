@@ -3,7 +3,7 @@
  * Thin facade so the route keeps its function names.
  */
 import type { VehicleListing, ListingsQuery, ListingsResponse } from "./listing-types";
-import { catalogDbModelFacets, catalogDbTrimFacets, getCatalogDbListing, lookupCatalogDbVin, searchCatalogDbListings, type VinLookup } from "./catalog-db-source";
+import { catalogDbModelFacets, catalogDbAllModelNames, catalogDbTrimFacets, getCatalogDbListing, lookupCatalogDbVin, searchCatalogDbListings, type VinLookup } from "./catalog-db-source";
 
 export function searchListingsLean(query: ListingsQuery): Promise<ListingsResponse> {
   return searchCatalogDbListings(query);
@@ -20,6 +20,11 @@ export function searchListingByVinExact(vin: string): Promise<VehicleListing | n
 /** Found, absent or failed: the three tools that look a VIN up use this so a database failure is never reported as "not listed". */
 export function lookupListingByVin(vin: string): Promise<VinLookup> {
   return lookupCatalogDbVin(vin);
+}
+
+/** Every model name in the catalogue, cached for 30 minutes (used when a request names models but no make). */
+export function getAllModelNames(): Promise<string[]> {
+  return catalogDbAllModelNames();
 }
 
 /** The model names the database holds for the filters given, most common first. `limit` defaults to 30; route electrified-model lookup asks for all of a make's. */

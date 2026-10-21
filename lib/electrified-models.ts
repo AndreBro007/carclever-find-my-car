@@ -111,8 +111,14 @@ export function trimWordingRegex(types: ElectrifiedType[]): string {
  * Model years of this make that are hybrid with no hybrid wording in the feed (the 2026 RAV4 is plain "RAV4"): listed first for a hybrid request.
  * Only for a request that includes the hybrid type; plug-in and electric requests get none. The list is in lib/fuel-type.ts (SYS-20261021-004, T58).
  */
-export function knownHybridOnlyFor(make: string | undefined, types: ElectrifiedType[]): Array<{ modelKey: string; fromYear: number }> {
-  if (!make || !types.includes("hybrid")) return [];
-  const m = alnumKey(make);
-  return KNOWN_HYBRID_ONLY.filter((e) => alnumKey(e.make) === m).map((e) => ({ modelKey: alnumKey(e.model), fromYear: e.fromYear ?? 0 }));
+export function knownHybridOnlyFor(make: string | undefined, types: ElectrifiedType[], requestedModels?: string[]): Array<{ modelKey: string; fromYear: number }> {
+  if (!types.includes("hybrid")) return [];
+  if (make) {
+    const m = alnumKey(make);
+    return KNOWN_HYBRID_ONLY.filter((e) => alnumKey(e.make) === m).map((e) => ({ modelKey: alnumKey(e.model), fromYear: e.fromYear ?? 0 }));
+  }
+  // No make (a request that names models from several makes): only the entries for the models actually asked for, matched by model name.
+  const asked = new Set((requestedModels ?? []).map((x) => alnumKey(x)).filter(Boolean));
+  if (asked.size === 0) return [];
+  return KNOWN_HYBRID_ONLY.filter((e) => asked.has(alnumKey(e.model))).map((e) => ({ modelKey: alnumKey(e.model), fromYear: e.fromYear ?? 0 }));
 }

@@ -8,7 +8,7 @@
 import { Pool } from "pg";
 import type { VehicleListing, ListingsQuery, ListingsResponse } from "./listing-types";
 import { buildTrackingUrl, type BodyClass } from "./catalog-db/normalize";
-import { modelFacets, trimFacets, rowByVin, searchRows, type DbRow, type Queryable } from "./catalog-db/search";
+import { modelFacets, allModelNames, trimFacets, rowByVin, searchRows, type DbRow, type Queryable } from "./catalog-db/search";
 import { cleanConnectionString } from "./catalog-db/conn";
 
 export function catalogDbConfigured(): boolean {
@@ -29,7 +29,24 @@ function getPool(): Pool {
 export function getCatalogPool(): Pool { return getPool(); }
 
 /** Tests inject their own pool. */
-export function setCatalogDbPoolForTests(p: Pool | null): void { pool = p; }
+export function setCatalogDbPoolForTests(p: Pool | null): void { pool = p; modelNamesCache = null; }
+
+// All model names, kept for 30 minutes per server instance: the list changes only with the nightly load, and one scan of the table is the cost of finding electrified variants
+// for a request that names models but no make (the usual shape when a buyer's need spans several makes).
+let modelNamesCache: { at: number; names: string[] } | null = null;
+const MODEL_NAMES_TTL_MS = 30 * 60 * 1000;
+export async function catalogDbAllModelNames(): Promise<string[]> {
+  if (!catalogDbConfigured() && !pool) return [];
+  if (modelNamesCache && Date.now() - modelNamesCache.at < MODEL_NAMES_TTL_MS) return modelNamesCache.names;
+  try {
+    const names = await allModelNames(getPool() as unknown as Queryable);
+    modelNamesCache = { at: Date.now(), names };
+    return names;
+  } catch (e) {
+    console.error("[catalog-db] model names failed", (e as Error).message);
+    return [];
+  }
+}
 
 const BODY_LABEL: Record<BodyClass, string> = {
   suv: "SUV", sedan: "Sedan", coupe: "Coupe", hatchback: "Hatchback", convertible: "Convertible",

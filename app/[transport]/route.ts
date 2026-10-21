@@ -8,7 +8,7 @@ import { notListedLinksText, titleCaseMake } from "@/lib/vin-not-listed";
 import { buildComparison, comparisonText, type CompareItem } from "@/lib/compare";
 import { closingExitLine, zeroResultsExitLine, sortByScoreThenDistance } from "@/lib/dead-end-links";
 import { attachNhtsaRatings } from "@/lib/nhtsa-ratings";
-import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, getTrimFacets, lookupListingByVin } from "@/lib/listing-source";
+import { searchListingsLean, getListingByVin, searchListingByVinExact, getModelFacets, getAllModelNames, getTrimFacets, lookupListingByVin } from "@/lib/listing-source";
 // Widening ladder re-enabled 2026-08-16 (SYS-20260816-008). It was bypassed on
 // Aug 13 per André's request — "search itself needs to work correctly before any
 // widening logic runs on top of it." That precondition is now met: the stage-2
@@ -1155,14 +1155,15 @@ const handler = createMcpHandler((server) => {
       // years known to be hybrid-only that carry no wording (the 2026 RAV4 is plain "RAV4"; lib/fuel-type.ts). Wording is a hint only: NHTSA still decides below. If the model list cannot be read the search runs as before.
       const withElectrifiedFilter = async (q: ListingsQuery): Promise<ListingsQuery> => {
         const electrifiedTypes = (input.electrificationTypes ?? []) as ElectrifiedType[]; // read at call time: a model-name correction below may set them (T60)
-        if (!electrifiedTypes.length || !q.make) return q;
-        const facets = await getModelFacets({ make: q.make, yearMin: q.yearMin, yearMax: q.yearMax, used: q.used }, 1000);
         const requested = q.model ? q.model.split(",").map((m) => m.trim()).filter(Boolean) : [];
-        const { variants, worded } = electrifiedModelsFor(requested, facets.map((f) => f.value), electrifiedTypes);
-        return { ...q, electrified: { extraModels: variants, wordedModels: worded, trimWording: trimWordingRegex(electrifiedTypes), knownHybridOnly: knownHybridOnlyFor(q.make, electrifiedTypes) } };
+        // With a make: that make's model names. With models but no make (a need that spans several makes, the usual request): every model name, cached. With neither: nothing to expand.
+        if (!electrifiedTypes.length || (!q.make && requested.length === 0)) return q;
+        const names = q.make ? (await getModelFacets({ make: q.make, yearMin: q.yearMin, yearMax: q.yearMax, used: q.used }, 1000)).map((f) => f.value) : await getAllModelNames();
+        const { variants, worded } = electrifiedModelsFor(requested, names, electrifiedTypes);
+        return { ...q, electrified: { extraModels: variants, wordedModels: worded, trimWording: trimWordingRegex(electrifiedTypes), knownHybridOnly: knownHybridOnlyFor(q.make, electrifiedTypes, requested) } };
       };
       const withResolvedTrim = async (q: ListingsQuery): Promise<ListingsQuery> => {
-        if (!trimRequired || !q.make || q.trimIn) return q;
+        if (!trimRequired || (!q.make && !q.model) || q.trimIn) return q;
         const res = resolveRequiredTrims(trimRequired, await getTrimFacets(q, 2000), trimOpts);
         if (res.tier === "none") return q;
         trimClose = res.tier === "close";
