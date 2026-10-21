@@ -186,7 +186,6 @@ export function parseIntent(input: {
       : undefined;
   if (location) {
     verificationRequired.push("destination");
-    interpretationNotes.push("Radius may widen only with disclosure (never silently).");
   }
 
   verificationRequired.push("identity"); // VIN cross-check always runs on the shortlist

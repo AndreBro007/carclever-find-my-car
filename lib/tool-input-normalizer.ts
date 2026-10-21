@@ -20,7 +20,7 @@ const ELECTRIFICATION_TYPES = ["hybrid", "plug_in_hybrid", "electric"];
 const ELECTRIFICATION_ALIASES: Record<string, string> = { ev: "electric", bev: "electric", phev: "plug_in_hybrid", plug_in: "plug_in_hybrid", plugin_hybrid: "plug_in_hybrid", plug_in_hybrid_electric: "plug_in_hybrid", mild_hybrid: "hybrid", full_hybrid: "hybrid" };
 
 const TOOL_FIELDS: Record<string, string[]> = {
-  find_matching_vehicle: ["bodyType", "cpo", "cylinders", "doors", "drivetrain", "electrificationRequirement", "electrificationTypes", "exteriorColor", "interiorColor", "make", "mileageMax", "model", "noAccidents", "oneOwner", "priceFlexibility", "priceMax", "priceMin", "priorityAxis", "radiusMiles", "seatsMinPreference", "state", "transmission", "trimPreference", "trimRequired", "used", "vehicleNeeds", "vehicleType", "vin", "yearMax", "yearMin", "zip"],
+  find_matching_vehicle: ["condition", "bodyType", "cpo", "cylinders", "doors", "drivetrain", "electrificationRequirement", "electrificationTypes", "exteriorColor", "interiorColor", "make", "mileageMax", "model", "noAccidents", "oneOwner", "priceFlexibility", "priceMax", "priceMin", "priorityAxis", "radiusMiles", "seatsMinPreference", "state", "transmission", "trimPreference", "trimRequired", "used", "vehicleNeeds", "vehicleType", "vin", "yearMax", "yearMin", "zip"],
   check_vehicle: ["make", "model", "vin", "year"],
   get_edmunds_vehicle_link: ["vin", "make", "model", "year"],
   resolve_dealer_url: ["vin", "make", "model", "year"], // the old name of the link tool (still called by older clients)
@@ -33,6 +33,19 @@ export type NormalizeResult = {
   changes: string[];
   /** inputs that had to be set aside because they could not be used; the reply tells the buyer */
   ignored: string[];
+};
+
+// condition (new or used; left out means both): the published field since SYS-20261021-047. Words an AI may use are understood; the older boolean `used` still works; a value that
+// means both (either, any, neither ...) is the same as leaving the field out. Older inputs the database cannot use are still accepted and set aside; the reply says so (except a price flexibility of strict, which is simply true).
+const CONDITION_WORDS: Record<string, "new" | "used" | "both"> = {
+  new: "new", brand_new: "new", new_only: "new", new_cars: "new", new_car: "new", new_vehicles: "new",
+  used: "used", pre_owned: "used", preowned: "used", used_only: "used", certified: "used", certified_pre_owned: "used", cpo: "used", pre_owned_only: "used",
+  either: "both", any: "both", both: "both", all: "both", neither: "both", new_or_used: "both", new_and_used: "both", no_preference: "both", unspecified: "both", not_specified: "both", not_stated: "both",
+};
+const RETIRED_INPUTS: Record<string, string> = {
+  priceFlexibility: "the price ceiling is always strict",
+  transmission: "not a filter; each result shows it when known",
+  cylinders: "not a filter; each result shows its engine when known",
 };
 
 const key = (s: string): string => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
@@ -62,6 +75,11 @@ export function normalizeToolArguments(toolName: string, args: unknown): Normali
   for (const [k, raw] of Object.entries(args as Record<string, unknown>)) {
     if (!known.has(k)) { changes.push(`dropped unknown field ${k}`); ignored.push(`${k} (not an input this tool has)`); continue; }
     if (raw === null || raw === undefined || (typeof raw === "string" && raw.trim() === "")) { changes.push(`dropped empty ${k}`); continue; }
+    if (toolName === "find_matching_vehicle" && RETIRED_INPUTS[k]) {
+      changes.push(`set aside ${k}: no longer an input`);
+      if (!(k === "priceFlexibility" && typeof raw === "string" && raw.trim().toLowerCase() === "strict")) ignored.push(`${k} (${RETIRED_INPUTS[k]})`);
+      continue;
+    }
     let v: unknown = raw;
     if (NUMBER_FIELDS.has(k)) {
       if (typeof v === "string") {
@@ -69,6 +87,11 @@ export function normalizeToolArguments(toolName: string, args: unknown): Normali
         if (n !== null) { v = n; changes.push(`${k}: text to number`); }
         else { changes.push(`dropped ${k}: not a number`); ignored.push(`${k} (not a number)`); continue; }
       } else if (typeof v !== "number") { changes.push(`dropped unusable ${k}`); ignored.push(`${k} (not a number)`); continue; }
+    } else if (k === "condition") {
+      const c = typeof v === "string" ? CONDITION_WORDS[key(v)] : undefined;
+      if (c === "both") { changes.push("condition: both, left out"); continue; }
+      if (c) { if (c !== v) changes.push("condition: understood"); v = c; }
+      else { changes.push("dropped condition: value not recognised"); ignored.push(`condition (value "${String(v).slice(0, 40)}" not recognised; both new and used were searched)`); continue; }
     } else if (BOOLEAN_FIELDS.has(k)) {
       if (typeof v === "string") {
         const t = v.trim().toLowerCase();
@@ -103,6 +126,19 @@ export function normalizeToolArguments(toolName: string, args: unknown): Normali
       else if (typeof v !== "string") { changes.push(`dropped unusable ${k}`); continue; }
     }
     out[k] = v;
+  }
+  if (toolName === "find_matching_vehicle") {
+    // the older boolean `used` becomes condition (an explicit condition wins); the older `vehicleType` is the same database column as bodyType
+    if (typeof out.used === "boolean") {
+      if (out.condition === undefined) { out.condition = out.used ? "used" : "new"; changes.push(`used: ${out.used} became condition: ${out.condition}`); }
+      else changes.push("used set aside: condition was given"); // every removal is recorded, or the cleaned call would not replace the original
+      delete out.used;
+    }
+    if (typeof out.vehicleType === "string") {
+      if (out.bodyType === undefined) { out.bodyType = out.vehicleType; changes.push("vehicleType became bodyType"); }
+      else changes.push("vehicleType set aside: bodyType was given");
+      delete out.vehicleType;
+    }
   }
   if (out.electrificationRequirement !== undefined && out.electrificationTypes === undefined) {
     delete out.electrificationRequirement;

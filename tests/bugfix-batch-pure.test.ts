@@ -102,7 +102,7 @@ test("with a price ceiling the candidate pool takes cars in the top quarter of t
 
 test("tool input is repaired, not rejected: null dropped, text numbers fixed, lists and text swapped, unknown fields dropped", () => {
   const r = normalizeToolArguments("find_matching_vehicle", { bodyType: "SUV", zip: null, priceMax: "$45,000", yearMin: "2020", used: "true", model: ["Telluride", "Palisade"], vehicleNeeds: "family SUV", electrificationTypes: "hybrid, electric", minSeats: 7, radiusMiles: "50" });
-  assert.deepEqual(r.args, { bodyType: "SUV", priceMax: 45000, yearMin: 2020, used: true, model: "Telluride, Palisade", vehicleNeeds: ["family SUV"], electrificationTypes: ["hybrid", "electric"], radiusMiles: 50 });
+  assert.deepEqual(r.args, { bodyType: "SUV", priceMax: 45000, yearMin: 2020, condition: "used", model: "Telluride, Palisade", vehicleNeeds: ["family SUV"], electrificationTypes: ["hybrid", "electric"], radiusMiles: 50 }); // the older used:"true" became condition: used
   assert.ok(r.changes.some((c) => c.includes("dropped unknown field minSeats")) && r.changes.some((c) => c.includes("dropped empty zip")));
   assert.equal(normalizeToolArguments("find_matching_vehicle", { priceMax: "45k" }).args.priceMax, 45000);
   assert.equal(normalizeToolArguments("find_matching_vehicle", { zip: 9622 }).args.zip, "09622");
@@ -118,8 +118,8 @@ test("tool input is repaired, not rejected: null dropped, text numbers fixed, li
 test("fixed-choice values: empty ones dropped quietly, wrong case fixed, invented ones set aside and reported", () => {
   const empties = normalizeToolArguments("find_matching_vehicle", { bodyType: "SUV", priorityAxis: "", priceFlexibility: "  ", transmission: "", electrificationRequirement: "" });
   assert.deepEqual(empties.args, { bodyType: "SUV" }); assert.deepEqual(empties.ignored, []);
-  const fixed = normalizeToolArguments("find_matching_vehicle", { priorityAxis: "Best for budget", priceFlexibility: "Strict", transmission: "automatic", electrificationTypes: ["Plug-in hybrid", "EV"], electrificationRequirement: "Preferred" });
-  assert.deepEqual(fixed.args, { priorityAxis: "best_for_budget", priceFlexibility: "strict", transmission: "Automatic", electrificationTypes: ["plug_in_hybrid", "electric"], electrificationRequirement: "preferred" });
+  const fixed = normalizeToolArguments("find_matching_vehicle", { priorityAxis: "Best for budget", electrificationTypes: ["Plug-in hybrid", "EV"], electrificationRequirement: "Preferred" });
+  assert.deepEqual(fixed.args, { priorityAxis: "best_for_budget", electrificationTypes: ["plug_in_hybrid", "electric"], electrificationRequirement: "preferred" });
   assert.deepEqual(fixed.ignored, []);
   const invented = normalizeToolArguments("find_matching_vehicle", { priorityAxis: "best_value", transmission: "Any", radiusMiles: "Any", electrificationRequirement: "required" });
   assert.deepEqual(invented.args, {});

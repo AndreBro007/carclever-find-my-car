@@ -82,13 +82,34 @@ test("the line comes before any notes, and a no-match reply carries it too", opt
   assert.ok(t.text.indexOf("Searched:") < t.text.search(/No vehicles matched|Found \d+/));
 });
 
-test("the tool text is the simple version: an optional used field, no condition field, rule 1 says how to pass new and used", opts, async () => {
+test("the published tool text: an optional condition (new or used), the five retired fields gone, rule 1 and the length", opts, async () => {
   const res = await rpc({ jsonrpc: "2.0", id: 900, method: "tools/list", params: {} });
   const tool = res.result.tools.find((t: { name: string }) => t.name === "find_matching_vehicle");
-  assert.equal(tool.inputSchema.properties.condition, undefined);
-  assert.equal(tool.inputSchema.properties.used.type, "boolean");
-  assert.ok(!(tool.inputSchema.required ?? []).includes("used"), "used is optional");
-  assert.match(tool.inputSchema.properties.used.description, /^false for new only, true for used or pre-owned only; omit when the buyer says neither\.$/);
-  assert.match(tool.description, /1\. Pass only what the buyer stated or clearly implied\. New means used: false; used or pre-owned means used: true\. Check the reply's Searched line against the request and search again if they differ\./);
+  assert.deepEqual(tool.inputSchema.properties.condition.enum, ["new", "used"]);
+  assert.ok(!(tool.inputSchema.required ?? []).includes("condition"), "condition is optional");
+  assert.equal(tool.inputSchema.properties.used, undefined);
+  assert.match(tool.description, /1\. Pass only what the buyer stated or clearly implied\. Set condition to new or used when the buyer says so; leave it out when they say neither\. Check the reply's Searched line against the request and search again if they differ\./);
   assert.ok(tool.description.length <= 3000, `${tool.description.length} characters`);
+});
+
+test("condition new, used, left out and either: the database words end to end, and the Searched line says which", opts, async () => {
+  const n = await search({ condition: "new" });
+  assert.ok(n.kinds.length > 0 && n.kinds.every((k) => k === "new")); assert.match(n.text, /^Searched: new cars;/);
+  const u = await search({ condition: "used" });
+  assert.ok(u.kinds.length > 0 && u.kinds.every((k) => k === "used")); assert.match(u.text, /^Searched: used cars;/);
+  for (const args of [{}, { condition: "either" }, { condition: "any" }]) {
+    const b = await search(args);
+    assert.ok(b.kinds.includes("new") && b.kinds.includes("used"), JSON.stringify(args)); assert.match(b.text, /^Searched: new and used;/);
+    assert.ok(!/ignored/.test(b.text), "a value that means both is simply both");
+  }
+});
+
+test("older callers still work: used false and true, vehicleType, and words such as brand new and pre-owned", opts, async () => {
+  assert.ok((await search({ used: false })).kinds.every((k) => k === "new"));
+  assert.ok((await search({ used: true })).kinds.every((k) => k === "used"));
+  assert.ok((await search({ condition: "brand new" })).kinds.every((k) => k === "new"));
+  assert.ok((await search({ condition: "pre-owned" })).kinds.every((k) => k === "used"));
+  const bad = await search({ condition: "maybe" });
+  assert.ok(bad.kinds.includes("new") && bad.kinds.includes("used"));
+  assert.match(bad.text, /ignored: condition \(value "maybe" not recognised; both new and used were searched\)/);
 });

@@ -6,8 +6,8 @@
  */
 export interface AppliedFilters {
   used?: boolean;
-  make?: string; model?: string; bodyType?: string; vehicleType?: string;
-  priceMin?: number; priceMax?: number; priceFlexibility?: string;
+  make?: string; model?: string; bodyType?: string;
+  priceMin?: number; priceMax?: number;
   yearMin?: number; yearMax?: number; mileageMax?: number;
   drivetrain?: string; trimRequired?: unknown; trimPreference?: unknown; exteriorColor?: string; interiorColor?: string; doors?: number; seatsMinPreference?: number;
   electrificationTypes?: string[]; electrificationRequirement?: string;
@@ -26,13 +26,11 @@ export function appliedFiltersLine(f: AppliedFilters): string {
   const make = text(f.make), model = text(f.model);
   if (make && model) parts.push(`${make}, models ${model}`); else if (make) parts.push(`make ${make}`); else if (model) parts.push(`models ${model}`);
   if (text(f.bodyType)) parts.push(`body style ${text(f.bodyType)}`);
-  if (text(f.vehicleType)) parts.push(`vehicle type ${text(f.vehicleType)}`);
   const types = (f.electrificationTypes ?? []).map((t) => TYPE_WORDS[t] ?? t);
   if (types.length) parts.push(`${types.join(" or ")} ${f.electrificationRequirement === "preferred" ? "preferred" : "required"}`);
-  const flex = f.priceFlexibility ? ` (${f.priceFlexibility})` : "";
-  if (f.priceMin != null && f.priceMax != null) parts.push(`${money(f.priceMin)} to ${money(f.priceMax)}${flex}`);
-  else if (f.priceMax != null) parts.push(`up to ${money(f.priceMax)}${flex}`);
-  else if (f.priceMin != null) parts.push(`from ${money(f.priceMin)}${flex}`);
+  if (f.priceMin != null && f.priceMax != null) parts.push(`${money(f.priceMin)} to ${money(f.priceMax)}`);
+  else if (f.priceMax != null) parts.push(`up to ${money(f.priceMax)}`);
+  else if (f.priceMin != null) parts.push(`from ${money(f.priceMin)}`);
   if (f.yearMin != null && f.yearMax != null) parts.push(`model years ${f.yearMin} to ${f.yearMax}`);
   else if (f.yearMin != null) parts.push(`model year ${f.yearMin} or newer`);
   else if (f.yearMax != null) parts.push(`model year ${f.yearMax} or older`);

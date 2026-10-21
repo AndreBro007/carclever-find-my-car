@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 import { appliedFiltersLine } from "../lib/applied-filters";
 
 test("André's request with used false: new cars, hybrid required, price strict, radius and ZIP, models, ranking", () => {
-  const l = appliedFiltersLine({ used: false, bodyType: "SUV", model: "Highlander, Grand Highlander, RAV4", electrificationTypes: ["hybrid"], electrificationRequirement: "required", priceMax: 70000, priceFlexibility: "strict", zip: "75201", radiusMiles: 100, priorityAxis: "best_for_budget" });
-  assert.equal(l, "Searched: new cars; models Highlander, Grand Highlander, RAV4; body style SUV; hybrid required; up to $70,000 (strict); within 100 miles of ZIP 75201; ranked best for budget.");
+  const l = appliedFiltersLine({ used: false, bodyType: "SUV", model: "Highlander, Grand Highlander, RAV4", electrificationTypes: ["hybrid"], electrificationRequirement: "required", priceMax: 70000, zip: "75201", radiusMiles: 100, priorityAxis: "best_for_budget" });
+  assert.equal(l, "Searched: new cars; models Highlander, Grand Highlander, RAV4; body style SUV; hybrid required; up to $70,000; within 100 miles of ZIP 75201; ranked best for budget.");
   assert.ok(!/search again/.test(l), "the line never carries a correction sentence");
 });
 
@@ -32,8 +32,8 @@ test("electrification: several types, required and preferred", () => {
 });
 
 test("price, years, mileage, drivetrain, trim, colour, doors, seats and the ranking words", () => {
-  const l = appliedFiltersLine({ used: true, make: "Honda", model: "CR-V", priceMin: 20000, priceMax: 30000, priceFlexibility: "flexible", yearMin: 2020, yearMax: 2023, mileageMax: 40000, drivetrain: "AWD", trimRequired: "EX-L", exteriorColor: "white", doors: 4, seatsMinPreference: 5, priorityAxis: "lowest_mileage", zip: "90210" });
-  for (const p of ["Honda, models CR-V", "$20,000 to $30,000 (flexible)", "model years 2020 to 2023", "up to 40,000 miles", "drivetrain AWD", "trim EX-L (required)", "exterior white", "4 doors", "at least 5 seats (preferred)", "ranked lowest mileage"]) assert.ok(l.includes(p), p);
+  const l = appliedFiltersLine({ used: true, make: "Honda", model: "CR-V", priceMin: 20000, priceMax: 30000, yearMin: 2020, yearMax: 2023, mileageMax: 40000, drivetrain: "AWD", trimRequired: "EX-L", exteriorColor: "white", doors: 4, seatsMinPreference: 5, priorityAxis: "lowest_mileage", zip: "90210" });
+  for (const p of ["Honda, models CR-V", "$20,000 to $30,000", "model years 2020 to 2023", "up to 40,000 miles", "drivetrain AWD", "trim EX-L (required)", "exterior white", "4 doors", "at least 5 seats (preferred)", "ranked lowest mileage"]) assert.ok(l.includes(p), p);
   assert.match(appliedFiltersLine({ used: true, yearMin: 2022 }), /model year 2022 or newer/);
   assert.match(appliedFiltersLine({ used: true, yearMax: 2018 }), /model year 2018 or older/);
   assert.match(appliedFiltersLine({ used: true, priceMin: 15000 }), /from \$15,000/);

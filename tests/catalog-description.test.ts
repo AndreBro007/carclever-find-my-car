@@ -4,17 +4,21 @@ import assert from "node:assert/strict";
 import { FindMatchingVehicleInput, FindMatchingVehicleInputCatalog } from "../lib/find-matching-vehicle-input";
 import { notListedLinksText } from "../lib/vin-not-listed";
 
-test("input variant: same fields and types, only the notes for vin, colours, cpo, noAccidents, oneOwner differ", () => {
-  const a = Object.keys(FindMatchingVehicleInput.shape).sort(), b = Object.keys(FindMatchingVehicleInputCatalog.shape).sort();
-  assert.deepEqual(a, b); assert.equal(a.length, 31);
+test("input variant: the catalogue input is the shared input re-based on the database: five retired fields out, condition in, the rest the same", () => {
+  const retired = ["used", "vehicleType", "priceFlexibility", "transmission", "cylinders"];
+  const a = Object.keys(FindMatchingVehicleInput.shape).filter((k) => !retired.includes(k)).concat("condition").sort(), b = Object.keys(FindMatchingVehicleInputCatalog.shape).sort();
+  assert.deepEqual(a, b); assert.equal(a.length, 27);
   const d = (k: string, s: any) => String(s.shape[k].description);
   for (const k of ["cpo", "noAccidents", "oneOwner"]) assert.ok(/Reported as unconfirmed; the buyer (confirms|checks) /.test(d(k, FindMatchingVehicleInputCatalog)), k);
   assert.ok(/a link to similar vehicles on Edmunds/.test(d("vin", FindMatchingVehicleInputCatalog)));
   assert.ok(/fewer than 3 cars match/.test(d("exteriorColor", FindMatchingVehicleInputCatalog)));
   assert.ok(!/no similar-vehicle substitute/.test(d("vin", FindMatchingVehicleInputCatalog))); assert.ok(/no similar-vehicle substitute/.test(d("vin", FindMatchingVehicleInput)));
-  // the parsing behaviour is identical
-  assert.deepEqual(FindMatchingVehicleInputCatalog.safeParse({ make: "Honda", used: true, cpo: true }).success, FindMatchingVehicleInput.safeParse({ make: "Honda", used: true, cpo: true }).success);
-  assert.equal(FindMatchingVehicleInputCatalog.safeParse({ used: "yes" }).success, false);
+  // parsing: condition replaces used; nothing is required; the retired fields are repaired before validation, so the strict schema refuses them
+  assert.equal(FindMatchingVehicleInputCatalog.safeParse({ make: "Honda", condition: "used", cpo: true }).success, true);
+  assert.equal(FindMatchingVehicleInputCatalog.safeParse({}).success, true);
+  assert.equal(FindMatchingVehicleInputCatalog.safeParse({ condition: "either" }).success, false, "either is handled by the call repair, not the schema");
+  assert.equal(FindMatchingVehicleInputCatalog.safeParse({ used: true }).success, false);
+  assert.equal(FindMatchingVehicleInputCatalog.safeParse({ transmission: "Manual" }).success, false);
 });
 
 const fakeDecode = (o: object) => (async () => ({ make: "TOYOTA", model: "RAV4", modelYear: "2021", trimOptions: ["LE"], ...o })) as any;

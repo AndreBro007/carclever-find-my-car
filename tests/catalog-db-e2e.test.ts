@@ -144,13 +144,11 @@ test("a thin local result puts the offer to search wider at the top, not at the 
   assert.ok(!txt.includes("Ask me to widen"));
 });
 
-test("cylinders and transmission are reported as not applied, never as filtered", opts, async () => {
+test("cylinders and transmission are no longer inputs: an older caller that sends them is told they were set aside, and nothing is filtered on them", opts, async () => {
   const out = await call(25, { make: "Honda", model: "Civic", cylinders: 4, transmission: "Manual", zip: "90210" });
-  const acc = out.result.structuredContent.meta.qualifierAccounting as Array<{ requested: string; tier: string; applied: string }>;
-  for (const label of ["cylinder count", "transmission"]) {
-    const e = acc.find((x) => x.requested === label);
-    assert.ok(e, `${label} accounted for`); assert.equal(e!.tier, "disclosed_not_filtered"); assert.match(e!.applied, /not applied as a filter/);
-  }
+  const text = out.result.content.map((c: { text?: string }) => c.text ?? "").join("\n");
+  assert.match(text, /these inputs could not be used and were ignored: cylinders \(not a filter; each result shows its engine when known\); transmission \(not a filter; each result shows it when known\)/);
+  const acc = (out.result.structuredContent.meta.qualifierAccounting ?? []) as Array<{ applied: string }>;
   assert.ok(!acc.some((x) => /filtered on (cylinder|transmission)/.test(x.applied)));
 });
 
@@ -169,9 +167,11 @@ test("no results because of the trim: the alternatives say so, and are never cal
   assert.match(txt, /on Edmunds \(all trims, not filtered to Type R; enter your ZIP there for local results\)/);
 });
 
-test("a cylinder or transmission request adds a plain not-applied line to the reply", opts, async () => {
-  const txt = textOf(await call(29, { make: "Honda", model: "Civic", cylinders: 4, transmission: "Manual", zip: "90210" }));
-  assert.match(txt, /cylinder count and transmission were not used as a filter/);
+test("a retired input in the reply note is worded for the buyer, and a price flexibility of strict is simply accepted", opts, async () => {
+  const txt = textOf(await call(29, { make: "Honda", model: "Civic", transmission: "Manual", priceFlexibility: "strict", zip: "90210" }));
+  assert.match(txt, /ignored: transmission \(not a filter; each result shows it when known\)\./);
+  assert.ok(!/priceFlexibility/.test(txt), "strict is true, so nothing is said about it");
+  assert.match(textOf(await call(30, { make: "Honda", model: "Civic", priceFlexibility: "flexible", zip: "90210" })), /ignored: priceFlexibility \(the price ceiling is always strict\)/);
 });
 
 test("a broad body-type search gets the hint on how to ask for a class; a search with model names does not", opts, async () => {
@@ -181,9 +181,10 @@ test("a broad body-type search gets the hint on how to ask for a class; a search
   assert.ok(!/broad SUV search/.test(named));
 });
 
-test("a cylinder request shows what the results are and tells the AI to state only that", opts, async () => {
-  const txt = textOf(await call(32, { make: "Honda", model: "Civic", cylinders: 4, zip: "90210" }));
-  assert.match(txt, /Cylinder count in these results: unknown \(\d of \d\)\. State only what is shown here, not what a manufacturer sells or has sold\./);
+test("a car's cylinders and transmission still appear on its card when known (shown, never filtered on)", opts, async () => {
+  const out = await call(32, { make: "Honda", model: "Civic", zip: "90210" });
+  const first = out.result.structuredContent.results[0];
+  assert.ok("cylinders" in first.detail && "transmission" in first.powertrain);
 });
 
 test("when a search behind the alternatives fails, the reply says so instead of silently showing nothing", opts, async () => {
@@ -216,11 +217,12 @@ test("no ZIP: the reply says it searched nationwide and asks for a ZIP for local
   assert.match(txt, /No location was specified, so this search covers listings nationwide rather than a specific area\. Tell me a ZIP code for local results\./);
 });
 
-test("vehicle type: the reply says it was used only as a body style", opts, async () => {
-  const a = textOf(await call(37, { bodyType: "SUV", vehicleType: "Midsize SUV", priceMax: 50000 }));
-  assert.match(a, /Vehicle type "Midsize SUV" was not applied as a separate filter/);
+test("vehicleType is no longer an input: an older caller's value becomes the body style when none is given, and bodyType wins when both are sent", opts, async () => {
   const b = textOf(await call(38, { vehicleType: "Hatchback" }));
-  assert.match(b, /Vehicle type "Hatchback" was used only as body style hatchback/);
+  assert.match(b, /^Searched: [^\n]*body style Hatchback/);
+  const a = textOf(await call(37, { bodyType: "SUV", vehicleType: "Hatchback", priceMax: 50000 }));
+  assert.match(a, /^Searched: [^\n]*body style SUV/);
+  assert.ok(!/Hatchback/.test(a.split("\n")[0]));
 });
 
 test("the link tool is listed under its new name only; the old name still works as a hidden alias", opts, async () => {

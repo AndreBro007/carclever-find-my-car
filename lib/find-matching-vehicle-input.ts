@@ -11,6 +11,20 @@ import { z } from "zod";
  * for MCP tool registration (inputSchema) and, implicitly, as the shape
  * the SDK validates incoming tool calls against.
  */
+/** electrificationRequirement needs a non-empty electrificationTypes to apply to (shared by both schemas below). */
+function electrificationRefine(data: { electrificationRequirement?: unknown; electrificationTypes?: unknown[] }, ctx: z.RefinementCtx): void {
+  if (data.electrificationRequirement !== undefined) {
+    const types = data.electrificationTypes;
+    if (types === undefined || types.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["electrificationTypes"],
+        message: "electrificationTypes must be present and non-empty when electrificationRequirement is set — required/preferred has nothing to apply to otherwise.",
+      });
+    }
+  }
+}
+
 export const FindMatchingVehicleInput = z.object({
   vin: z.string().optional().describe("Exact 17-character VIN for one current listing. Other criteria are evaluated against that listing; no similar-vehicle substitute is returned."),
   priceMax: z.number().optional().describe("Maximum price in USD."),
@@ -75,18 +89,7 @@ export const FindMatchingVehicleInput = z.object({
   // enforces the refinement during real parsing. See DECISIONS.md for
   // the corrected finding — this replaces the prior avoidance rationale
   // rather than sitting alongside it as an unresolved contradiction.
-  .superRefine((data, ctx) => {
-    if (data.electrificationRequirement !== undefined) {
-      const types = data.electrificationTypes;
-      if (types === undefined || types.length === 0) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["electrificationTypes"],
-          message: "electrificationTypes must be present and non-empty when electrificationRequirement is set — required/preferred has nothing to apply to otherwise.",
-        });
-      }
-    }
-  });
+  .superRefine(electrificationRefine);
   //
   // The legacy-`goals`-rejection mechanism above (`.strict()`) is
   // unaffected by this addition: `.strict()` already ran and rejected
@@ -100,11 +103,22 @@ export const FindMatchingVehicleInput = z.object({
  * Database app: the same inputs, with notes that say what this inventory can and cannot do. The the provider
  * notes stay as they are for the other apps. Only descriptions differ; the accepted fields and types are identical.
  */
-export const FindMatchingVehicleInputCatalog = FindMatchingVehicleInput.safeExtend({
+// The catalogue build's input, re-based on its own database (SYS-20261021-047). The shared fields come from the other edition's schema; what the database cannot use is not published:
+// `used` (the database stores new or used: published as the optional `condition`, the source's own words), `vehicleType` (one body column: `bodyType` lists the stored classes),
+// `priceFlexibility` (automatic widening is off in this build), `transmission` and `cylinders` (no such column). The call repair (lib/tool-input-normalizer.ts) still accepts all five
+// from older callers, so nothing breaks.
+const { used: _used, vehicleType: _vehicleType, priceFlexibility: _priceFlexibility, transmission: _transmission, cylinders: _cylinders, ...SHARED_FIELDS } = FindMatchingVehicleInput.shape;
+export const FindMatchingVehicleInputCatalog = z.object({
+  ...SHARED_FIELDS,
   vin: z.string().optional().describe("Exact 17-character VIN for one current listing. Other criteria are evaluated against that listing; if the VIN is not listed, a link to similar vehicles on Edmunds is returned, but no different vehicle is substituted."),
   exteriorColor: z.string().optional().describe("Requested exterior colour (for example white, black, gray, blue), matched against the dealer's colour name. If fewer than 3 cars match, colour only influences ranking."),
   interiorColor: z.string().optional().describe("Requested interior colour, matched against the dealer's colour name. If fewer than 3 cars match, colour only influences ranking."),
   cpo: z.boolean().optional().describe("Request for certified pre-owned status. Reported as unconfirmed; the buyer confirms with the dealer."),
   noAccidents: z.boolean().optional().describe("Request for no reported accidents. Reported as unconfirmed; the buyer checks the listing and the dealer."),
   oneOwner: z.boolean().optional().describe("Request for one-owner history. Reported as unconfirmed; the buyer checks the listing and the dealer."),
-});
+  bodyType: z.string().optional().describe("Body style: SUV, Sedan, Truck, Hatchback, Coupe, Convertible, Wagon, Minivan or Van; several may be comma-separated. A crossover is an SUV."),
+  mileageMax: z.number().optional().describe("Maximum odometer mileage. New cars with no reading are included; used cars with no reading are not."),
+  radiusMiles: z.number().optional().describe("Search radius in miles from the ZIP; 50 when omitted."),
+  doors: z.number().optional().describe("Requested door count. Cars with no door count on file are not matched."),
+  condition: z.enum(["new", "used"]).optional().describe("new = new cars only; used = used, pre-owned or certified only; leave out when the buyer says neither."),
+}).strict().superRefine(electrificationRefine);
