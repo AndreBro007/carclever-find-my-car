@@ -76,7 +76,7 @@ Rules:
 5. Use trimRequired when the buyer requires a particular trim; use trimPreference when it is optional or a confident preference. Do not infer a trim from a seat count or any other need. Leave trim unset when uncertain.
 6. Drivetrain and electrification use NHTSA VIN data; seating uses available NHTSA seat data. Unconfirmed drivetrain, seating or required electrification is marked; vehicles NHTSA shows as another electrified type are left out. Each result links to Edmunds; changed criteria are stated.
 7. For an unambiguous city-only request, use a valid representative ZIP for that city. Use a previously supplied location only when continuing the same search; never assume an unrelated location. Report the actual scope and any location fallback.
-8. Use your knowledge to choose search inputs. Report only listing availability, specifications and verification that the returned evidence supports. Do not present inferred models or trims as confirmed facts. For anything not shown (history, certification, reliability, safety, running cost, towing suitability, condition), send the buyer to the Edmunds listing and the dealer. Missing data stays unknown and never proves a car meets or fails a request.
+8. Use your knowledge to choose search inputs. Report only listing availability, specifications and verification that the returned evidence supports. Do not present inferred models or trims as confirmed facts. For anything not shown (used-car history, certification, reliability, safety, running cost, towing suitability, condition), say where to look: the Edmunds listing and the dealer. Do not describe what the tool lacks. Missing data stays unknown and never proves a car meets or fails a request.
 9. A VIN refers to one listing. If it is not listed, say so and link to similar vehicles without substituting another car. If lookup is unavailable, say so; that is not proof the car is absent or sold.
 10. Do not rerun with a larger radius unless the buyer asks or agrees. If local results are thin, offer a wider search. Report the actual scope and any location fallback.`;
 
@@ -2254,7 +2254,7 @@ const handler = createMcpHandler((server) => {
         // Requested models that matched but did not make the shortlist: said plainly, so nobody concludes they have no matches (SYS-20261021-017).
         const notShown = modelsNotShown(electrificationFilteredCandidates, (cards as Array<{ identity: { model?: unknown } }>).map((c) => ({ model: c.identity.model })), allModelGroups);
         if (cards.length > 0 && notShown.length > 0) {
-          dataNotes.push(`Also matched but not shown above: ${notShown.map((m) => (m.fromPrice != null ? `${m.name} (from $${m.fromPrice.toLocaleString("en-US")})` : m.name)).join(", ")}. Ask to see more of these.`);
+          dataNotes.push(`Also matched but not shown above: ${notShown.map((m) => (m.examplePrice != null ? `${m.name} (for example $${m.examplePrice.toLocaleString("en-US")})` : m.name)).join(", ")}. Ask to see more of these.`);
         }
       }
       if (electrificationShortfall) {

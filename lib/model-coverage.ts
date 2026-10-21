@@ -88,17 +88,21 @@ export function applyModelCoverage<T extends { vehicle?: { model?: unknown } | n
   return [...block, ...moved, ...tail];
 }
 
-/** Requested models that have a car among `candidates` but none among `shown`, with the lowest price found. */
-export function modelsNotShown<T extends { vehicle?: { model?: unknown } | null; retailListing?: { price?: number | null } | null }>(candidates: T[], shown: Array<{ model?: unknown }>, groups: ModelGroup[]): Array<{ name: string; fromPrice: number | null }> {
+/**
+ * Requested models that have a car among `candidates` but none among `shown`, with the lowest price among the cars that were checked.
+ * That is an example, not the model's lowest price: only some of a model's cars are checked (a real test showed a Tucson at $45,110 while the model's hybrids start at $35,824),
+ * so callers must say "for example", never "from".
+ */
+export function modelsNotShown<T extends { vehicle?: { model?: unknown } | null; retailListing?: { price?: number | null } | null }>(candidates: T[], shown: Array<{ model?: unknown }>, groups: ModelGroup[]): Array<{ name: string; examplePrice: number | null }> {
   if (groups.length < 2) return [];
   const shownKeys = new Set(shown.map((s) => groupKeyOf(s.model, groups)));
-  const out: Array<{ name: string; fromPrice: number | null }> = [];
+  const out: Array<{ name: string; examplePrice: number | null }> = [];
   for (const g of groups) {
     if (shownKeys.has(g.key)) continue;
     const cars = candidates.filter((c) => groupKeyOf(c.vehicle?.model, groups) === g.key);
     if (cars.length === 0) continue;
     const prices = cars.map((c) => c.retailListing?.price).filter((p): p is number => typeof p === "number" && p > 0);
-    out.push({ name: g.name, fromPrice: prices.length ? Math.min(...prices) : null });
+    out.push({ name: g.name, examplePrice: prices.length ? Math.min(...prices) : null });
   }
   return out;
 }

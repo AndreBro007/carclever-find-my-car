@@ -59,10 +59,10 @@ test("reserved seats: at most four are changed, and a model never loses its only
   assert.deepEqual(modelsNotShown(ranked, out.map((c) => ({ model: c.vehicle.model })), g9).map((m) => m.name).length, 1);
 });
 
-test("not shown: names the requested model with its lowest price; nothing when all are shown", () => {
+test("not shown: names the requested model with the lowest price among the cars checked (an example, not the model's lowest); nothing when all are shown", () => {
   const cands = [car("a", "Santa Fe", 41000), car("b", "Santa Fe", 39064), car("c", "Sorento Hybrid", 37424), car("d", "RX", 61704)];
   const r = modelsNotShown(cands, [{ model: "RX" }], G);
-  assert.deepEqual(r, [{ name: "Sorento", fromPrice: 37424 }, { name: "Santa Fe", fromPrice: 39064 }]);
+  assert.deepEqual(r, [{ name: "Sorento", examplePrice: 37424 }, { name: "Santa Fe", examplePrice: 39064 }]);
   assert.deepEqual(modelsNotShown(cands, [{ model: "RX" }, { model: "Santa Fe" }, { model: "Sorento Hybrid" }], G), []);
   assert.deepEqual(modelsNotShown([car("e", "Pilot")], [], G), [], "a model with no candidate is not claimed");
 });

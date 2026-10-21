@@ -84,7 +84,8 @@ test("a model that matched but is not shown is named with its lowest price, neve
   const shown = new Set(m.map((x) => x.replace(" Hybrid", "")));
   const hidden = names.filter((n) => !shown.has(n));
   assert.equal(hidden.length, 1, `nine models, eight seats: one is not shown (${[...shown].join(", ")})`);
-  assert.match(t, new RegExp(`Also matched but not shown above: ${hidden[0]} \\(from \\$[0-9,]+\\)\\. Ask to see more of these\\.`));
+  assert.match(t, new RegExp(`Also matched but not shown above: ${hidden[0]} \\(for example \\$[0-9,]+\\)\\. Ask to see more of these\\.`));
+  assert.ok(!/\(from \$/.test(t), "the price is an example, never claimed as the model's lowest");
   assert.ok(!/returned no matches/i.test(t));
 });
 
