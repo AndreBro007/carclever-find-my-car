@@ -105,7 +105,7 @@ test("the pointer to the listing and the dealer is in ONE place of the tool text
   const res = await rpc({ jsonrpc: "2.0", id: 40, method: "tools/list", params: {} });
   const d: string = res.result.tools.find((t: { name: string }) => t.name === "find_matching_vehicle").description;
   assert.equal(count(d, "say where to look: the Edmunds listing and the dealer"), 1);
-  assert.equal(count(d, "Do not describe what the tool lacks."), 1);
+  assert.equal(count(d, "Do not describe what the tool lacks. Do not mention history for new cars."), 1);
   assert.ok(!/does not establish/.test(d));
   assert.ok(!/point the buyer to the Edmunds listing and the dealer/.test(d), "rule 6 no longer repeats it");
 });
