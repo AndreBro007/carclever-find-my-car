@@ -23,6 +23,7 @@
 import { modelSatisfiesRequested } from "./model-match";
 import { trimMatchesAny } from "./trim-match";
 import { wantedDriveClasses, judgeDrive } from "./drivetrain-filter";
+import { electrificationStateSatisfies } from "./nhtsa-client";
 
 export type ConstraintStatus = "verified" | "mismatch" | "unknown" | "relaxed";
 
@@ -60,6 +61,8 @@ export interface ConstraintEvidenceRequest {
   trimRequired?: string;
   /** True when the buyer asked for an electrified type (required or preferred): electrification words are then neutral in the trim check (SYS-20261021-004, R3). */
   electrified?: boolean;
+  /** The electrified types the buyer REQUIRED (hybrid, plug_in_hybrid, electric); set only for a required request. Each result then carries an `electrification` check (T52). */
+  electrificationTypes?: string[];
 }
 
 /**
@@ -84,6 +87,8 @@ export interface ResolvedListingForEvidence {
   used?: boolean | null;
   state?: string | null;
   trim?: string | null;
+  /** NHTSA's electrification state for this car (lib/nhtsa-client.ts), or null when the decode gave no usable answer. */
+  electrificationState?: string | null;
 }
 
 /**
@@ -277,6 +282,14 @@ export function buildConstraintChecks(
         actual: actual.trim,
       });
     }
+  }
+
+  // Required electrification (T52): verified when NHTSA confirms a requested type; mismatch when it shows another type (such cars are left out of the results, so this
+  // is not expected on a card); unknown when NHTSA gave no usable answer. Unknown is kept and marked, never assumed to fail or to pass.
+  if (requested.electrificationTypes && requested.electrificationTypes.length > 0) {
+    const st = actual.electrificationState ?? null;
+    const ok = electrificationStateSatisfies((st ?? undefined) as never, requested.electrificationTypes as never);
+    checks.push({ field: "electrification", status: ok ? "verified" : st && st !== "ambiguous" ? "mismatch" : "unknown", requested: requested.electrificationTypes.join(", "), actual: st });
   }
 
   return checks;

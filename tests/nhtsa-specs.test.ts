@@ -38,11 +38,11 @@ test("withNhtsaSpecs fills blanks only and never overrides a value the listing h
   assert.equal(withNhtsaSpecs(same, { specs: sp }), same); // nothing to fill -> the same object comes back
   assert.equal(withNhtsaSpecs(same, null), same);
 });
-test("hybrid-first ordering is stable and the pool is 45", () => {
+test("hybrid-first ordering is stable and the pool is 24", () => {
   const c = (model: string, trim = "") => ({ vehicle: { make: "X", model, trim } });
   const list = [c("Camry"), c("RAV4", "XLE Hybrid"), c("Civic"), c("Model Y"), c("Prius Prime"), c("F-150", "Lariat")];
   assert.deepEqual(prioritizeElectrificationCandidates(list).map((x) => x.vehicle.model), ["RAV4", "Model Y", "Prius Prime", "Camry", "Civic", "F-150"]);
-  assert.equal(ELECTRIFICATION_POOL_SIZE, 45);
+  assert.equal(ELECTRIFICATION_POOL_SIZE, 24); // T52: three batches of 8, not one burst of 45
 });
 test("decode cache: the same VIN is fetched once, a failed decode is not cached, specs ride along", async () => {
   resetNhtsaCacheForTests();

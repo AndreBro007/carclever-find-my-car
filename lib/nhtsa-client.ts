@@ -224,6 +224,8 @@ export async function decodeNhtsaElectrification(
   claimedMakeRaw?: unknown,
   claimedModelRaw?: unknown,
   claimedCylinders?: number | null,
+  /** cacheOnly: answer from the 24 h cache or not at all (null), never ask NHTSA. Used for the cards when the batch check has just found NHTSA down (T52). */
+  opts?: { cacheOnly?: boolean },
 ): Promise<NhtsaElectrificationResult | null> {
   const claimedMake = claimedMakeRaw == null ? null : String(claimedMakeRaw);
   const claimedModel = claimedModelRaw == null ? null : String(claimedModelRaw);
@@ -231,6 +233,7 @@ export async function decodeNhtsaElectrification(
     const cacheKey = String(vin).toUpperCase();
     let r: any = cacheGet(cacheKey);
     const fromCache = r != null;
+    if (!r && opts?.cacheOnly) return null;
     if (!r) {
       const res = await fetch(`${NHTSA_BASE_URL}/${encodeURIComponent(vin)}?format=json`, {
         signal: AbortSignal.timeout(NHTSA_TIMEOUT_MS),
@@ -347,12 +350,36 @@ export function nhtsaIndicatesElectrified(result: NhtsaElectrificationResult | n
  * functions/constants for direct unit testing (confirmed by a real local
  * build failure this session).
  */
-export const ELECTRIFICATION_POOL_SIZE = 45; // was 20. Measured Oct 13 (cold, parallel single calls): 30 VINs 1.4 s, 60 VINs 2.7 s, all succeeded; 45 keeps clear of the 3 s timeout
+/** Most cars decoded per electrified search: three batches of ELECTRIFICATION_BATCH_SIZE (T52, SYS-20261021-003). Was 45 in one parallel burst. */
+export const ELECTRIFICATION_POOL_SIZE = 24;
+/** Cars decoded in parallel per batch. Measured 21 Oct from the sandbox: batches of 8 had a 90th percentile of about 0.27 s, a burst of 45 about 2.2 s against the 3 s limit. */
+export const ELECTRIFICATION_BATCH_SIZE = 8;
+
+/**
+ * Decode `pool` in order, in parallel batches, and stop as soon as `enough` says so, at ELECTRIFICATION_POOL_SIZE cars, or when a whole batch got no answer
+ * at all (NHTSA is down or throttling: `down` is true and no further batch is tried, so an outage costs one round of at most the 3 s limit, never more).
+ * `results[i]` belongs to `pool[i]` for the decoded prefix; null means no usable answer (timeout, error, undecodable VIN).
+ */
+export async function decodePoolInBatches<T extends { vin: string; vehicle?: { make?: unknown; model?: unknown; cylinders?: number | null } | null }>(
+  pool: T[],
+  enough: (results: Array<NhtsaElectrificationResult | null>) => boolean,
+): Promise<{ results: Array<NhtsaElectrificationResult | null>; down: boolean }> {
+  const results: Array<NhtsaElectrificationResult | null> = [];
+  const limit = Math.min(pool.length, ELECTRIFICATION_POOL_SIZE);
+  for (let off = 0; off < limit; off += ELECTRIFICATION_BATCH_SIZE) {
+    const chunk = pool.slice(off, Math.min(off + ELECTRIFICATION_BATCH_SIZE, limit));
+    const res = await Promise.all(chunk.map((c) => decodeNhtsaElectrification(c.vin, c.vehicle?.make, c.vehicle?.model, c.vehicle?.cylinders)));
+    results.push(...res);
+    if (res.every((r) => r == null)) return { results, down: true };
+    if (enough(results)) break;
+  }
+  return { results, down: false };
+}
 
 const ELECTRIFIED_HINT = /\b(hybrid|hev|phev|plug-?in|prime|electric|ev\d*|e-?tron|ioniq|bolt|leaf|volt|prius|niro|mach-?e|id\.?4|taycan|lucid|rivian|polestar|recharge|e-?hybrid|[24]xe|i[3-8x]|ix\d?|model [3sxy])\b/i;
 
 /**
- * For hybrid/EV searches the decode pool is only the first ELECTRIFICATION_POOL_SIZE candidates. Put cars whose make, model or
+ * For hybrid/EV searches the decode pool is only the first ELECTRIFICATION_POOL_SIZE candidates (decoded in batches, decodePoolInBatches). Put cars whose make, model or
  * trim already hints at electrification first (stable order inside each group), so the bounded pool is spent where hybrids are.
  */
 export function prioritizeElectrificationCandidates<T extends { vehicle?: { make?: unknown; model?: unknown; trim?: unknown; year?: unknown } | null }>(cands: T[]): T[] {
