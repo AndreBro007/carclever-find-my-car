@@ -157,6 +157,18 @@ async function countCapped(db: Queryable, whereSql: string, values: unknown[]): 
   return n > TOTAL_CAP ? null : n; // null = "more than we count", which the app treats as unknown, never as zero
 }
 
+/**
+ * Per-model share of the candidate rows when a request names two or more models (SYS-20261021-017, option A). Without it the best-ranked 300 rows can all belong to one model
+ * (many new cars at one dealer) and the others never reach the result. A model keeps at most this many of its best-ranked rows, the global order is unchanged, and the total
+ * stays at the usual limit. Null (no change at all) for one model or none.
+ */
+function modelQuota(q: ListingsQuery, models: string[] | null, lim: number): number | null {
+  if (!models || models.length === 0) return null;
+  const keys = new Set([...models.map(alnumKey), ...(q.electrified?.extraModels ?? []).map(alnumKey)].filter(Boolean));
+  if (keys.size < 2) return null;
+  return Math.max(60, Math.ceil(lim / keys.size));
+}
+
 async function plainSearch(db: Queryable, q: ListingsQuery, models: string[] | null, strict = false): Promise<DbSearchResult> {
   const p = new Params();
   const w = whereFor(q, models, p, { strictColour: strict });
@@ -164,7 +176,15 @@ async function plainSearch(db: Queryable, q: ListingsQuery, models: string[] | n
   const nWhere = p.values.length; // the count query uses only the filter parameters, not the ranking ones added below
   const cr = colourRank(q, p);
   const er = electrifiedRank(q, p);
-  const rows = await db.query(`SELECT ${SELECT_COLS}, NULL::float AS distance ${FROM} ${whereSql} ORDER BY ${er === "0" ? "" : er + ", "}${cr === "0" ? "" : cr + ", "}${orderFor(q.sort, q.priceMax != null)} LIMIT ${limitOf(q)}`, p.values);
+  const quota = modelQuota(q, models, limitOf(q));
+  const ord = `${er === "0" ? "" : er + ", "}${cr === "0" ? "" : cr + ", "}${orderFor(q.sort, q.priceMax != null)}`;
+  const rows = quota == null
+    ? await db.query(`SELECT ${SELECT_COLS}, NULL::float AS distance ${FROM} ${whereSql} ORDER BY ${ord} LIMIT ${limitOf(q)}`, p.values)
+    : await db.query(
+        `SELECT x.* FROM (SELECT ${SELECT_COLS}, NULL::float AS distance, ${er} AS elec_rank, ${cr} AS colour_rank, row_number() OVER (PARTITION BY l.model_key ORDER BY ${ord}) AS rn ${FROM} ${whereSql}) x ` +
+          `WHERE x.rn <= ${quota} ORDER BY x.elec_rank ASC, x.colour_rank ASC, ${orderFor(q.sort, q.priceMax != null).replace(/\bl\./g, "x.")} LIMIT ${limitOf(q)}`,
+        p.values,
+      );
   const total = await countCapped(db, whereSql, p.values.slice(0, nWhere));
   return { rows: rows.rows as unknown as DbRow[], total, localApplied: false };
 }
@@ -182,8 +202,13 @@ async function localSearch(db: Queryable, q: ListingsQuery, models: string[] | n
     }
     const cr = colourRank(q, p);
     const er = electrifiedRank(q, p);
-    const inner = `SELECT ${SELECT_COLS}, ${dist} AS distance, ${cr} AS colour_rank, ${er} AS elec_rank ${FROM} WHERE ${w.join(" AND ")}`;
-    const rows = await db.query(`SELECT * FROM (${inner}) x ${r != null ? `WHERE x.distance <= ${p.add(r)}` : ""} ORDER BY x.elec_rank ASC, x.colour_rank ASC, ${localSortFor(q.sort, q.priceMax)}x.distance ASC, x.price ASC NULLS LAST LIMIT ${limit}`, p.values);
+    const inner = `SELECT ${SELECT_COLS}, ${dist} AS distance, ${cr} AS colour_rank, ${er} AS elec_rank, l.model_key AS model_key ${FROM} WHERE ${w.join(" AND ")}`;
+    const ordX = `x.elec_rank ASC, x.colour_rank ASC, ${localSortFor(q.sort, q.priceMax)}x.distance ASC, x.price ASC NULLS LAST`;
+    const quota = modelQuota(q, models, limit);
+    const within = r != null ? `WHERE x.distance <= ${p.add(r)}` : "";
+    const rows = quota == null
+      ? await db.query(`SELECT * FROM (${inner}) x ${within} ORDER BY ${ordX} LIMIT ${limit}`, p.values)
+      : await db.query(`SELECT x.* FROM (SELECT x.*, row_number() OVER (PARTITION BY x.model_key ORDER BY ${ordX}) AS rn FROM (${inner}) x ${within}) x WHERE x.rn <= ${quota} ORDER BY ${ordX} LIMIT ${limit}`, p.values);
     return rows.rows as unknown as DbRow[];
   };
   // Only the radius the buyer asked for. Never widened here: a thin result is reported, and widening is offered in the reply.

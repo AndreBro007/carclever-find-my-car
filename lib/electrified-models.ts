@@ -63,6 +63,11 @@ function familyOf(name: string): string {
   return tokens(name).filter((t) => !WORD_TYPE[t] && t !== "class" && !/^\d{2,3}[eh]$/.test(t)).join(" ");
 }
 
+/** The model name without electrification words, a letter suffix or a trailing "Class": "Highlander Hybrid" and "Highlander" are one family, "Grand Highlander" is another. */
+export function modelFamily(name: string): string {
+  return familyOf(name);
+}
+
 const overlaps = (a: Set<ElectrifiedType>, types: ElectrifiedType[]): boolean => types.some((t) => a.has(t));
 
 /**

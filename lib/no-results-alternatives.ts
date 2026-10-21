@@ -53,7 +53,7 @@ export async function buildNoResultsAlternatives(query: ListingsQuery, search: A
     let r = await search(q);
     if (r.error) failed = true;
     let rows = r.error ? [] : r.data;
-    if (rows.length || !query.zip) return { rows, scope: query.zip ? `near ZIP ${query.zip}` : "in the catalogue" };
+    if (rows.length || !query.zip) return { rows, scope: query.zip ? `near ZIP ${query.zip}` : "in Edmunds listings" };
     r = await search({ ...q, zip: undefined, radius: undefined, state: undefined });
     if (r.error) failed = true;
     rows = r.error ? [] : r.data;

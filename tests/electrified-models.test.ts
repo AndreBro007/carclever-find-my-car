@@ -97,7 +97,8 @@ describe("electrified search in a real database", { skip: DB ? false : "TEST_DAT
     const r = await searchCatalogDbListings({ make: "Toyota", model: "RAV4", electrified: ELEC });
     const first6 = r.data.slice(0, 6).map((l) => `${l.vehicle?.model}|${l.vehicle?.trim}`).sort();
     assert.deepEqual(first6, ["RAV4 Hybrid|XLE", "RAV4 Hybrid|XLE", "RAV4 Hybrid|XLE", "RAV4|LE Hybrid", "RAV4|LE Hybrid", "RAV4|LE Hybrid"]);
-    assert.equal(r.data.length, 300);
+    // Two model keys (RAV4 and RAV4 Hybrid): each keeps at most 150 of its best-ranked rows (SYS-20261021-017), so the plain RAV4 no longer takes all 300.
+    assert.equal(r.data.length, 150 + 3);
     assert.ok(!r.data.some((l) => l.vehicle?.model === "RAV4 Prime"), "a plug-in variant is not searched for a hybrid request");
     assert.ok(!r.data.some((l) => l.vehicle?.model === "Camry Hybrid"), "other models are not searched");
   });

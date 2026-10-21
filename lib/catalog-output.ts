@@ -70,7 +70,7 @@ export function nhtsaTextLines(c: any): string {
   if (d.nhtsaOverallRating) safety.push(`NHTSA ${d.nhtsaOverallRating}★ overall`);
   if (d.nhtsaRecallCampaigns > 0) safety.push(`${d.nhtsaRecallCampaigns} recall campaign${d.nhtsaRecallCampaigns === 1 ? "" : "s"} for this model year`);
   const feats: string[] = Array.isArray(d.standardSafetyTech) ? d.standardSafetyTech : [];
-  if (feats.length) safety.push(`NHTSA model-year data (may vary by trim): ${feats.slice(0, 4).join(", ")}${feats.length > 4 ? ` +${feats.length - 4} more` : ""}. Confirm which of these come with this trim with the dealer.`);
+  if (feats.length) safety.push(`NHTSA model-year data (may vary by trim): ${feats.slice(0, 4).join(", ")}${feats.length > 4 ? ` +${feats.length - 4} more` : ""}.`);
   return (spec ? `\n   ${spec}` : "") + (safety.length ? `\n   ${safety.join(" · ")}` : "");
 }
 

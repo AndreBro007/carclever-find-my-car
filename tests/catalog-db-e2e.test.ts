@@ -156,7 +156,7 @@ test("cylinders and transmission are reported as not applied, never as filtered"
 
 test("no results: none in the asked condition, so the same model in the other condition is shown and labelled", opts, async () => {
   const txt = textOf(await call(27, { make: "Toyota", model: "RAV4", used: false, priceMax: 5000 }));
-  assert.match(txt, /No new Toyota RAV4 listings found\. Used ones in the catalogue, lowest price first:/);
+  assert.match(txt, /No new Toyota RAV4 listings found\. Used ones in Edmunds listings, lowest price first:/);
   assert.match(txt, /2024 Toyota RAV4 LE - \$29,000/);
   assert.ok(/https:\/\/edmunds\.sjv\.io/.test(txt));
 });
@@ -171,7 +171,7 @@ test("no results because of the trim: the alternatives say so, and are never cal
 
 test("a cylinder or transmission request adds a plain not-applied line to the reply", opts, async () => {
   const txt = textOf(await call(29, { make: "Honda", model: "Civic", cylinders: 4, transmission: "Manual", zip: "90210" }));
-  assert.match(txt, /cylinder count and transmission could not be applied as a filter because the catalogue has no such field/);
+  assert.match(txt, /cylinder count and transmission were not used as a filter/);
 });
 
 test("a broad body-type search gets the hint on how to ask for a class; a search with model names does not", opts, async () => {
@@ -183,7 +183,7 @@ test("a broad body-type search gets the hint on how to ask for a class; a search
 
 test("a cylinder request shows what the results are and tells the AI to state only that", opts, async () => {
   const txt = textOf(await call(32, { make: "Honda", model: "Civic", cylinders: 4, zip: "90210" }));
-  assert.match(txt, /Cylinder count in these results: unknown \(\d of \d\)\. State only what is shown here: the catalogue has no data on what a manufacturer sells or has sold\./);
+  assert.match(txt, /Cylinder count in these results: unknown \(\d of \d\)\. State only what is shown here, not what a manufacturer sells or has sold\./);
 });
 
 test("when a search behind the alternatives fails, the reply says so instead of silently showing nothing", opts, async () => {
@@ -194,9 +194,9 @@ test("when a search behind the alternatives fails, the reply says so instead of 
   await broken.end().catch(() => {});
 });
 
-test("no results: the reply says it covers the catalogue only and nothing about the wider market", opts, async () => {
+test("no results: the reply says listings change often and invites another try, with no claim about the wider market", opts, async () => {
   const txt = textOf(await call(33, { make: "Honda", model: "Civic", priceMax: 1000, zip: "90210" }));
-  assert.match(txt, /Nothing was widened or substituted\. This covers our catalogue only and says nothing about the wider market\./);
+  assert.match(txt, /Nothing was widened or substituted\. Listings change often, so try again soon or adjust the search\./);
 });
 
 test("a trim that matches nothing: the reply lists the trims that do exist, with counts", opts, async () => {

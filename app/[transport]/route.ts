@@ -33,7 +33,7 @@ import { computeMatchScore } from "@/lib/match-score";
 import { resolveLinks } from "@/lib/link-resolution";
 import { sanitizeDealerName } from "@/lib/dealer-name";
 import { applyKnownHybridOverride, formatFuelTypeForDisplay } from "@/lib/fuel-type";
-import { decodeNhtsaElectrification, decodePoolInBatches, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, prioritizeElectrificationCandidates, electrificationStateSatisfies } from "@/lib/nhtsa-client";
+import { decodeNhtsaElectrification, decodePoolInBatches, ELECTRIFICATION_BATCH_SIZE, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, prioritizeElectrificationCandidates, electrificationStateSatisfies } from "@/lib/nhtsa-client";
 import { isAnomalousPrice, buildCpoSummary, buildHistorySummary, applyLocalBestForBudgetOrdering } from "@/lib/local-ranking";
 import { FindMatchingVehicleInputCatalog } from "@/lib/find-matching-vehicle-input";
 import { fetchRecallStatus, clipRecallText, type RecallInfo } from "@/lib/nhtsa-recalls-client";
@@ -54,6 +54,7 @@ import { signImageUrl } from "@/lib/image-proxy-sign";
 import { trimMatches, trimMatchesAny, trimContainsAllAny } from "@/lib/trim-match";
 import { resolveRequiredTrims } from "@/lib/trim-resolution";
 import { electrifiedModelsFor, electrificationTypesOf, knownHybridOnlyFor, trimWordingRegex, type ElectrifiedType } from "@/lib/electrified-models";
+import { requestedGroups, groupKeyOf, interleaveByGroup, coverageReached, applyModelCoverage, modelsNotShown } from "@/lib/model-coverage";
 import { formatVehicleTitle } from "@/lib/vehicle-title";
 import { CatalogDbOutputSchema, type FindMatchingVehicleOutput } from "@/lib/find-matching-vehicle-output";
 import { buildConstraintChecks, aggregateSearchConstraintStatus, type ConstraintEvidenceRequest } from "@/lib/constraint-evidence";
@@ -69,10 +70,10 @@ const CATALOG_FIND_MATCHING_VEHICLE_DESCRIPTION = `Finds current US listings for
 Rules:
 1. Pass only what the buyer stated or clearly implied; leave other fields unset.
 2. Listing fields (make, model, trim, year, price, mileage, location, condition, colour, body style, doors) are matched against listing data. Trim preference ranks only; seats are not a filter.
-3. Preserve any models the buyer named. For a broad search with no named model, translate a size, class or practical need into suitable real model names in model, with the need in vehicleNeeds. The catalogue has no size data and the tool will not guess. Start with relevant candidates; if results are thin, widen within the same requirements. Do not copy examples from this description.
+3. Preserve any models the buyer named. For a broad search with no named model, translate a size, class or practical need into suitable real model names in model, with the need in vehicleNeeds. Size comes from your model choice: say so, and point the buyer to the listing for dimensions. Start with relevant candidates; if results are thin, widen within the same requirements. Do not copy examples from this description.
 4. For hybrid, plug-in or electric requests, pass the accepted types and whether they are required or preferred. For required searches, NHTSA confirmation determines eligibility; preferred searches may retain unconfirmed or non-electrified alternatives. Pass base models that offer that version; the tool also searches their electrified versions. A model family offering a hybrid does not show that a listing is one. A fuel label alone does not decide hybrid status.
 5. Use trimRequired when the buyer requires a particular trim; use trimPreference when it is optional or a confident preference. Do not infer a trim from a seat count or any other need. Leave trim unset when uncertain.
-6. Drivetrain and electrification use NHTSA VIN data; seating uses available NHTSA seat data. Unconfirmed drivetrain, seating or required electrification is marked; vehicles NHTSA shows as another electrified type are left out. The tool does not verify certification, accident, ownership or history; say these are unknown in this edition. Each result links to Edmunds; changed criteria are stated.
+6. Drivetrain and electrification use NHTSA VIN data; seating uses available NHTSA seat data. Unconfirmed drivetrain, seating or required electrification is marked; vehicles NHTSA shows as another electrified type are left out. For certification, accident, ownership and history, point the buyer to the Edmunds listing and the dealer. Each result links to Edmunds; changed criteria are stated.
 7. For an unambiguous city-only request, use a valid representative ZIP for that city. Use a previously supplied location only when continuing the same search; never assume an unrelated location. Report the actual scope and any location fallback.
 8. Use your knowledge to choose search inputs. Report only listing availability, specifications and verification that the returned evidence supports. Do not present inferred models or trims as confirmed facts. The tool does not establish reliability, safety, running cost, towing suitability or condition. Missing data stays unknown and never proves a car meets or fails a request.
 9. A VIN refers to one listing. If it is not listed, say so and link to similar vehicles without substituting another car. If lookup is unavailable, say so; that is not proof the car is absent or sold.
@@ -1703,6 +1704,11 @@ const handler = createMcpHandler((server) => {
       // Fixed by having the closure RETURN both values together instead
       // of mutating a captured variable — ordinary destructuring narrows
       // correctly.
+      // Models asked for (two or more): each should get candidates, a seat in the shortlist, and a mention if it matched but is not shown (SYS-20261021-017, option A).
+      // Cheapest, newest and lowest mileage are strict: the cars are taken in exactly that order, so no spreading across models there (the not-shown note still applies).
+      const allModelGroups = requestedGroups(effectiveQuery.model);
+      const coverageGroups = isStrictAxis(input.priorityAxis) ? [] : allModelGroups;
+      const coverageKeyOf = (c: VehicleListing) => groupKeyOf(c.vehicle?.model, coverageGroups);
       // Required (T52, SYS-20261021-003 and -012): NHTSA is asked in batches of 8 (cap ELECTRIFICATION_POOL_SIZE) and the search stops as soon as enough cars are
       // confirmed; if a whole batch gets no answer (NHTSA down) it stops at once. Cars NHTSA confirms as a requested type come first; cars it gives no usable answer for
       // are KEPT, marked on the card, and only fill what the confirmed cars leave; cars it shows as another type (or not electrified) are left out and counted.
@@ -1710,9 +1716,10 @@ const handler = createMcpHandler((server) => {
       const electrificationResult: { candidates: VehicleListing[]; shortfall: { requested: number; confirmed: number } | null; matchedVins: Set<string> | null; leftOut: number; down: boolean } = electrificationRequired
         ? await (async () => {
             const requestedTypes = input.electrificationTypes!;
-            const pool = prioritizeElectrificationCandidates(trimOrderedCandidates);
+            // Cars of each requested model in turn, so the first batches cover every model; the batches go on until each model has been tried (or enough cars are confirmed).
+            const pool = interleaveByGroup(prioritizeElectrificationCandidates(trimOrderedCandidates), coverageKeyOf, coverageGroups);
             const isConfirmed = (r: NhtsaElectrificationResult | null | undefined) => electrificationStateSatisfies(r?.electrificationState, requestedTypes);
-            const { results, down } = await decodePoolInBatches(pool, (rs) => rs.filter(isConfirmed).length >= targetCount);
+            const { results, down } = await decodePoolInBatches(pool, (rs) => rs.filter(isConfirmed).length >= targetCount && (rs.length >= 2 * ELECTRIFICATION_BATCH_SIZE || coverageReached(pool, rs, coverageKeyOf, (r) => isConfirmed(r as NhtsaElectrificationResult | null), coverageGroups))); // coverage may cost at most one extra batch
             const confirmed: VehicleListing[] = [];
             const unknown: VehicleListing[] = [];
             let leftOut = 0;
@@ -1731,9 +1738,10 @@ const handler = createMcpHandler((server) => {
         : electrificationPreferred
         ? await (async () => {
             const requestedTypes = input.electrificationTypes!;
-            const pool = prioritizeElectrificationCandidates(trimOrderedCandidates);
+            // Cars of each requested model in turn, so the first batches cover every model; the batches go on until each model has been tried (or enough cars are confirmed).
+            const pool = interleaveByGroup(prioritizeElectrificationCandidates(trimOrderedCandidates), coverageKeyOf, coverageGroups);
             const isConfirmed = (r: NhtsaElectrificationResult | null | undefined) => electrificationStateSatisfies(r?.electrificationState, requestedTypes);
-            const { results, down } = await decodePoolInBatches(pool, (rs) => rs.filter(isConfirmed).length >= targetCount);
+            const { results, down } = await decodePoolInBatches(pool, (rs) => rs.filter(isConfirmed).length >= targetCount && (rs.length >= 2 * ELECTRIFICATION_BATCH_SIZE || coverageReached(pool, rs, coverageKeyOf, (r) => isConfirmed(r as NhtsaElectrificationResult | null), coverageGroups)));
             const matchedVins = new Set(pool.slice(0, results.length).filter((_, i) => isConfirmed(results[i])).map((c) => c.vin));
             return { candidates: trimOrderedCandidates, shortfall: null, matchedVins, leftOut: 0, down };
           })()
@@ -1808,7 +1816,7 @@ const handler = createMcpHandler((server) => {
             ? [...strictAxisOrder(driveSplit.confirmed, input.priorityAxis, targetCount * 2), ...strictAxisOrder(driveUnknownCapped, input.priorityAxis, targetCount * 2)].slice(0, targetCount * 2)
             : strictAxisOrder(electrificationFilteredCandidates, input.priorityAxis, targetCount * 2))
         : null;
-      const diversifiedBase = strictBase ?? diversified;
+      const diversifiedBase = strictBase ?? applyModelCoverage(diversified, coverageGroups, targetCount); // each requested model with a car gets a seat; ranking otherwise unchanged
       // Drivetrain request: confirmed cars are listed first (stable order), cars the decode is silent about follow.
       const diversifiedOrdered = driveConfirmedVins.size > 0
         ? [...diversifiedBase.filter((c) => driveConfirmedVins.has(c.vin)), ...diversifiedBase.filter((c) => !driveConfirmedVins.has(c.vin))]
@@ -2276,6 +2284,13 @@ const handler = createMcpHandler((server) => {
           dataNotes.push(`Cars that NHTSA shows as a different type than ${electrificationWords(input.electrificationTypes)} were left out.`);
         }
       }
+      {
+        // Requested models that matched but did not make the shortlist: said plainly, so nobody concludes they have no matches (SYS-20261021-017).
+        const notShown = modelsNotShown(electrificationFilteredCandidates, (cards as Array<{ identity: { model?: unknown } }>).map((c) => ({ model: c.identity.model })), allModelGroups);
+        if (cards.length > 0 && notShown.length > 0) {
+          dataNotes.push(`Also matched but not shown above: ${notShown.map((m) => (m.fromPrice != null ? `${m.name} (from $${m.fromPrice.toLocaleString("en-US")})` : m.name)).join(", ")}. Ask to see more of these.`);
+        }
+      }
       if (electrificationShortfall) {
         dataNotes.push(
           `Only ${electrificationShortfall.confirmed} of the results matched your electric or hybrid requirement. Check each listing, or ask the dealer about any others.`,
@@ -2402,7 +2417,7 @@ const handler = createMcpHandler((server) => {
           ? `No vehicles matched these criteria, even after automatically trying to widen the ${uniqueAttemptedSteps
               .map((s) => STEP_LABELS[s])
               .join(", ")} — this looks like a genuine inventory gap for this exact combination, not something more widening on those same dimensions would fix. A different location, a broader model list, or (if the budget allows) some price flexibility may help instead.`
-          : `No vehicles matched ${[input.used === true ? "used" : input.used === false ? "new" : "", input.make ?? "", input.model ?? "", typeof input.trimRequired === "string" ? input.trimRequired : ""].filter(Boolean).join(" ") || "these criteria"}${input.priceMax != null ? ` at up to $${Number(input.priceMax).toLocaleString("en-US")}` : ""}${rawZip ? ` within ${input.radiusMiles ?? 50} miles of ${rawZip}` : ""}. Nothing was widened or substituted. This covers our catalogue only and says nothing about the wider market.`;
+          : `No vehicles matched ${[input.used === true ? "used" : input.used === false ? "new" : "", input.make ?? "", input.model ?? "", typeof input.trimRequired === "string" ? input.trimRequired : ""].filter(Boolean).join(" ") || "these criteria"}${input.priceMax != null ? ` at up to $${Number(input.priceMax).toLocaleString("en-US")}` : ""}${rawZip ? ` within ${input.radiusMiles ?? 50} miles of ${rawZip}` : ""}. Nothing was widened or substituted. Listings change often, so try again soon or adjust the search.`;
 
       // Partial-success disclosure gap (SYS-20260816-049, real bug found live
       // 2026-08-16): a widening step can be genuinely attempted and fail to
@@ -2503,7 +2518,7 @@ const handler = createMcpHandler((server) => {
                 const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
                 return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel}${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${driveLine}${elecLine}${conflictLine}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${linkStr}`;
               })
-              .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards) + seatUnknownFootnote(cards) + (Array.isArray(input.vehicleNeeds) && input.vehicleNeeds.length && cards.length ? `\n\nBefore you buy, ask the dealer about: ${input.vehicleNeeds.join(", ")}. These are not in our data, so ask for service and history records.` : "") + (cards.length ? "\n\nCheck each Edmunds listing, then contact the dealer to confirm price, history and availability." : "")
+              .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards) + seatUnknownFootnote(cards) + (cards.length ? `\n\nCheck each Edmunds listing, then contact the dealer to confirm availability, price and features.${(cards as Array<{ condition?: { inventoryType?: string } }>).some((c) => c.condition?.inventoryType === "used") ? " For a used car, also ask for its history report." : ""}${Array.isArray(input.vehicleNeeds) && input.vehicleNeeds.length ? ` Also ask the dealer about: ${input.vehicleNeeds.join(", ")}.` : ""}` : "")
             + (["cheapest", "newest", "lowest_mileage"].includes(String(input.priorityAxis)) && input.yearMin == null && input.mileageMax == null
               ? "\n\nFor a closer match, tell me a minimum year, a maximum mileage or your budget, and I'll narrow the list." : "");
 

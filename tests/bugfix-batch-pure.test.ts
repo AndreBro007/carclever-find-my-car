@@ -23,7 +23,7 @@ test("check digit: the bad VINs fail, a valid VIN and a non-North-American VIN d
 });
 
 test("broad body-type hint: only for a body type with no model and no make; no tables, the AI does the classifying", () => {
-  assert.match(broadBodyTypeHint({ bodyType: "SUV" }), /broad SUV search with no model names.*resend with the real model names for that class in "model": the catalogue has no size data/);
+  assert.match(broadBodyTypeHint({ bodyType: "SUV" }), /broad SUV search with no model names.*resend with the real model names for that class in "model"; size is matched through model names/);
   assert.equal(broadBodyTypeHint({ bodyType: "SUV", model: "Highlander, Pilot" }), "");
   assert.equal(broadBodyTypeHint({ bodyType: "Sedan", make: "Honda" }), "");
   assert.equal(broadBodyTypeHint({}), "");
@@ -32,10 +32,10 @@ test("broad body-type hint: only for a body type with no model and no make; no t
 test("not-applied note: names the field, shows what the results are, tells the AI to state only that", () => {
   const cards = [{ detail: { cylinders: 6 } }, { detail: { cylinders: 6 } }, { detail: { cylinders: null } }];
   const n = unappliedFilterNote({ cylinders: 4 }, cards);
-  assert.match(n, /^cylinder count could not be applied as a filter because the catalogue has no such field\. Cylinder count in these results: 6-cylinder \(2 of 3\), unknown \(1 of 3\)\. State only what is shown here/);
+  assert.match(n, /^cylinder count was not used as a filter\. Cylinder count in these results: 6-cylinder \(2 of 3\), unknown \(1 of 3\)\. State only what is shown here/);
   const t = unappliedFilterNote({ transmission: "Manual" }, [{ powertrain: { transmission: "Automatic" } }]);
   assert.match(t, /Transmission in these results: Automatic \(1 of 1\)\./);
-  assert.match(unappliedFilterNote({ cylinders: 4, transmission: "Manual" }, []), /^cylinder count and transmission could not be applied/);
+  assert.match(unappliedFilterNote({ cylinders: 4, transmission: "Manual" }, []), /^cylinder count and transmission were not used as a filter/);
   assert.equal(unappliedFilterNote({}, cards), "");
 });
 
@@ -78,8 +78,8 @@ test("the widget says Invalid VIN, not the empty-list text, for an invalid VIN",
 
 test("vehicle type is only ever a body style: the reply says so instead of claiming a size filter", () => {
   assert.match(vehicleTypeNote({ bodyType: "SUV", vehicleType: "Midsize SUV" }), /not applied as a separate filter: body style "SUV" was already used/);
-  assert.match(vehicleTypeNote({ vehicleType: "Midsize SUV" }), /used only as body style suv; any size or class wording in it could not be applied/);
-  assert.match(vehicleTypeNote({ vehicleType: "Spaceship" }), /could not be applied/);
+  assert.match(vehicleTypeNote({ vehicleType: "Midsize SUV" }), /used only as body style suv; any size or class wording in it is matched through model names instead/);
+  assert.match(vehicleTypeNote({ vehicleType: "Spaceship" }), /is not used as a filter; model names carry that choice/);
   assert.equal(vehicleTypeNote({ bodyType: "SUV" }), "");
   const acc = buildQualifierAccounting({ vehicleType: "Midsize SUV" } as any);
   assert.equal(acc[0].tier, "disclosed_not_filtered"); assert.match(acc[0].applied, /not applied as a filter/);
