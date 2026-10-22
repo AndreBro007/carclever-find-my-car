@@ -310,17 +310,18 @@ test("compare_vehicles: the reply suggests a side-by-side table (one column per 
   const vs = ROWS.filter((r) => r.model === "Hyd3").slice(0, 2).map((r) => r.vin);
   const o: any = await rpc({ jsonrpc: "2.0", id: rid++, method: "tools/call", params: { name: "compare_vehicles", arguments: { vins: vs } } });
   const t = textOf(o);
-  assert.match(t, /Differences \(stated, not ranked\):/); assert.match(t, /Side-by-side table \(one column per vehicle; the best price, mileage, year and distance are in bold\):/); assert.match(t, /This table can be shown to the buyer as it is\./);
+  assert.match(t, /Differences \(stated, not ranked\):/); assert.match(t, /Side-by-side table \(one column per vehicle; the best price, mileage, year and distance are in bold\):/); assert.match(t, /If this comparison is not already on screen for the buyer, this table can be shown as it is\./);
 });
 
 // ---- compare_vehicles without a widget (22 Oct 2026, André: option B) ----
-test("compare_vehicles declares no widget; search and VIN check keep theirs; the link tool never had one", async () => {
+test("compare_vehicles, search and VIN check declare the widget (so Claude loads compare with them); the link tool never had one", async () => {
   const o: any = await rpc({ jsonrpc: "2.0", id: rid++, method: "tools/list" });
   const tools: any[] = o.result.tools; const by = (n: string) => tools.find((t) => t.name === n);
   assert.equal(tools.length, 4);
   const widgetOf = (t: any) => ({ ui: t._meta?.ui?.resourceUri, openai: t._meta?.["openai/outputTemplate"] });
-  assert.deepEqual(widgetOf(by("compare_vehicles")), { ui: undefined, openai: undefined }, "compare has no widget");
-  for (const n of ["find_matching_vehicle", "check_vehicle"]) assert.ok(widgetOf(by(n)).ui && widgetOf(by(n)).openai, `${n} keeps its widget`);
+  for (const n of ["find_matching_vehicle", "check_vehicle", "compare_vehicles"]) assert.ok(widgetOf(by(n)).ui && widgetOf(by(n)).openai, `${n} declares the widget`);
+  assert.equal(widgetOf(by("compare_vehicles")).ui, widgetOf(by("find_matching_vehicle")).ui, "the same widget resource");
+  assert.equal(widgetOf(by("find_matching_vehicle")).ui, "ui://carclever-find-my-car/results-card-v4");
   assert.deepEqual(widgetOf(by("get_edmunds_vehicle_link")), { ui: undefined, openai: undefined }, "the link tool has no widget, as before");
   assert.equal(by("compare_vehicles").annotations.readOnlyHint, true);
   // Tool choice after a search (André's real-user flow, 22 Oct): "compare 1 and 2" must lead to compare_vehicles, not two check_vehicle calls.

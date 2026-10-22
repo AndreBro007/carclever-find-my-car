@@ -33,11 +33,11 @@ test("distance rows appear only when a ZIP is given; the helper returns null for
   const d = zipDistanceMiles("90210", "92101")!; assert.ok(d > 100 && d < 130, `Beverly Hills to San Diego is about 110 miles, got ${d}`);
   assert.equal(zipDistanceMiles("00000", "90210"), null); assert.equal(zipDistanceMiles(null, "90210"), null);
 });
-test("tool wiring: compare_vehicles is registered with a title, 2 to 4 VINs, boundaries to the other tools, and no widget (text reply only)", () => {
+test("tool wiring: compare_vehicles is registered with a title, 2 to 4 VINs, boundaries to the other tools, and the cards widget (it shows the comparison table)", () => {
   const src = readFileSync("app/[transport]/route.ts", "utf8"); const i = src.indexOf('"compare_vehicles",\n    {'); assert.ok(i > 0, "tool must be registered");
   const block = src.slice(i, i + 3500);
   assert.match(block, /title: "Compare Vehicles"/); assert.match(block, /vins: z\.array\(z\.string\(\)\)\.min\(2\)\.max\(4\)/);
-  assert.match(block, /use find_matching_vehicle/); assert.match(block, /use check_vehicle/); assert.ok(!/RESULTS_CARD_RESOURCE_URI|openai\/outputTemplate/.test(block), "compare_vehicles declares no widget");
+  assert.match(block, /use find_matching_vehicle/); assert.match(block, /use check_vehicle/); assert.match(block, /ui: \{ resourceUri: RESULTS_CARD_RESOURCE_URI \}/); assert.match(block, /"openai\/outputTemplate": RESULTS_CARD_RESOURCE_URI/);
   assert.ok(!/carfax|accident-free|risk tier/i.test(block));
 });
 

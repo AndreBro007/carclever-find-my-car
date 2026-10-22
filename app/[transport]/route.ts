@@ -2919,8 +2919,12 @@ const handler = createMcpHandler((server) => {
         zip: z.string().optional().describe("Optional 5-digit ZIP code: adds each dealer's distance from it to the comparison."),
       },
       annotations: { title: "Compare Vehicles", readOnlyHint: true, openWorldHint: true, destructiveHint: false },
-      // No widget (22 Oct 2026, André's test of the compare reply): the cards widget showed the same listings again, not a comparison, and Claude tells the AI not to repeat a result a widget has
-      // rendered, so the AI never presented the differences. Without a widget the reply text (the Differences block, the links and the table suggestion) is what the buyer gets.
+      // The widget is back (22 Oct 2026): without it Claude does not load this tool next to the search and VIN-check tools (a widget tool is loaded with its connector's other widget tools, a plain
+      // tool only when the tool search matches it), so "compare 1 and 2" after a search never reached it. The widget now shows a real side-by-side table when the result carries comparison rows.
+      _meta: {
+        ui: { resourceUri: RESULTS_CARD_RESOURCE_URI },
+        "openai/outputTemplate": RESULTS_CARD_RESOURCE_URI,
+      },
     },
     async ({ vins, zip }) => {
       const plain = (text: string) => ({ content: [{ type: "text" as const, text }] });
@@ -2977,7 +2981,7 @@ const handler = createMcpHandler((server) => {
         const cards = usable.map((x) => x.card);
         const compareResults = shapeCardsForSource(cards);
         const text =
-          `Comparing ${usable.length} vehicles from this inventory:\n\n${carLines.join("\n\n")}\n\n${comparisonText(rows)}${rows.length > 0 ? `\n\nSide-by-side table (one column per vehicle; the best price, mileage, year and distance are in bold):\n\n${comparisonTable(items, rows)}\n\nThis table can be shown to the buyer as it is.` : ""}` +
+          `Comparing ${usable.length} vehicles from this inventory:\n\n${carLines.join("\n\n")}\n\n${comparisonText(rows)}${rows.length > 0 ? `\n\nSide-by-side table (one column per vehicle; the best price, mileage, year and distance are in bold):\n\n${comparisonTable(items, rows)}\n\nIf this comparison is not already on screen for the buyer, this table can be shown as it is.` : ""}` +
           (notFound.length > 0 ? `\n\nNot found in this inventory (left out): ${notFound.join(", ")}.` : "") +
           nhtsaTextFootnote(cards) + recallCheckFootnote(cards);
 

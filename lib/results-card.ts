@@ -38,7 +38,9 @@
 // matching the exact symptom the v2 fix was originally built for. Same
 // fix, same reasoning, applied again for this branch's own changes.
 
-export const RESULTS_CARD_RESOURCE_URI = "ui://carclever-find-my-car/results-card-v3";
+// 2026-10-22: v3 -> v4. The widget gained a comparison view (a side-by-side table, shown when a tool result carries `comparison` rows: compare_vehicles). Hosts cache the widget by this exact
+// URI (see the v2 and v3 notes above), so a content change needs a new URI to show up.
+export const RESULTS_CARD_RESOURCE_URI = "ui://carclever-find-my-car/results-card-v4";
 
 // Set to the real deployed origin. Used both for the CSP resourceDomains
 // declaration and for building proxied photo URLs client-side.
@@ -253,6 +255,20 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 .cc-cta-right{border-left:1px solid light-dark(rgba(255,255,255,.22),rgba(0,0,0,.18))}
 .cc-footer{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;padding:8px 14px 0;color:var(--cc-subtle);font-size:10.5px;line-height:1.3}
 .cc-footer-right{text-align:right}
+/* Comparison view (compare_vehicles, 22 Oct 2026): one column per vehicle, one row per difference; the best price, mileage, year and distance in bold green. */
+.cmp-wrap{overflow-x:auto;padding:4px 14px 2px;-webkit-overflow-scrolling:touch}
+.cmp{border-collapse:separate;border-spacing:0;width:100%;min-width:max-content;font-size:12px;line-height:1.35;color:var(--cc-text)}
+.cmp th,.cmp td{padding:7px 10px;text-align:left;vertical-align:top;border-bottom:1px solid var(--cc-card-border)}
+.cmp tr:last-child th,.cmp tr:last-child td{border-bottom:0}
+.cmp .cmp-label{position:sticky;left:0;z-index:1;background:var(--cc-shell-bg-b);color:var(--cc-muted);font-weight:600;white-space:nowrap;padding-left:2px}
+.cmp thead .cmp-label{background:var(--cc-shell-bg-b)}
+.cmp-col{min-width:150px;max-width:240px;font-weight:600}
+.cmp-num{font-size:10.5px;font-weight:700;color:var(--cc-subtle);letter-spacing:.04em}
+.cmp-photo{display:block;width:100%;max-width:150px;height:84px;object-fit:cover;border-radius:8px;margin:4px 0 6px;background:var(--cc-card-a)}
+.cmp-title{font-size:12.5px;font-weight:700;color:var(--cc-text)}
+.cmp-sub{font-size:10.5px;font-weight:500;color:var(--cc-subtle);margin-top:2px}
+.cmp-best{font-weight:800;color:var(--cc-green)}
+.cmp-unknown{color:var(--cc-subtle)}
 .cc-loading{padding:20px 14px;font-size:12px;color:var(--cc-subtle)}
 .cc-loading-stage{padding:2px 14px 0;font-size:10px;color:#4c5f79}
 </style>
@@ -602,10 +618,57 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     "</article>";
   }
 
+  // Comparison view (compare_vehicles): rows come from the server (structuredContent.comparison: label, values per vehicle, best positions); nothing is computed here.
+  function renderComparison(sc){
+    var root = document.getElementById("cc-root");
+    var cars = (sc.results || []).slice(0, 4);
+    var rows = sc.comparison || [];
+    var hasAffiliate = cars.some(function(c){ return c.links && (c.links.affiliateUrl || c.links.affiliateFallbackUrl); });
+    var head = '<tr><th class="cmp-label" scope="col"></th>' + cars.map(function(c, i){
+      var id = c.identity || {};
+      var links = c.links || {};
+      var title = [id.year, id.make, id.model, id.trim].filter(Boolean).join(" ");
+      var url = links.affiliateUrl || links.affiliateFallbackUrl || null;
+      var photo = proxiedPhoto((c.media || {}).cardImageUrl);
+      var img = photo ? '<img class="cmp-photo" src="' + esc(photo) + '" alt="" loading="lazy" onerror="this.remove()"/>' : "";
+      var titleHtml = url
+        ? '<a class="cc-title-link" href="' + esc(url) + '" data-url="' + esc(url) + '" rel="noopener">' + esc(title) + "</a>"
+        : esc(title);
+      var vin = String(id.vin || "");
+      return '<th class="cmp-col" scope="col"><div class="cmp-num">#' + (i + 1) + "</div>" + img +
+        '<div class="cmp-title">' + titleHtml + "</div>" +
+        (vin ? '<div class="cmp-sub">VIN ...' + esc(vin.slice(-6)) + "</div>" : "") + "</th>";
+    }).join("") + "</tr>";
+    var body = rows.map(function(r){
+      var cells = cars.map(function(c, i){
+        var v = r.values ? r.values[i] : null;
+        if (v == null) return '<td class="cmp-unknown">unknown</td>';
+        var best = r.best && r.best.indexOf(i) !== -1;
+        return "<td" + (best ? ' class="cmp-best" title="Best value in this row"' : "") + ">" + esc(v) + "</td>";
+      }).join("");
+      return '<tr><th class="cmp-label" scope="row"' + (r.note ? ' title="' + esc(r.note) + '"' : "") + ">" + esc(r.label) + "</th>" + cells + "</tr>";
+    }).join("");
+    root.innerHTML = '<section class="cc-shell">' +
+      '<header class="cc-header">' +
+        '<div class="cc-header-left"><div class="cc-scale">' + esc("Comparing " + cars.length + " vehicles") + "</div></div>" +
+        '<div class="cc-header-center">' + esc("Stated, not ranked") + "</div>" +
+        '<div class="cc-header-right"><img class="cc-header-logo" src="' + APP_ORIGIN + '/cc-logo-round.png" alt="CarClever" width="22" height="22"/><span class="cc-brand">CarClever</span></div>' +
+      "</header>" +
+      '<div class="cmp-wrap"><table class="cmp"><thead>' + head + "</thead><tbody>" + body + "</tbody></table></div>" +
+      '<footer class="cc-footer"><span>' + esc("Bold green: lowest price, lowest mileage, newest year, shortest distance.") + "</span>" +
+        '<span class="cc-footer-right">' + (hasAffiliate ? "Edmunds affiliate links" : "Current dealer listings") + "</span></footer>" +
+      "</section>";
+    root.querySelectorAll(".cc-title-link").forEach(function(a){
+      a.addEventListener("click", function(e){ e.preventDefault(); openLink(a.getAttribute("data-url")); });
+    });
+    reportSize();
+  }
+
   function render(structuredContent){
     var root = document.getElementById("cc-root");
     var results = (structuredContent && structuredContent.results) || [];
     var meta = structuredContent && structuredContent.meta;
+    if (structuredContent && structuredContent.comparison && structuredContent.comparison.length && results.length >= 2) { renderComparison(structuredContent); return; }
     if (!results.length) {
       root.innerHTML = meta && meta.scopeNote === "vin_invalid" ? '<div class="cc-loading">Invalid VIN. Check the characters and try again.</div>' : (meta && meta.serviceError ? '<div class="cc-loading">The vehicle search did not complete. Please try again in a moment.</div>' : '<div class="cc-loading">No matching vehicles to show.</div>');
       return;
