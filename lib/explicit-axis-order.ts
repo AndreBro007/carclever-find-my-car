@@ -23,6 +23,9 @@ function compare(axis: StrictAxis) {
   }
 }
 
+/** The comparator behind `strictAxisOrder`, for re-applying an explicit objective inside a later grouping (review R3-02). */
+export const axisComparator = compare;
+
 const cleanVin = (v: unknown): string => String(v ?? "").trim().toUpperCase();
 
 /** The best `limit` cars for the axis, strictly ordered. The same VIN listed twice counts once (first in the sorted order). */

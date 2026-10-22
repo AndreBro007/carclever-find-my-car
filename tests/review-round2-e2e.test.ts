@@ -12,7 +12,7 @@ import { resetNhtsaCacheForTests } from "../lib/nhtsa-client";
 import { readFileSync } from "node:fs";
 import { FindMatchingVehicleInputCatalog } from "../lib/find-matching-vehicle-input";
 
-type R = { make: string; model: string; trim: string; year: number; price: number; vin: string; cond: "new" | "used"; odo: number; zip?: string };
+type R = { make: string; model: string; trim: string; year: number; price: number; vin: string; cond: "new" | "used"; odo: number; zip?: string; dz?: string; st?: string; city?: string };
 const ROWS: R[] = []; let seq = 0;
 const vin = (p: string) => `${p}${String(++seq).padStart(17 - p.length, "0")}`;
 const add = (n: number, f: (i: number) => Partial<R> & Pick<R, "make" | "model" | "price">) => { for (let i = 0; i < n; i++) { const p = f(i); ROWS.push({ trim: "Base", year: 2026, vin: vin("1HGRZ"), cond: "new", odo: 10, ...p } as R); } };
@@ -30,17 +30,27 @@ ROWS.push({ make: "Zed", model: "Zeta", trim: "Base", year: 2023, price: 45000, 
 const Q_HYB = vin("1QA"), Q_GAS = vin("1QB");
 ROWS.push({ make: "Qua", model: "Quill", trim: "Base", year: 2026, price: 35000, vin: Q_HYB, cond: "new", odo: 10 }, { make: "Qua", model: "Quest", trim: "Base", year: 2026, price: 36000, vin: Q_GAS, cond: "new", odo: 10 });
 
+// Round 3 (ChatGPT, 22 Oct): R3-02 used cars for the objective order; R3-01 two Dallas models whose second car drifts at the detail read; drivetrain removal
+const O_A = vin("1OA"), O_B = vin("1OB"), O_C = vin("1OC");
+ROWS.push({ make: "Ord", model: "Orb", trim: "Base", year: 2023, price: 45000, vin: O_A, cond: "used", odo: 10000 }, { make: "Ord", model: "Orb", trim: "Base", year: 2026, price: 35000, vin: O_B, cond: "used", odo: 1000 }, { make: "Ord", model: "Orb", trim: "Base", year: 2025, price: 40000, vin: O_C, cond: "used", odo: 5000 });
+const DAL = { dz: "75201", st: "TX", city: "Dallas" };
+const D1_OK = vin("1PA"), D1_DRIFT = vin("1PB"), D2_OK = vin("1PC"), D2_DRIFT = vin("1PD");
+ROWS.push({ make: "Ptr", model: "Plot", trim: "EX", year: 2026, price: 35000, vin: D1_OK, cond: "new", odo: 10, ...DAL }, { make: "Ptr", model: "Pass", trim: "EX", year: 2026, price: 36000, vin: D1_DRIFT, cond: "new", odo: 10, ...DAL },
+  { make: "Pt2", model: "Plot", trim: "EX", year: 2026, price: 35000, vin: D2_OK, cond: "new", odo: 10, ...DAL }, { make: "Pt2", model: "Pass", trim: "EX", year: 2026, price: 36000, vin: D2_DRIFT, cond: "new", odo: 10, ...DAL });
+const DR_A = vin("1DA"), DR_B = vin("1DB");
+ROWS.push({ make: "Drv", model: "Drv1", trim: "Base", year: 2026, price: 30000, vin: DR_A, cond: "new", odo: 10 }, { make: "Drv", model: "Drv2", trim: "Base", year: 2026, price: 31000, vin: DR_B, cond: "new", odo: 10 });
+
 function line(c: R, n: number): string {
   const id = `zzr${String(n).padStart(29, "0")}`;
   const v: Record<string, string> = { id, title: `${c.year} ${c.make} ${c.model}`, condition: c.cond, description: "d", price: c.price.toFixed(2), image_link: `https://img.example.com/${n}.jpg`,
     link: buildTrackingUrl({ id, vin: c.vin, year: c.year, make: c.make, model: c.model }), availability: "InStock", identifier_exists: "no", dealer_id: "1", dealer_name: "Test Dealer", dealer_street: "1 Test St",
-    dealer_city: "Beverly Hills", dealer_state: "CA", dealer_zip: "90210", dealer_radius: "200 miles", vehicle_vin: c.vin, vehicle_stock_number: "S", vehicle_year: `${c.year}.00`, vehicle_make: c.make,
+    dealer_city: c.city ?? "Beverly Hills", dealer_state: c.st ?? "CA", dealer_zip: c.dz ?? "90210", dealer_radius: "200 miles", vehicle_vin: c.vin, vehicle_stock_number: "S", vehicle_year: `${c.year}.00`, vehicle_make: c.make,
     vehicle_model: c.model, vehicle_series: c.trim, vehicle_odometer: `${c.odo}.00`, vehicle_body: "SUV", vehicle_door_number: "4.00", vehicle_exterior_color: "Blue", vehicle_interior_color: "Black" };
   return FEED_COLUMNS.map((k) => v[k]).join("\t");
 }
 async function* lines(): AsyncIterable<string> { yield FEED_COLUMNS.join("\t"); let n = 1; for (const c of ROWS) yield line(c, n++); }
 
-let pool: Pool; const seen = new Map<string, number>(); let plan: (vinCode: string, nth: number) => "hybrid" | "gas" | "fail" = () => "hybrid";
+let pool: Pool; const seen = new Map<string, number>(); let plan: (vinCode: string, nth: number) => "hybrid" | "gas" | "fail" = () => "hybrid"; let driveOf: (vinCode: string, nth: number) => string = () => "";
 const hdr = { "content-type": "application/json", accept: "application/json, text/event-stream" };
 async function rpc(body: unknown) { const { POST } = await import("../app/[transport]/route"); const r = await POST(new Request("http://localhost/mcp", { method: "POST", headers: hdr, body: JSON.stringify(body) })); const t = await r.text(); const m = t.match(/data: (.*)/); return JSON.parse(m ? m[1] : t); }
 let rid = 100; const call = (args: Record<string, unknown>) => rpc({ jsonrpc: "2.0", id: rid++, method: "tools/call", params: { name: "find_matching_vehicle", arguments: args } });
@@ -52,12 +62,12 @@ before(async () => {
     const m = String(u).match(/decodevinvalues\/([A-Z0-9]{17})/i); if (!m) return new Response("{}", { status: 404 });
     const v = m[1].toUpperCase(); const nth = (seen.get(v) ?? 0) + 1; seen.set(v, nth); const k = plan(v, nth);
     if (k === "fail") return new Response("busy", { status: 503 });
-    return new Response(JSON.stringify({ Results: [{ ErrorCode: "0", Make: "", Model: "", ElectrificationLevel: k === "hybrid" ? "Strong Hybrid (SHEV)" : "", FuelTypePrimary: "Gasoline", FuelTypeSecondary: k === "hybrid" ? "Electric" : "" }] }), { status: 200 });
+    return new Response(JSON.stringify({ Results: [{ ErrorCode: "0", Make: "", Model: "", ElectrificationLevel: k === "hybrid" ? "Strong Hybrid (SHEV)" : "", FuelTypePrimary: "Gasoline", FuelTypeSecondary: k === "hybrid" ? "Electric" : "", DriveType: driveOf(v, nth) }] }), { status: 200 });
   }) as typeof fetch;
   pool = new Pool({ connectionString: DB, max: 2 }); await pool.query("DROP TABLE IF EXISTS listing, dealer, listing_stage, catalog_meta CASCADE"); await loadFeed(pool, lines()); setCatalogDbPoolForTests(pool);
   await rpc({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } } });
 });
-beforeEach(() => { seen.clear(); resetNhtsaCacheForTests(); plan = () => "hybrid"; });
+beforeEach(() => { seen.clear(); resetNhtsaCacheForTests(); plan = () => "hybrid"; driveOf = () => ""; });
 after(async () => { if (!DB) return; setCatalogDbPoolForTests(null); await pool.end(); });
 const opts = { skip: DB ? false : "TEST_DATABASE_URL not set" };
 const HYB = { electrificationTypes: ["hybrid"], electrificationRequirement: "required" };
@@ -200,4 +210,52 @@ test("R2-02: a model whose only car was removed at the later read is not adverti
   assert.match(t, /Cars that NHTSA shows as a different type than hybrid were left out\./);
   assert.ok(!/Also matched but not shown/.test(t), "Quest was rejected as gasoline and is not offered as a match");
   assert.ok(!/Quest \(for example/.test(t), "no example price for the removed model");
+});
+
+// ---- ChatGPT round 3 on 8c1d056 (R3-01, R3-02) ----
+async function withDrift(vinTarget: string, sql: string, undo: string, fn: () => Promise<void>) {
+  let done = false;
+  const proxy: any = new Proxy(pool, { get(t: any, k: string) { if (k !== "query") { const v = t[k]; return typeof v === "function" ? v.bind(t) : v; }
+    return async (text: any, params: any) => { const q = typeof text === "string" ? text : text.text; if (!done && /vin\s*=\s*\$1/i.test(q) && params?.[0] === vinTarget) { done = true; await pool.query(sql, [vinTarget]); } return pool.query(text, params); }; } });
+  setCatalogDbPoolForTests(proxy);
+  try { await fn(); assert.ok(done, "the drift was applied at the detail read"); } finally { setCatalogDbPoolForTests(pool); await pool.query(undo, [vinTarget]); }
+}
+
+test("R3-02: a car confirmed only at a later read takes its place by the explicit objective inside the confirmed tier (cheapest, newest, lowest mileage)", opts, async () => {
+  for (const axis of ["cheapest", "newest", "lowest_mileage"]) {
+    seen.clear(); resetNhtsaCacheForTests(); plan = (v, nth) => (v === O_A ? "hybrid" : v === O_B ? "fail" : nth === 1 ? "fail" : "hybrid");
+    const o = await call({ make: "Ord", model: "Orb", condition: "used", priceMax: 50000, priorityAxis: axis, ...HYB });
+    assert.deepEqual(cards(o).map((c) => c.identity.vin), [O_C, O_A, O_B], `axis ${axis}: C (cheaper, newer, fewer miles) before A, the unanswered car last`);
+    assert.deepEqual(cards(o).map((c) => elec(c)[0]?.status), ["verified", "verified", "unknown"]);
+  }
+});
+
+test("R3-02 control: with every car confirmed at once the explicit objective order is unchanged", opts, async () => {
+  plan = () => "hybrid";
+  const o = await call({ make: "Ord", model: "Orb", condition: "used", priceMax: 50000, priorityAxis: "cheapest", ...HYB });
+  assert.deepEqual(cards(o).map((c) => c.identity.vin), [O_B, O_C, O_A]);
+});
+
+test("R3-01: a model whose car was rejected at the detail stage for a changed trim is not advertised as 'also matched but not shown'", opts, async () => {
+  await withDrift(D1_DRIFT, "UPDATE listing SET trim = 'LX' WHERE vin = $1", "UPDATE listing SET trim = 'EX' WHERE vin = $1", async () => {
+    const o = await call({ make: "Ptr", model: "Plot, Pass", condition: "new", trimRequired: "EX", zip: "75201", priceMax: 50000 }); const t = textOf(o);
+    assert.deepEqual(cards(o).map((c) => c.identity.model), ["Plot"]);
+    assert.ok(!/Also matched but not shown/.test(t) && !/Pass \(for example/.test(t), "Pass was rejected and is not offered as a match");
+  });
+});
+
+test("R3-01: a model whose car was rejected at the detail stage for a changed location is not advertised either, and the exclusion is still reported", opts, async () => {
+  await withDrift(D2_DRIFT, "UPDATE listing SET state = 'CA' WHERE vin = $1", "UPDATE listing SET state = 'TX' WHERE vin = $1", async () => {
+    const o = await call({ make: "Pt2", model: "Plot, Pass", condition: "new", zip: "75201", radiusMiles: 50, priceMax: 50000 }); const t = textOf(o);
+    assert.deepEqual(cards(o).map((c) => c.identity.model), ["Plot"]);
+    assert.match(t, /far outside the requested search radius at the detailed lookup stage/);
+    assert.ok(!/Also matched but not shown/.test(t), "Pass was rejected and is not offered as a match");
+  });
+});
+
+test("R3-01 drivetrain: a car whose later read shows another drivetrain is removed and not offered in the 'also matched' note", opts, async () => {
+  plan = (v, nth) => (v === DR_B && nth === 1 ? "fail" : "gas"); driveOf = (v) => (v === DR_A ? "AWD/All-Wheel Drive" : "FWD/Front-Wheel Drive");
+  const o = await call({ make: "Drv", model: "Drv1, Drv2", condition: "new", drivetrain: "AWD", priceMax: 50000 }); const t = textOf(o);
+  assert.deepEqual(cards(o).map((c) => c.identity.model), ["Drv1"]);
+  assert.ok(!/Also matched but not shown/.test(t) && !/Drv2 \(for example/.test(t), "Drv2 was removed as FWD and is not offered");
 });

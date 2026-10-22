@@ -40,7 +40,7 @@ import { fetchRecallStatus, clipRecallText, type RecallInfo } from "@/lib/nhtsa-
 import { nhtsaLinkField, nhtsaRecallCheckUrl, recallCheckFootnote, recallCheckLine, addRecallCheckStep, invalidVinMessage } from "@/lib/nhtsa-links";
 import { vinCheckDigitFails } from "@/lib/vin-anatomy";
 import { wantedDriveClasses, partitionByDrive, judgeDrive, drivetrainNote, finalizeByDrive } from "@/lib/drivetrain-filter";
-import { isStrictAxis, strictAxisOrder } from "@/lib/explicit-axis-order";
+import { isStrictAxis, strictAxisOrder, axisComparator } from "@/lib/explicit-axis-order";
 import zipcodes from "zipcodes";
 import { buildNoResultsAlternatives } from "@/lib/no-results-alternatives";
 import { broadBodyTypeHint, unappliedFilterNote, vehicleTypeNote } from "@/lib/broad-search-hint";
@@ -1901,6 +1901,7 @@ const handler = createMcpHandler((server) => {
       // Factored into a helper so the exact same lookup-failure/constraint-drift
       // resolution can run a second time on the spare pool during backfill,
       // instead of duplicating this block.
+      const stage2RejectedVins = new Set<string>(); // review R3-01: cars the detail stage actually rejected (drift, body style, trim, radius): never offered as "also matched" afterwards
       function resolveStage2Detail(
         leanRows: VehicleListing[],
         fullRows: (VehicleListing | null)[],
@@ -1963,6 +1964,7 @@ const handler = createMcpHandler((server) => {
           // resolved record is authoritative — exclude rather than
           // reverting to the whole lean row, and let the caller backfill.
           anyConstraintDrift = true;
+          stage2RejectedVins.add(String(lean.vin ?? "").trim().toUpperCase());
           console.log(
             `[find_matching_vehicle] stage2 full_detail_rejected_due_to_constraint_drift ` +
               `vin=${lean.vin} violations=${JSON.stringify(violations)} ` +
@@ -2061,6 +2063,7 @@ const handler = createMcpHandler((server) => {
           );
         }
         ok = ok && !confirmedOutsideRadius;
+        if (!ok) stage2RejectedVins.add(String(full.vin ?? "").trim().toUpperCase());
         return ok;
       };
       const shortlist = await (async () => {
@@ -2220,7 +2223,18 @@ const handler = createMcpHandler((server) => {
       // (a car NHTSA could not answer for in the first round and confirmed at the card stage counts as confirmed). Stable, so the score, distance and drivetrain order holds inside each group.
       if (electrificationRequired) {
         const confirmedNow = (c: any) => ((c.constraintChecks ?? []) as Array<{ field: string; status: string }>).find((x) => x.field === "electrification")?.status === "verified";
-        const ordered = [...cards.filter(confirmedNow), ...cards.filter((c) => !confirmedNow(c))];
+        const cmp = isStrictAxis(input.priorityAxis) ? axisComparator(input.priorityAxis) : null;
+        const dw = wantedDriveClasses(input.drivetrain);
+        const driveTier = (c: any) => (dw && judgeDrive(c.powertrain?.drivetrain, dw) !== "match" ? 1 : 0);
+        const poolByVin = new Map<string, any>(electrificationFilteredCandidates.map((l: any) => [String(l.vin ?? "").trim().toUpperCase(), l]));
+        const listingOf = (c: any) => poolByVin.get(String(c.identity?.vin ?? "").trim().toUpperCase());
+        // An explicit objective (cheapest, newest, lowest mileage) is applied again INSIDE the final tiers (review R3-02): the fetched order carries the first-round confirmation tier, so a car
+        // confirmed only at a later read would otherwise stay behind dearer, older or higher-mileage cars. The default objective keeps its score order (stable partition).
+        const ordered = cards.map((c, i) => ({ c, i })).sort((x, y) => {
+          const t = Number(!confirmedNow(x.c)) - Number(!confirmedNow(y.c)); if (t) return t;
+          if (cmp) { const d = driveTier(x.c) - driveTier(y.c); if (d) return d; const lx = listingOf(x.c), ly = listingOf(y.c); if (lx && ly) { const o = cmp(lx, ly); if (o) return o; } }
+          return x.i - y.i;
+        }).map((x) => x.c);
         cards.splice(0, cards.length, ...ordered);
       }
 
@@ -2298,7 +2312,7 @@ const handler = createMcpHandler((server) => {
       }
       {
         // Requested models that matched but did not make the shortlist: said plainly, so nobody concludes they have no matches (SYS-20261021-017).
-        const notShown = modelsNotShown(electrificationFilteredCandidates.filter((cand: any) => !lateRemovedVins.has(String(cand.vin ?? ""))), (cards as Array<{ identity: { model?: unknown } }>).map((c) => ({ model: c.identity.model })), allModelGroups);
+        const notShown = modelsNotShown(electrificationFilteredCandidates.filter((cand: any) => { const v = String(cand.vin ?? "").trim().toUpperCase(); return !lateRemovedVins.has(String(cand.vin ?? "")) && !stage2RejectedVins.has(v); }), (cards as Array<{ identity: { model?: unknown } }>).map((c) => ({ model: c.identity.model })), allModelGroups);
         if (cards.length > 0 && notShown.length > 0) {
           dataNotes.push(`Also matched but not shown above: ${notShown.map((m) => (m.examplePrice != null ? `${m.name} (for example $${m.examplePrice.toLocaleString("en-US")})` : m.name)).join(", ")}. Ask to see more of these.`);
         }
