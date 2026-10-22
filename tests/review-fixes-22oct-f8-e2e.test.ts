@@ -98,6 +98,8 @@ test("Option A: a required electric search for a model with no electric version 
   const t = textOf(out);
   assert.match(t, /No hybrid Kia Niro EV was found: the cars NHTSA's VIN decode could check show as a different type, so none is listed as hybrid\. Next step: tell the buyer plainly that no hybrid Kia Niro EV turned up in this search, and offer to search hybrid cars in the same budget without naming this model\./);
   assert.ok(!/Found \d+ closely matching/.test(t), "no list of cars presented as matches");
+  assert.ok(!/Closest /.test(t), "no list of closest options: none of them could be the required type");
+  assert.ok(!/Any cars listed after this/.test(t), "the note does not promise a list that is not there");
 });
 
 test("Option A: when the search finds cars, the note is absent", opts, async () => {

@@ -2535,12 +2535,14 @@ const handler = createMcpHandler((server) => {
       // answered (not an outage), cars were left out as another type, and none was kept: then the cars checked really are not the required type.
       const electrificationNoneFound =
         electrificationRequired && !electrificationResult.down && electrificationResult.leftOut > 0 && electrificationResult.candidates.length === 0 && cards.length === 0;
+      // With nothing of the required type found, the "closest options" list is left out (André, 22 Oct 2026): every car on it would be a different type than the one asked for (in the first
+      // Chrome run it was the cheapest old gasoline CR-Vs, a 2006 with 226,233 miles), so it adds noise and nothing a buyer who asked for an electric car could use.
       const electrificationNoneNote = electrificationNoneFound
         ? (() => {
             const words = electrificationWords(input.electrificationTypes);
             const named = [input.make, input.model].filter((x) => typeof x === "string" && x.trim() !== "").join(" ");
             const subject = named !== "" && !named.includes(",") ? named : "car among those asked for";
-            return `\n\nNo ${words} ${subject} was found: the cars NHTSA's VIN decode could check show as a different type, so none is listed as ${words}. Next step: tell the buyer plainly that no ${words} ${subject} turned up in this search, and offer to search ${words} cars in the same budget without naming this model. Any cars listed after this are NOT confirmed as ${words}.`;
+            return `\n\nNo ${words} ${subject} was found: the cars NHTSA's VIN decode could check show as a different type, so none is listed as ${words}. Next step: tell the buyer plainly that no ${words} ${subject} turned up in this search, and offer to search ${words} cars in the same budget without naming this model.`;
           })()
         : "";
       // Summary line (22 Oct 2026): server-calculated, placed after the "Found N" line and before card 1, where the Lite parser ignores it.
@@ -2550,7 +2552,7 @@ const handler = createMcpHandler((server) => {
         serviceFailureMessage
           ? disclosurePrefix + serviceFailureMessage
           : cards.length === 0
-          ? disclosurePrefix + noResultsMessage + electrificationNoneNote + alternativesText + zeroResultsExitLine(input.make, input.model, input.used, input.trimRequired ?? input.trimPreference)
+          ? disclosurePrefix + noResultsMessage + electrificationNoneNote + (electrificationNoneFound ? "" : alternativesText) + zeroResultsExitLine(input.make, input.model, input.used, input.trimRequired ?? input.trimPreference)
           : disclosurePrefix + thinAreaOffer + partialWideningNote + `Found ${cards.length} closely matching vehicle${cards.length === 1 ? "" : "s"}${totalPhrase}:\n\n` +
             summaryBlock +
             cards
