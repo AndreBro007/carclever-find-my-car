@@ -2913,7 +2913,7 @@ const handler = createMcpHandler((server) => {
     "compare_vehicles",
     {
       title: "Compare Vehicles",
-      description: "Compares 2 to 4 vehicles side by side on price, mileage, year, trim, fuel, drive, engine, NHTSA safety rating, recall campaign count and distance (with a ZIP). Takes VINs. When the user refers to results by number, use the VINs from the earlier search.",
+      description: "Compares 2 to 4 vehicles side by side on price, mileage, year, trim, fuel, drive, engine, NHTSA safety rating, recall campaign count and distance (with a ZIP). Takes VINs. Use it whenever the user asks to compare vehicles, including \"compare 1 and 2\" after a search: pass the VINs of those results from the earlier search.",
       inputSchema: {
         vins: z.array(z.string()).min(2).max(4).describe("2 to 4 different exact 17-character VINs to compare, for example the VINs of cars 1 and 3 from a search list. Pass the actual VINs, not references like 'the second result'."),
         zip: z.string().optional().describe("Optional 5-digit ZIP code: adds each dealer's distance from it to the comparison."),

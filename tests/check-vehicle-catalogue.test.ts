@@ -20,7 +20,7 @@ test("description variant: the two Auto.dev-era phrases are replaced, nothing el
   try {
     process.env.LISTING_SOURCE = "catalog_db"; const v = catalogCheckVehicleDescription(base);
     let expected = base; for (const [from, to] of CHECK_VEHICLE_DESCRIPTION_EDITS) expected = expected.replace(from, () => to);
-    assert.equal(v, "A VIN check for one known vehicle: identity, recall and listing details, for a VIN, or for a make, model and year. For a used car with a VIN, it includes NHTSA's recall lookup link. Use it for a known vehicle, including follow-ups to a search. For a broad search, use Find Matching Vehicle."); assert.ok(v.startsWith("A VIN check for one known vehicle")); assert.ok(!/accident\/CPO history|option A|safe buy/.test(v));
+    assert.equal(v, "A VIN check for one known vehicle: identity, recall and listing details, for a VIN, or for a make, model and year. For a used car with a VIN, it includes NHTSA's recall lookup link. Use it for one known vehicle, including a follow-up to a search. To compare two or more vehicles, use Compare Vehicles. For a broad search, use Find Matching Vehicle."); assert.ok(v.startsWith("A VIN check for one known vehicle")); assert.ok(!/accident\/CPO history|option A|safe buy/.test(v));
   } finally { if (prev === undefined) delete process.env.LISTING_SOURCE; else process.env.LISTING_SOURCE = prev; }
 });
 test("VIN note and result shaping are wired for database mode", () => {

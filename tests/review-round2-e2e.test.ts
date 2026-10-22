@@ -323,6 +323,10 @@ test("compare_vehicles declares no widget; search and VIN check keep theirs; the
   for (const n of ["find_matching_vehicle", "check_vehicle"]) assert.ok(widgetOf(by(n)).ui && widgetOf(by(n)).openai, `${n} keeps its widget`);
   assert.deepEqual(widgetOf(by("get_edmunds_vehicle_link")), { ui: undefined, openai: undefined }, "the link tool has no widget, as before");
   assert.equal(by("compare_vehicles").annotations.readOnlyHint, true);
+  // Tool choice after a search (André's real-user flow, 22 Oct): "compare 1 and 2" must lead to compare_vehicles, not two check_vehicle calls.
+  assert.match(by("check_vehicle").description, /Use it for one known vehicle, including a follow-up to a search\. To compare two or more vehicles, use Compare Vehicles\./);
+  assert.match(by("compare_vehicles").description, /Use it whenever the user asks to compare vehicles, including "compare 1 and 2" after a search: pass the VINs of those results from the earlier search\./);
+  assert.ok(!/follow-ups to a search/.test(by("check_vehicle").description), "the old wording that invited a check per car is gone");
 });
 
 test("compare_vehicles still returns the differences, the links and the table suggestion as text, and the structured result", opts, async () => {
