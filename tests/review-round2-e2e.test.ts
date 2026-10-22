@@ -137,3 +137,22 @@ test("the field texts say what the code does: trimRequired close matches, seats 
   assert.match(d("radiusMiles"), /50 when omitted, 1,000 at most/);
   assert.match(d("electrificationRequirement"), /required when omitted/);
 });
+
+// ---- ChatGPT round 3 report on bd635fc (R2-05): one normalized radius in every paragraph ----
+import { normalizeRadiusMiles } from "../lib/applied-filters";
+import { MAX_RADIUS, DEFAULT_RADIUS_MILES } from "../lib/catalog-db/search";
+test("R2-05: the radius is decided once: omitted stays omitted, positive is capped at 1,000, zero, negative and non-numeric mean the default (same rule as the SQL)", () => {
+  assert.equal(MAX_RADIUS, 1000); assert.equal(DEFAULT_RADIUS_MILES, 50);
+  assert.equal(normalizeRadiusMiles(undefined), undefined); assert.equal(normalizeRadiusMiles(null), undefined);
+  assert.equal(normalizeRadiusMiles(25), 25); assert.equal(normalizeRadiusMiles(5000), 1000); assert.equal(normalizeRadiusMiles(1000), 1000);
+  for (const bad of [0, -5, NaN, Infinity, "far" as unknown]) assert.equal(normalizeRadiusMiles(bad), DEFAULT_RADIUS_MILES, String(bad));
+});
+
+test("R2-05: an oversized, zero or negative radius never appears in any paragraph of the reply, thin-result text included", opts, async () => {
+  for (const [radius, applied] of [[5000, 1000], [0, 50], [-5, 50]] as const) {
+    const t = textOf(await call({ make: "Honda", model: "Pilot", zip: "90210", radiusMiles: radius })); const first = t.split("\n")[0];
+    assert.match(first, new RegExp(`within ${applied} miles of ZIP 90210`), `radius ${radius}: first line`);
+    assert.match(t, new RegExp(`Only 2 within ${applied} miles of 90210`), `radius ${radius}: thin-result paragraph`);
+    assert.ok(!new RegExp(`(?<![0-9])${radius} miles`).test(t), `radius ${radius} must not appear anywhere in the reply`);
+  }
+});

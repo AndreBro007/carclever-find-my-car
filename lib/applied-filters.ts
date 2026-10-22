@@ -48,3 +48,10 @@ export function appliedFiltersLine(f: AppliedFilters): string {
   if (f.priorityAxis && AXIS_WORDS[f.priorityAxis]) parts.push(`ranked ${AXIS_WORDS[f.priorityAxis]}`);
   return `Searched: ${parts.join("; ")}.`;
 }
+
+/** The radius the search really uses, decided once (review R2-05): omitted stays omitted (the readers say 50), a positive radius is capped at 1,000, and zero, negative or non-numeric means the 50-mile default,
+ * exactly as `lib/catalog-db/search.ts` applies it. The handler stores this value in the input, so the SQL, the Searched line and every reply paragraph state the same number. */
+export function normalizeRadiusMiles(r: unknown): number | undefined {
+  if (r == null) return undefined;
+  return typeof r === "number" && Number.isFinite(r) && r > 0 ? Math.min(r, 1000) : 50;
+}

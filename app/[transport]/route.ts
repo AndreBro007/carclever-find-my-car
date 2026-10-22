@@ -56,7 +56,7 @@ import { resolveRequiredTrims } from "@/lib/trim-resolution";
 import { electrifiedModelsFor, electrificationTypesOf, knownHybridOnlyFor, trimWordingRegex, type ElectrifiedType } from "@/lib/electrified-models";
 import { needsWorthAsking } from "@/lib/needs-note";
 import { leftOutNote } from "@/lib/left-out-note";
-import { appliedFiltersLine } from "@/lib/applied-filters";
+import { appliedFiltersLine, normalizeRadiusMiles } from "@/lib/applied-filters";
 import { requestedGroups, groupKeyOf, interleaveByGroup, coverageReached, applyModelCoverage, modelsNotShown } from "@/lib/model-coverage";
 import { formatVehicleTitle } from "@/lib/vehicle-title";
 import { CatalogDbOutputSchema, type FindMatchingVehicleOutput } from "@/lib/find-matching-vehicle-output";
@@ -816,6 +816,8 @@ const handler = createMcpHandler((server) => {
         used: rawInput.condition === "new" ? false : rawInput.condition === "used" ? true : undefined,
         // Types without a requirement mean required (review BA22-02): the search, the evidence and the Searched line all read this one value; the line says it was assumed.
         electrificationRequirement: rawInput.electrificationRequirement ?? ((rawInput.electrificationTypes?.length ?? 0) > 0 ? ("required" as const) : undefined),
+        // One radius for everything (review R2-05): capped at 1,000, zero or negative means the 50-mile default; the SQL, the Searched line and the thin-result and no-result texts all read it.
+        radiusMiles: normalizeRadiusMiles(rawInput.radiusMiles),
         electrificationRequirementDefaulted: rawInput.electrificationRequirement === undefined && (rawInput.electrificationTypes?.length ?? 0) > 0,
         vehicleType: undefined as string | undefined,
         priceFlexibility: undefined as "strict" | "flexible" | undefined,
