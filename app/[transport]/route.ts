@@ -2209,17 +2209,18 @@ const handler = createMcpHandler((server) => {
         cards.splice(0, cards.length, ...sorted);
       }
 
+      const vinsBeforeLateStages = (cards as Array<{ identity: { vin?: unknown } }>).map((c) => String(c.identity.vin ?? "")); // review R2-02: cars the late stages remove must not be advertised as matches afterwards
       // Drivetrain request, last word: the shortlist stage may have read a drivetrain the first read missed. Cars now known to have a different
       // one are removed, confirmed cars are listed first (the note below promises it), silent cars follow.
       let driveLateRemoved = 0;
       let driveAllMismatch = false;
       { const dw = wantedDriveClasses(input.drivetrain); if (dw) { const fin = finalizeByDrive(cards, (c: any) => c.powertrain?.drivetrain, dw); driveLateRemoved = fin.removed; driveAllMismatch = fin.allMismatch; cards.splice(0, cards.length, ...fin.cards); } }
 
-      // Required electrification (review BA22-03), last word on the order: when cars NHTSA could not answer for are in the list, every confirmed car precedes every unconfirmed one.
-      // Stable, so the score, distance and drivetrain order holds inside each group.
-      if (electrificationUnconfirmedKept) {
-        const mv = electrificationResult.matchedVins!;
-        const ordered = [...cards.filter((c) => mv.has(c.identity.vin)), ...cards.filter((c) => !mv.has(c.identity.vin))];
+      // Required electrification (reviews BA22-03 and R2-01), last word on the order: every confirmed car precedes every unconfirmed one, judged by each card's FINAL electrification check
+      // (a car NHTSA could not answer for in the first round and confirmed at the card stage counts as confirmed). Stable, so the score, distance and drivetrain order holds inside each group.
+      if (electrificationRequired) {
+        const confirmedNow = (c: any) => ((c.constraintChecks ?? []) as Array<{ field: string; status: string }>).find((x) => x.field === "electrification")?.status === "verified";
+        const ordered = [...cards.filter(confirmedNow), ...cards.filter((c) => !confirmedNow(c))];
         cards.splice(0, cards.length, ...ordered);
       }
 
@@ -2236,6 +2237,7 @@ const handler = createMcpHandler((server) => {
         if (electrificationLateRemoved.length > 0) cards.splice(0, cards.length, ...kept);
       }
 
+      const lateRemovedVins = new Set(vinsBeforeLateStages.filter((v) => v && !(cards as Array<{ identity: { vin?: unknown } }>).some((c) => String(c.identity.vin ?? "") === v)));
       const dataNotes: string[] = [];
       { const hint = broadBodyTypeHint(input); if (hint) dataNotes.push(hint); }
       { const note = unappliedFilterNote(input, cards); if (note) dataNotes.push(note); }
@@ -2296,7 +2298,7 @@ const handler = createMcpHandler((server) => {
       }
       {
         // Requested models that matched but did not make the shortlist: said plainly, so nobody concludes they have no matches (SYS-20261021-017).
-        const notShown = modelsNotShown(electrificationFilteredCandidates, (cards as Array<{ identity: { model?: unknown } }>).map((c) => ({ model: c.identity.model })), allModelGroups);
+        const notShown = modelsNotShown(electrificationFilteredCandidates.filter((cand: any) => !lateRemovedVins.has(String(cand.vin ?? ""))), (cards as Array<{ identity: { model?: unknown } }>).map((c) => ({ model: c.identity.model })), allModelGroups);
         if (cards.length > 0 && notShown.length > 0) {
           dataNotes.push(`Also matched but not shown above: ${notShown.map((m) => (m.examplePrice != null ? `${m.name} (for example $${m.examplePrice.toLocaleString("en-US")})` : m.name)).join(", ")}. Ask to see more of these.`);
         }

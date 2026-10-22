@@ -24,6 +24,12 @@ add(10, (i) => ({ make: "Honda", model: "CR-V", price: 30000 + i * 100, cond: i 
 const RAV_1 = vin("2T3R1"), RAV_2 = vin("2T3R2"); ROWS.push({ make: "Toyota", model: "RAV4", trim: "Base", year: 2026, price: 31000, vin: RAV_1, cond: "new", odo: 10 }, { make: "Toyota", model: "RAV4", trim: "Base", year: 2026, price: 32000, vin: RAV_2, cond: "new", odo: 10 });
 
 const SPORT_HYB = vin("1WRSH"); ROWS.push({ make: "Wex", model: "Wren", trim: "Sport Hybrid", year: 2026, price: 30000, vin: SPORT_HYB, cond: "new", odo: 10 }); // R2-05b / R2-04: a trim with Hybrid wording
+// R2-01: three new cars, one confirmed at once, one never answered, one answered only at a later read; R2-02: two models, one of which turns out gasoline at the later read
+const T_A = vin("1ZA"), T_B = vin("1ZB"), T_C = vin("1ZC");
+ROWS.push({ make: "Zed", model: "Zeta", trim: "Base", year: 2023, price: 45000, vin: T_A, cond: "new", odo: 10 }, { make: "Zed", model: "Zeta", trim: "Base", year: 2026, price: 35000, vin: T_B, cond: "new", odo: 10 }, { make: "Zed", model: "Zeta", trim: "Base", year: 2025, price: 40000, vin: T_C, cond: "new", odo: 10 });
+const Q_HYB = vin("1QA"), Q_GAS = vin("1QB");
+ROWS.push({ make: "Qua", model: "Quill", trim: "Base", year: 2026, price: 35000, vin: Q_HYB, cond: "new", odo: 10 }, { make: "Qua", model: "Quest", trim: "Base", year: 2026, price: 36000, vin: Q_GAS, cond: "new", odo: 10 });
+
 function line(c: R, n: number): string {
   const id = `zzr${String(n).padStart(29, "0")}`;
   const v: Record<string, string> = { id, title: `${c.year} ${c.make} ${c.model}`, condition: c.cond, description: "d", price: c.price.toFixed(2), image_link: `https://img.example.com/${n}.jpg`,
@@ -169,4 +175,29 @@ test("R2-04: the same car and the same trim and electrification request give the
   // without an electrified request the Hybrid word is not neutral: Sport still does not match Sport Hybrid, in the search and in the lookup alike
   seen.clear(); resetNhtsaCacheForTests();
   const plain = await call({ vin: SPORT_HYB, trimRequired: "Sport" }); assert.equal(trimOf(plain)?.status, "mismatch");
+});
+
+test("R2-01: a car that fails its first decode and confirms at a later read is placed with the confirmed cars, ahead of a car that never answers", opts, async () => {
+  plan = (v, nth) => (v === T_A ? "hybrid" : v === T_B ? "fail" : nth === 1 ? "fail" : "hybrid");
+  const o = await call({ make: "Zed", model: "Zeta", condition: "new", priceMax: 50000, ...HYB });
+  assert.deepEqual(cards(o).map((c) => elec(c)[0]?.status), ["verified", "verified", "unknown"], "confirmed, confirmed, unconfirmed");
+  assert.equal(cards(o)[2].identity.vin, T_B, "the car NHTSA never answered for is last");
+  assert.match(textOf(o), /Only 2 of the results matched your electric or hybrid requirement\./);
+});
+
+test("R2-01: the confirmation tier holds for cheapest and newest as well", opts, async () => {
+  for (const axis of ["cheapest", "newest"]) {
+    seen.clear(); resetNhtsaCacheForTests(); plan = (v, nth) => (v === T_A ? "hybrid" : v === T_B ? "fail" : nth === 1 ? "fail" : "hybrid");
+    const o = await call({ make: "Zed", model: "Zeta", condition: "new", priceMax: 50000, priorityAxis: axis, ...HYB });
+    assert.equal(cards(o)[2].identity.vin, T_B, `axis ${axis}: the unanswered car is last`);
+  }
+});
+
+test("R2-02: a model whose only car was removed at the later read is not advertised as 'also matched but not shown'", opts, async () => {
+  plan = (v, nth) => (v === Q_HYB ? "hybrid" : nth === 1 ? "fail" : "gas");
+  const o = await call({ make: "Qua", model: "Quill, Quest", condition: "new", priceMax: 50000, ...HYB }); const t = textOf(o);
+  assert.deepEqual(cards(o).map((c) => c.identity.model), ["Quill"], "only Quill is shown");
+  assert.match(t, /Cars that NHTSA shows as a different type than hybrid were left out\./);
+  assert.ok(!/Also matched but not shown/.test(t), "Quest was rejected as gasoline and is not offered as a match");
+  assert.ok(!/Quest \(for example/.test(t), "no example price for the removed model");
 });
