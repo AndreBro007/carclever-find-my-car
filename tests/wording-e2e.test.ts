@@ -212,3 +212,11 @@ test("T77: 'midsize family SUV' and 'family SUV' are not echoed as questions for
     assert.ok(!/Also ask the dealer about/.test(t), need);
   }
 });
+
+test("rule 8 says physical condition, so the bare word condition means only the new-or-used field", opts, async () => {
+  const { description: d } = await toolText();
+  const rule8 = d.split("\n").find((l) => l.startsWith("8. "))!;
+  assert.match(rule8, /towing suitability, physical condition\)/);
+  assert.ok(!/(?<!physical )condition/.test(rule8), "no bare condition in rule 8");
+  assert.equal(count(d, "physical condition"), 1);
+});
