@@ -266,3 +266,27 @@ export async function trimFacets(db: Queryable, q: ListingsQuery, models: string
   const r = await db.query(`SELECT l.trim AS value, count(*)::int AS count ${FROM} WHERE ${w.join(" AND ")} GROUP BY l.trim ORDER BY count DESC, l.trim LIMIT ${Math.max(1, Math.floor(limit))}`, p.values);
   return r.rows.map((x) => ({ value: String(x.value), count: Number(x.count) }));
 }
+
+/**
+ * Stock photos for cars that have none of their own (23 Oct 2026): for each request, ONE photo of another listing of the same make, model and year (never the same VIN), preferring the
+ * same colour, then the same trim, then a new car's photo (cleaner than a used car's). One query for all requests, using the (make_key, model_key, year) index. A request with no
+ * donor simply gets no row.
+ */
+export interface StockPhotoRequest { vin: string; makeKey: string; modelKey: string; year: number; color: string; trim: string }
+export interface StockPhoto { vin: string; imageUrl: string; colourMatched: boolean }
+export async function stockPhotos(db: Queryable, reqs: StockPhotoRequest[]): Promise<StockPhoto[]> {
+  if (reqs.length === 0) return [];
+  const r = await db.query(
+    `SELECT q.q_vin AS vin, d.image_url, d.colour_ok
+       FROM unnest($1::text[], $2::text[], $3::text[], $4::int[], $5::text[], $6::text[]) AS q(q_vin, q_make, q_model, q_year, q_color, q_trim)
+       CROSS JOIN LATERAL (
+         SELECT l.image_url, (q.q_color <> '' AND lower(l.ext_color) = q.q_color) AS colour_ok
+           FROM listing l
+          WHERE l.make_key = q.q_make AND l.model_key = q.q_model AND l.year = q.q_year AND l.image_url IS NOT NULL AND l.vin <> q.q_vin
+          ORDER BY (q.q_color <> '' AND lower(l.ext_color) = q.q_color) DESC, (q.q_trim <> '' AND l.trim = q.q_trim) DESC, (l.condition = 'n') DESC, l.id
+          LIMIT 1
+       ) d`,
+    [reqs.map((x) => x.vin), reqs.map((x) => x.makeKey), reqs.map((x) => x.modelKey), reqs.map((x) => x.year), reqs.map((x) => x.color), reqs.map((x) => x.trim)],
+  );
+  return (r.rows as Array<{ vin: string; image_url: string; colour_ok: boolean }>).map((x) => ({ vin: x.vin, imageUrl: x.image_url, colourMatched: !!x.colour_ok }));
+}

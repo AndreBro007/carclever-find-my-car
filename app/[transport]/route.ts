@@ -19,7 +19,8 @@ import { widenSearchIfThin, type StepName } from "@/lib/loosening-ladder";
 import { isConfirmedOutsideRadius } from "@/lib/geo-verification";
 import { seatUnknownFootnote } from "@/lib/seat-note";
 import { rowByVin } from "@/lib/catalog-db/search";
-import { getCatalogPool, rowToListing, CATALOG_SERVICE_ERROR } from "@/lib/catalog-db-source";
+import { getCatalogPool, rowToListing, stockPhotoFor, CATALOG_SERVICE_ERROR } from "@/lib/catalog-db-source";
+import { stockCodeFor } from "@/lib/stock-photo-svg";
 import { logSearchEvent } from "@/lib/search-log";
 import { verifyAgainstConstraints } from "@/lib/post-verify";
 import { parseIntent } from "@/lib/intent-parser";
@@ -303,6 +304,17 @@ function signedImageProxyUrl(rawImageUrl: string | null): string | null {
   }
 }
 
+// The photo shown on a card: the car's own photo through the signed proxy; with none, a "stock photo" of another listing of the same make, model and year (same colour when there is
+// one), which the proxy labels as such (23 Oct 2026). No donor, or any failure: null, and the widget draws its placeholder as before.
+async function cardImageUrlFor(listing: VehicleListing): Promise<string | null> {
+  const own = listing.retailListing?.primaryImage ?? null;
+  if (own) return signedImageProxyUrl(own);
+  const stock = await stockPhotoFor(listing);
+  if (!stock) return null;
+  const base = signedImageProxyUrl(stock.imageUrl);
+  return base ? `${base}&stock=${stockCodeFor(listing.retailListing?.used, stock.colourMatched)}` : null;
+}
+
 async function buildResultCard(
   listing: VehicleListing,
   intent: ReturnType<typeof parseIntent>,
@@ -502,7 +514,7 @@ async function buildResultCard(
     history: historySummary,
     media: {
       primaryImage: rl?.primaryImage ?? null,
-      cardImageUrl: signedImageProxyUrl(rl?.primaryImage ?? null),
+      cardImageUrl: await cardImageUrlFor(listing),
       photoUrls: photos,
     },
     verification,

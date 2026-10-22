@@ -7,8 +7,8 @@
  */
 import { Pool } from "pg";
 import type { VehicleListing, ListingsQuery, ListingsResponse } from "./listing-types";
-import { buildTrackingUrl, type BodyClass } from "./catalog-db/normalize";
-import { modelFacets, allModelNames, trimFacets, rowByVin, searchRows, type DbRow, type Queryable } from "./catalog-db/search";
+import { buildTrackingUrl, alnumKey, type BodyClass } from "./catalog-db/normalize";
+import { modelFacets, allModelNames, trimFacets, rowByVin, searchRows, stockPhotos, type DbRow, type Queryable } from "./catalog-db/search";
 import { cleanConnectionString } from "./catalog-db/conn";
 
 export function catalogDbConfigured(): boolean {
@@ -141,5 +141,32 @@ export async function catalogDbTrimFacets(q: ListingsQuery, limit?: number): Pro
     return await trimFacets(getPool() as unknown as Queryable, q, modelsFor(q), limit);
   } catch {
     return [];
+  }
+}
+
+// ---- Stock photo for a car with no photo of its own (23 Oct 2026; see lib/stock-photo-svg.ts) ----
+// A donor is stable between the nightly loads, so it is remembered for 10 minutes per server instance, per make, model, year, colour and trim.
+const stockCache = new Map<string, { at: number; photo: { imageUrl: string; colourMatched: boolean } | null }>();
+const STOCK_TTL_MS = 10 * 60 * 1000;
+export function resetStockPhotoCacheForTests(): void { stockCache.clear(); }
+
+/** A photo of another listing of the same make, model and year for this car, or null. Never throws: any failure means "no stock photo" and the card keeps its placeholder. STOCK_PHOTOS=off switches it off. */
+export async function stockPhotoFor(listing: VehicleListing): Promise<{ imageUrl: string; colourMatched: boolean } | null> {
+  try {
+    if (process.env.STOCK_PHOTOS === "off") return null;
+    if (!catalogDbConfigured() && !pool) return null;
+    const v = listing.vehicle;
+    if (!v?.make || !v?.model || v.year == null || !Number.isFinite(Number(v.year))) return null;
+    const req = { vin: listing.vin, makeKey: alnumKey(String(v.make)), modelKey: alnumKey(String(v.model)), year: Number(v.year), color: String(v.exteriorColor ?? "").toLowerCase().trim(), trim: String(v.trim ?? "") };
+    const key = `${req.makeKey}|${req.modelKey}|${req.year}|${req.color}|${req.trim}`;
+    const hit = stockCache.get(key);
+    if (hit && Date.now() - hit.at < STOCK_TTL_MS) return hit.photo;
+    const rows = await stockPhotos(getPool() as unknown as Queryable, [req]);
+    const photo = rows[0] ? { imageUrl: rows[0].imageUrl, colourMatched: rows[0].colourMatched } : null;
+    if (stockCache.size > 500) stockCache.clear();
+    stockCache.set(key, { at: Date.now(), photo });
+    return photo;
+  } catch {
+    return null;
   }
 }

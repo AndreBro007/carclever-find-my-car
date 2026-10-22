@@ -13,6 +13,7 @@
 // unsigned fallback.
 
 import { verifyImageUrlSignature } from "@/lib/image-proxy-sign";
+import { buildStockPhotoSvg, isStockCode } from "@/lib/stock-photo-svg";
 
 export const runtime = "nodejs";
 
@@ -66,6 +67,36 @@ export async function GET(req: Request): Promise<Response> {
   const contentLength = upstream.headers.get("content-length");
   if (contentLength && Number(contentLength) > MAX_BYTES) {
     return new Response("Image too large", { status: 502 });
+  }
+
+  // Stock photo (23 Oct 2026): the picture is another listing's photo of the same make, model and year, so the label is drawn onto it (lib/stock-photo-svg.ts). The picture is read in
+  // full (same 5MB cap) and returned as a small SVG; only plain raster images are embedded, anything else is a 502 and the widget draws its placeholder.
+  const stockParam = searchParams.get("stock");
+  if (stockParam != null) {
+    if (!isStockCode(stockParam)) return new Response("Invalid stock parameter", { status: 400 });
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      const rd = upstream.body.getReader();
+      for (;;) {
+        const { done, value } = await rd.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > MAX_BYTES) { rd.cancel(); return new Response("Image too large", { status: 502 }); }
+        chunks.push(value);
+      }
+    } catch {
+      return new Response("Upstream read failed", { status: 502 });
+    }
+    const all = new Uint8Array(size);
+    let off = 0;
+    for (const c of chunks) { all.set(c, off); off += c.byteLength; }
+    const svg = buildStockPhotoSvg(contentType, all, stockParam);
+    if (!svg) return new Response("Upstream did not return a plain image", { status: 502 });
+    return new Response(svg, {
+      status: 200,
+      headers: { "Content-Type": "image/svg+xml; charset=utf-8", "Cache-Control": "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800" },
+    });
   }
 
   // Stream with a hard byte cap even when content-length is absent/lying.
