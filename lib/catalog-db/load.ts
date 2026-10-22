@@ -48,25 +48,42 @@ export function stageLine(r: CatalogRow): string {
 }
 
 /**
- * Body class for cars the feed does not classify (SYS-20261021-047). In the real data 2.2% of cars have no body label and 0.9% have a label that is no body style (a trim such as XLE or
- * HYBRID AWD, or "Car", "Passenger", "Fastback"), so a search that names a body style never found them. A car like that takes the class of its own make and model when the other cars of that
- * model agree: at least 5 classified cars and at least 80% of them in one class. Where they do not agree the car stays unclassified (a model that is sold as both a sedan and a coupe is
- * not guessed). Cars the feed did classify are never touched.
+ * Body class for cars the feed does not classify (SYS-20261021-047, tightened in SYS-20261022-055 after ChatGPT's review finding BA22-05 and the real Neon numbers: of 37,351 cars the first rule
+ * would have classified, 3,621 sat in models whose classified cars agree less than 95%). A car with no body class, or the class "other", takes the class of the cars of the SAME make, model and
+ * model year, and of the same door count when the car has one, when at least 3 of those cars are classified and at least 95% of them are in one class. A car with no door count only
+ * takes a class when all doors agree, so a model sold as a sedan and a coupe in one year is never guessed. A model year with no classified cars gives no evidence (an older generation is not
+ * judged by a newer one). Cars the feed classified are never touched. The raw label is kept as it came.
  */
 export const INFER_BODY_CLASS_SQL = `
-  WITH votes AS (
-    SELECT make_key, model_key, body_class, count(*) AS n, sum(count(*)) OVER (PARTITION BY make_key, model_key) AS total
+  WITH v1 AS (
+    SELECT make_key, model_key, year, doors, body_class, count(*) AS n,
+           sum(count(*)) OVER (PARTITION BY make_key, model_key, year, doors) AS total
+    FROM listing_stage
+    WHERE body_class IS NOT NULL AND body_class <> 'other' AND doors IS NOT NULL
+    GROUP BY make_key, model_key, year, doors, body_class
+  ), p1 AS (
+    SELECT DISTINCT ON (make_key, model_key, year, doors) make_key, model_key, year, doors, body_class
+    FROM v1 WHERE total >= 3 AND n >= 0.95 * total
+    ORDER BY make_key, model_key, year, doors, n DESC
+  ), v2 AS (
+    SELECT make_key, model_key, year, body_class, count(*) AS n,
+           sum(count(*)) OVER (PARTITION BY make_key, model_key, year) AS total
     FROM listing_stage
     WHERE body_class IS NOT NULL AND body_class <> 'other'
-    GROUP BY make_key, model_key, body_class
+    GROUP BY make_key, model_key, year, body_class
+  ), p2 AS (
+    SELECT DISTINCT ON (make_key, model_key, year) make_key, model_key, year, body_class
+    FROM v2 WHERE total >= 3 AND n >= 0.95 * total
+    ORDER BY make_key, model_key, year, n DESC
   ), pick AS (
-    SELECT DISTINCT ON (make_key, model_key) make_key, model_key, body_class
-    FROM votes WHERE total >= 5 AND n >= 0.8 * total
-    ORDER BY make_key, model_key, n DESC
+    SELECT s.id, CASE WHEN s.doors IS NOT NULL THEN p1.body_class ELSE p2.body_class END AS body_class
+    FROM listing_stage s
+    LEFT JOIN p1 ON s.doors IS NOT NULL AND p1.make_key = s.make_key AND p1.model_key = s.model_key AND p1.year = s.year AND p1.doors = s.doors
+    LEFT JOIN p2 ON s.doors IS NULL AND p2.make_key = s.make_key AND p2.model_key = s.model_key AND p2.year = s.year
+    WHERE s.body_class IS NULL OR s.body_class = 'other'
   )
-  UPDATE listing_stage s SET body_class = p.body_class
-  FROM pick p
-  WHERE (s.body_class IS NULL OR s.body_class = 'other') AND s.make_key = p.make_key AND s.model_key = p.model_key`;
+  UPDATE listing_stage s SET body_class = pick.body_class
+  FROM pick WHERE s.id = pick.id AND pick.body_class IS NOT NULL`;
 
 export async function loadFeed(pool: Pool, lines: AsyncIterable<string>, opts: LoadOptions = {}): Promise<LoadReport> {
   const log = opts.log ?? (() => {});
