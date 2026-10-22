@@ -312,3 +312,22 @@ test("compare_vehicles: the reply suggests a side-by-side table (one column per 
   const t = textOf(o);
   assert.match(t, /Differences \(stated, not ranked\):/); assert.match(t, /side-by-side table: one column per vehicle, one row per line above\./);
 });
+
+// ---- compare_vehicles without a widget (22 Oct 2026, André: option B) ----
+test("compare_vehicles declares no widget; search and VIN check keep theirs; the link tool never had one", async () => {
+  const o: any = await rpc({ jsonrpc: "2.0", id: rid++, method: "tools/list" });
+  const tools: any[] = o.result.tools; const by = (n: string) => tools.find((t) => t.name === n);
+  assert.equal(tools.length, 4);
+  const widgetOf = (t: any) => ({ ui: t._meta?.ui?.resourceUri, openai: t._meta?.["openai/outputTemplate"] });
+  assert.deepEqual(widgetOf(by("compare_vehicles")), { ui: undefined, openai: undefined }, "compare has no widget");
+  for (const n of ["find_matching_vehicle", "check_vehicle"]) assert.ok(widgetOf(by(n)).ui && widgetOf(by(n)).openai, `${n} keeps its widget`);
+  assert.deepEqual(widgetOf(by("get_edmunds_vehicle_link")), { ui: undefined, openai: undefined }, "the link tool has no widget, as before");
+  assert.equal(by("compare_vehicles").annotations.readOnlyHint, true);
+});
+
+test("compare_vehicles still returns the differences, the links and the table suggestion as text, and the structured result", opts, async () => {
+  const vs = ROWS.filter((r) => r.model === "Hyd3").slice(0, 2).map((r) => r.vin);
+  const o: any = await rpc({ jsonrpc: "2.0", id: rid++, method: "tools/call", params: { name: "compare_vehicles", arguments: { vins: vs } } }); const t = textOf(o);
+  assert.match(t, /Comparing 2 vehicles/); assert.match(t, /Differences \(stated, not ranked\):/); assert.match(t, /Link: https:\/\//); assert.match(t, /side-by-side table/);
+  assert.equal(o.result.structuredContent.results.length, 2); assert.ok(o.result.structuredContent.comparison.length > 0);
+});

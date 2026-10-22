@@ -2919,10 +2919,8 @@ const handler = createMcpHandler((server) => {
         zip: z.string().optional().describe("Optional 5-digit ZIP code: adds each dealer's distance from it to the comparison."),
       },
       annotations: { title: "Compare Vehicles", readOnlyHint: true, openWorldHint: true, destructiveHint: false },
-      _meta: {
-        ui: { resourceUri: RESULTS_CARD_RESOURCE_URI },
-        "openai/outputTemplate": RESULTS_CARD_RESOURCE_URI,
-      },
+      // No widget (22 Oct 2026, André's test of the compare reply): the cards widget showed the same listings again, not a comparison, and Claude tells the AI not to repeat a result a widget has
+      // rendered, so the AI never presented the differences. Without a widget the reply text (the Differences block, the links and the table suggestion) is what the buyer gets.
     },
     async ({ vins, zip }) => {
       const plain = (text: string) => ({ content: [{ type: "text" as const, text }] });
