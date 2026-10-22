@@ -1023,6 +1023,7 @@ const handler = createMcpHandler((server) => {
             state: input.state,
             trimRequired: intent.trimRequired,
             electrificationTypes: input.electrificationRequirement === "required" ? input.electrificationTypes : undefined, // review BA22-07: the requirement is assessed for this car too
+            electrified: !!(input.electrificationTypes && input.electrificationTypes.length > 0), // review R2-04: the same trim comparison as the search (Hybrid or EV wording in a trim is neutral when an electrified type was asked for)
           },
           // A direct VIN lookup never widens/relaxes anything — this is
           // always the exact requested VIN, so no field is ever "relaxed"

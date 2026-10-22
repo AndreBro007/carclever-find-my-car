@@ -23,6 +23,7 @@ for (let m = 1; m <= 6; m++) add(65, (i) => ({ make: "Acme", model: `Fox${m}`, p
 add(10, (i) => ({ make: "Honda", model: "CR-V", price: 30000 + i * 100, cond: i % 2 ? "used" : "new", odo: i % 2 ? 30000 + i : 10, vin: vin("2HKRS") }));
 const RAV_1 = vin("2T3R1"), RAV_2 = vin("2T3R2"); ROWS.push({ make: "Toyota", model: "RAV4", trim: "Base", year: 2026, price: 31000, vin: RAV_1, cond: "new", odo: 10 }, { make: "Toyota", model: "RAV4", trim: "Base", year: 2026, price: 32000, vin: RAV_2, cond: "new", odo: 10 });
 
+const SPORT_HYB = vin("1WRSH"); ROWS.push({ make: "Wex", model: "Wren", trim: "Sport Hybrid", year: 2026, price: 30000, vin: SPORT_HYB, cond: "new", odo: 10 }); // R2-05b / R2-04: a trim with Hybrid wording
 function line(c: R, n: number): string {
   const id = `zzr${String(n).padStart(29, "0")}`;
   const v: Record<string, string> = { id, title: `${c.year} ${c.make} ${c.model}`, condition: c.cond, description: "d", price: c.price.toFixed(2), image_link: `https://img.example.com/${n}.jpg`,
@@ -155,4 +156,17 @@ test("R2-05: an oversized, zero or negative radius never appears in any paragrap
     assert.match(t, new RegExp(`Only 2 within ${applied} miles of 90210`), `radius ${radius}: thin-result paragraph`);
     assert.ok(!new RegExp(`(?<![0-9])${radius} miles`).test(t), `radius ${radius} must not appear anywhere in the reply`);
   }
+});
+
+test("R2-04: the same car and the same trim and electrification request give the same trim verdict from a search and from an exact-VIN lookup", opts, async () => {
+  const trimOf = (o: any) => (cards(o)[0]?.constraintChecks ?? []).find((k: any) => k.field === "trimRequired");
+  const s = await call({ make: "Wex", model: "Wren", condition: "new", trimRequired: "Sport", ...HYB });
+  assert.equal(cards(s)[0].identity.vin, SPORT_HYB); assert.equal(trimOf(s)?.status, "verified");
+  seen.clear(); resetNhtsaCacheForTests();
+  const v = await call({ vin: SPORT_HYB, trimRequired: "Sport", ...HYB });
+  assert.equal(cards(v)[0].identity.vin, SPORT_HYB, "the exact VIN is returned");
+  assert.equal(trimOf(v)?.status, "verified", "the VIN lookup agrees with the search"); assert.deepEqual(elec(cards(v)[0]).map((k: any) => k.status), ["verified"]);
+  // without an electrified request the Hybrid word is not neutral: Sport still does not match Sport Hybrid, in the search and in the lookup alike
+  seen.clear(); resetNhtsaCacheForTests();
+  const plain = await call({ vin: SPORT_HYB, trimRequired: "Sport" }); assert.equal(trimOf(plain)?.status, "mismatch");
 });
