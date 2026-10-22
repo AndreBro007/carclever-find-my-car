@@ -135,6 +135,62 @@ function buildKnownHybridKey(make: string, model: string): string {
 }
 
 /**
+ * Known battery-electric-only makes and models (review F1, 22 Oct 2026). The mirror of KNOWN_HYBRID_ONLY, used the same way: as a HINT for an electric request, so a bounded
+ * candidate pool is spent on cars that can be electric. NHTSA still decides whether a car is electric (lib/nhtsa-client.ts); nothing here proves it.
+ * Why it exists: many battery-electric models carry no electric wording in the feed's model name ("Model Y", "iX", "Mustang Mach-E", "ID.4", "IONIQ 5"), so wording alone
+ * cannot find them, and a broad "electric car under $50,000" search missed Tesla, BMW iX and Mercedes cars that live found.
+ * Evidence rule (the same as for the hybrid list): a model is listed only if every real catalogue VIN decoded by NHTSA was a battery-electric vehicle, at least 3 VINs, and
+ * at least three of its model years where available. 22 Oct 2026: 952 real VINs of 77 candidate models, newest, cheapest and lowest-mileage cars of each, decoded through
+ * NHTSA's batch endpoint; 67 models were 100 percent BEV (see getcarwise-docs EVIDENCE_KNOWN_BEV_ONLY_20261022.md). Left out on purpose: BMW i3 (6 of 11 plug-in hybrid),
+ * Lexus UX 300e (all hybrid), Audi A6 e-tron and Mercedes G-Class (mixed), Polestar 4 and VinFast (fewer than 3 VINs; their makes are listed below instead).
+ * Models are matched with their make, never by model name alone (the Polestar models are named "2" and "3").
+ */
+export interface KnownBevOnly {
+  make: string;
+  model: string;
+}
+
+/** Makes that sell only battery-electric cars in the US catalogue (Polestar 1 was a plug-in hybrid in 2020 and 2021, a handful of cars; the list is a hint, not a verdict). */
+export const KNOWN_BEV_MAKES: readonly string[] = ["Tesla", "Rivian", "Lucid", "Polestar", "Fisker", "VinFast"];
+
+export const KNOWN_BEV_ONLY: readonly KnownBevOnly[] = [
+  { make: "BMW", model: "iX" }, { make: "BMW", model: "i4" }, { make: "BMW", model: "i5" }, { make: "BMW", model: "i7" },
+  { make: "Ford", model: "Mustang Mach-E" }, { make: "Ford", model: "F-150 Lightning" },
+  { make: "Cadillac", model: "LYRIQ" }, { make: "Cadillac", model: "OPTIQ" }, { make: "Cadillac", model: "VISTIQ" }, { make: "Cadillac", model: "ESCALADE IQ" },
+  { make: "Chevrolet", model: "Bolt EUV" },
+  { make: "Lexus", model: "RZ" },
+  { make: "Audi", model: "Q4 e-tron" }, { make: "Audi", model: "Q4 Sportback e-tron" }, { make: "Audi", model: "Q6 e-tron" }, { make: "Audi", model: "Q8 e-tron" },
+  { make: "Audi", model: "e-tron GT" }, { make: "Audi", model: "e-tron" },
+  { make: "Porsche", model: "Taycan" },
+  { make: "Hyundai", model: "IONIQ 5" }, { make: "Hyundai", model: "IONIQ 6" }, { make: "Hyundai", model: "IONIQ 9" },
+  { make: "Kia", model: "EV3" }, { make: "Kia", model: "EV6" }, { make: "Kia", model: "EV9" },
+  { make: "Volkswagen", model: "ID.4" }, { make: "Volkswagen", model: "ID. Buzz" },
+  { make: "Nissan", model: "LEAF" }, { make: "Nissan", model: "ARIYA" },
+  { make: "Subaru", model: "Solterra" },
+  { make: "Toyota", model: "bZ4X" }, { make: "Toyota", model: "bZ" }, { make: "Toyota", model: "bZ Woodland" },
+  { make: "Mercedes-Benz", model: "EQS" }, { make: "Mercedes-Benz", model: "EQE" }, { make: "Mercedes-Benz", model: "EQB" },
+  { make: "Mercedes-Benz", model: "EQS SUV" }, { make: "Mercedes-Benz", model: "EQE SUV" },
+  { make: "Jaguar", model: "I-PACE" },
+  { make: "Volvo", model: "EX30" }, { make: "Volvo", model: "EX90" }, { make: "Volvo", model: "C40 Recharge" }, { make: "Volvo", model: "XC40 Recharge" },
+  { make: "Mazda", model: "MX-30" },
+  { make: "Genesis", model: "GV60" },
+  { make: "FIAT", model: "500e" },
+  { make: "Honda", model: "Prologue" },
+  { make: "Acura", model: "ZDX" },
+];
+
+const bevKey = (x: string | null | undefined): string => String(x ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/** True for a make or a make and model on the known battery-electric lists above. A hint for an electric request only; NHTSA decides. */
+export function isKnownBevOnly(make: string | null | undefined, model: string | null | undefined): boolean {
+  const mk = bevKey(make);
+  if (!mk) return false;
+  if (KNOWN_BEV_MAKES.some((m) => bevKey(m) === mk)) return true;
+  const md = bevKey(model);
+  return !!md && KNOWN_BEV_ONLY.some((e) => bevKey(e.make) === mk && bevKey(e.model) === md);
+}
+
+/**
  * Returns true when the given make/model/year combination is a known
  * hybrid-only vehicle where the provider may incorrectly return "Gasoline".
  * Returns false for any ambiguous model (conservative fail-safe).

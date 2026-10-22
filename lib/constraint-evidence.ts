@@ -21,6 +21,7 @@
  * elsewhere, rather than a second, possibly-inconsistent definition.
  */
 import { modelSatisfiesRequested } from "./model-match";
+import { bodyClassesFor } from "./catalog-db/normalize";
 import { trimMatchesAny } from "./trim-match";
 import { wantedDriveClasses, judgeDrive } from "./drivetrain-filter";
 import { electrificationStateSatisfies } from "./nhtsa-client";
@@ -235,7 +236,12 @@ export function buildConstraintChecks(
       if (style == null && type == null) {
         checks.push({ field: "bodyType", status: "unknown", requested: requested.bodyType, actual: null });
       } else {
-        const ok = style === target || type === target;
+        // The search maps the requested body type to the database's body classes (bodyClassesFor: "Truck" is the class the cards label "Pickup", "Crossover" is "SUV"), so the check
+        // must compare classes too: string equality alone reported "mismatch" on every truck of a Truck search (review F6, 22 Oct 2026). Equality is kept as the fallback.
+        const wantedClasses = bodyClassesFor(requested.bodyType);
+        const classOf = (label: string | null | undefined): string | null => (label ? bodyClassesFor(label)?.[0] ?? null : null);
+        const classMatch = !!wantedClasses && [actual.bodyStyle, actual.vehicleType].some((l) => { const c = classOf(l); return c != null && wantedClasses.includes(c as never); });
+        const ok = classMatch || style === target || type === target;
         checks.push({
           field: "bodyType",
           status: ok ? "verified" : "mismatch",

@@ -1,3 +1,4 @@
+import { wantedDriveClasses } from "./drivetrain-filter";
 /**
  * The "Searched:" line at the top of every find_matching_vehicle reply (SYS-20261021-036, proposal G).
  * It states what the search really used, from the call as repaired, so the AI can compare it with what the buyer asked for and search again when they differ:
@@ -35,7 +36,8 @@ export function appliedFiltersLine(f: AppliedFilters): string {
   else if (f.yearMin != null) parts.push(`model year ${f.yearMin} or newer`);
   else if (f.yearMax != null) parts.push(`model year ${f.yearMax} or older`);
   if (f.mileageMax != null) parts.push(`up to ${f.mileageMax.toLocaleString("en-US")} miles`);
-  if (text(f.drivetrain)) parts.push(`drivetrain ${text(f.drivetrain)}`);
+  // A drivetrain this tool cannot check ("banana") is not applied; the line says so instead of echoing it as if it were (review F7, 22 Oct 2026).
+  if (text(f.drivetrain)) parts.push(wantedDriveClasses(text(f.drivetrain)) ? `drivetrain ${text(f.drivetrain)}` : `drivetrain ${text(f.drivetrain)} (not applied: not a drivetrain this tool can check)`);
   if (text(f.trimRequired)) parts.push(`trim ${text(f.trimRequired)} (required)`);
   if (text(f.trimPreference)) parts.push(`trim ${text(f.trimPreference)} (preferred)`);
   if (text(f.exteriorColor)) parts.push(`exterior ${text(f.exteriorColor)}`);

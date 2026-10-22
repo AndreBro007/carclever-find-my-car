@@ -84,7 +84,8 @@ test("cars NHTSA gives no answer for are KEPT and marked, after the confirmed on
   const out = (await call(11, REQ)) as Out; const t = textOf(out);
   assert.equal(out.result.structuredContent.results.length, 8);
   assert.equal(countOf(t, MARK), 3);
-  assert.match(t, /3 of these could not be confirmed as hybrid by NHTSA and are marked on each listing; ask the dealer to confirm\./);
+  // The second batch got no answer at all, so the breaker opened: the note says the SERVICE did not answer (review F2, 22 Oct 2026).
+  assert.match(t, /NHTSA's VIN service did not answer, so 3 of these could not be confirmed as hybrid and are marked on each listing; ask the dealer to confirm, or try again shortly\./);
   const checks = out.result.structuredContent.results.map((r) => r.constraintChecks.find((c) => c.field === "electrification")?.status);
   assert.equal(checks.filter((x) => x === "verified").length, 5); assert.equal(checks.filter((x) => x === "unknown").length, 3);
   assert.equal(calls, 16, "batch one, batch two (all failed, so the breaker stops it); the cards asked the cache only");
@@ -96,8 +97,17 @@ test("outage: all 8 of the first batch fail, so one batch only; the 8 cars are s
   assert.equal(out.result.structuredContent.results.length, 8);
   assert.equal(calls, 8, "one batch, and the cards did not ask again");
   assert.equal(countOf(t, MARK), 8);
-  assert.match(t, /8 of these could not be confirmed as hybrid by NHTSA/);
+  assert.match(t, /NHTSA's VIN service did not answer, so 8 of these could not be confirmed as hybrid/);
   assert.ok(ms < 5000);
+});
+
+test("some cars get no answer but no whole batch fails: the breaker stays closed and the note keeps the per-car wording", opts, async () => {
+  const answer = new Set([1, 9, 17].map(toyotaVin)); // one car answers in each of the three batches of 8
+  behave = (v) => (answer.has(v) ? "hybrid" : "fail");
+  const out = (await call(17, REQ)) as Out; const t = textOf(out);
+  assert.equal(out.result.structuredContent.results.length, 8);
+  assert.match(t, /5 of these could not be confirmed as hybrid by NHTSA and are marked on each listing; ask the dealer to confirm\./);
+  assert.ok(!/VIN service did not answer/.test(t), "a few missing answers are not an outage");
 });
 
 test("cars NHTSA shows as another type are left out, and the reply says so", opts, async () => {

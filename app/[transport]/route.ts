@@ -33,7 +33,7 @@ import { computeMatchScore } from "@/lib/match-score";
 import { resolveLinks } from "@/lib/link-resolution";
 import { sanitizeDealerName } from "@/lib/dealer-name";
 import { applyKnownHybridOverride, formatFuelTypeForDisplay } from "@/lib/fuel-type";
-import { decodeNhtsaElectrification, runWithNhtsaLedger, decodePoolInBatches, ELECTRIFICATION_BATCH_SIZE, ELECTRIFICATION_COMBINED_POOL_SIZE, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, prioritizeElectrificationCandidates, electrificationStateSatisfies } from "@/lib/nhtsa-client";
+import { decodeNhtsaElectrification, runWithNhtsaLedger, decodePoolInBatches, ELECTRIFICATION_BATCH_SIZE, ELECTRIFICATION_COMBINED_POOL_SIZE, ELECTRIFICATION_BROAD_POOL_SIZE, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, prioritizeElectrificationCandidates, electrificationStateSatisfies } from "@/lib/nhtsa-client";
 import { isAnomalousPrice, buildCpoSummary, buildHistorySummary, applyLocalBestForBudgetOrdering } from "@/lib/local-ranking";
 import { FindMatchingVehicleInputCatalog } from "@/lib/find-matching-vehicle-input";
 import { fetchRecallStatus, clipRecallText, type RecallInfo } from "@/lib/nhtsa-recalls-client";
@@ -53,7 +53,7 @@ import { RESULTS_CARD_RESOURCE_URI, buildResultsCardHtml, getAppOrigin } from "@
 import { signImageUrl } from "@/lib/image-proxy-sign";
 import { trimMatchesAny, trimContainsAllAny } from "@/lib/trim-match";
 import { resolveRequiredTrims } from "@/lib/trim-resolution";
-import { electrifiedModelsFor, electrificationTypesOf, knownHybridOnlyFor, trimWordingRegex, type ElectrifiedType } from "@/lib/electrified-models";
+import { electrifiedModelsFor, electrificationTypesOf, knownHybridOnlyFor, knownBevFor, trimWordingRegex, type ElectrifiedType } from "@/lib/electrified-models";
 import { needsWorthAsking } from "@/lib/needs-note";
 import { leftOutNote } from "@/lib/left-out-note";
 import { appliedFiltersLine, normalizeRadiusMiles } from "@/lib/applied-filters";
@@ -1164,11 +1164,14 @@ const handler = createMcpHandler((server) => {
       const withElectrifiedFilter = async (q: ListingsQuery): Promise<ListingsQuery> => {
         const electrifiedTypes = (input.electrificationTypes ?? []) as ElectrifiedType[]; // read at call time: a model-name correction below may set them (T60)
         const requested = q.model ? q.model.split(",").map((m) => m.trim()).filter(Boolean) : [];
-        // With a make: that make's model names. With models but no make (a need that spans several makes, the usual request): every model name, cached. With neither: nothing to expand.
-        if (!electrifiedTypes.length || (!q.make && requested.length === 0)) return q;
+        // With a make: that make's model names. With models but no make (a need that spans several makes, the usual request): every model name, cached. With neither (a broad request such
+        // as "an electric car under $50,000"): every model name too, so the candidate rows are ranked towards the requested type before NHTSA is asked (review F1, 22 Oct 2026; until then a
+        // broad search got no electrified ranking at all and its pool was the first rows of the ordinary ranking).
+        if (!electrifiedTypes.length) return q;
         const names = q.make ? (await getModelFacets({ make: q.make, yearMin: q.yearMin, yearMax: q.yearMax, used: q.used }, 1000)).map((f) => f.value) : await getAllModelNames();
         const { variants, worded } = electrifiedModelsFor(requested, names, electrifiedTypes);
-        return { ...q, electrified: { extraModels: variants, wordedModels: worded, trimWording: trimWordingRegex(electrifiedTypes), knownHybridOnly: knownHybridOnlyFor(q.make, electrifiedTypes, requested) } };
+        const bev = knownBevFor(q.make, electrifiedTypes);
+        return { ...q, electrified: { extraModels: variants, wordedModels: worded, trimWording: trimWordingRegex(electrifiedTypes), knownHybridOnly: knownHybridOnlyFor(q.make, electrifiedTypes, requested), bevMakes: bev.bevMakes, knownBevOnly: bev.knownBevOnly } };
       };
       const withResolvedTrim = async (q: ListingsQuery): Promise<ListingsQuery> => {
         if (!trimRequired || (!q.make && !q.model) || q.trimIn) return q;
@@ -1692,6 +1695,8 @@ const handler = createMcpHandler((server) => {
       const allModelGroups = requestedGroups(effectiveQuery.model);
       const coverageGroups = isStrictAxis(input.priorityAxis) ? [] : allModelGroups;
       const coverageKeyOf = (c: VehicleListing) => groupKeyOf(c.vehicle?.model, coverageGroups);
+      // A broad electrified search names no model (and may name no make): its decode pool is a little larger (ELECTRIFICATION_BROAD_POOL_SIZE) because the model list cannot narrow it (review F1).
+      const broadSearch = allModelGroups.length === 0;
       // Required (T52, SYS-20261021-003 and -012): NHTSA is asked in batches of 8 (cap ELECTRIFICATION_POOL_SIZE) and the search stops as soon as enough cars are
       // confirmed; if a whole batch gets no answer (NHTSA down) it stops at once. Cars NHTSA confirms as a requested type come first; cars it gives no usable answer for
       // are KEPT, marked on the card, and only fill what the confirmed cars leave; cars it shows as another type (or not electrified) are left out and counted.
@@ -1700,13 +1705,13 @@ const handler = createMcpHandler((server) => {
         ? await (async () => {
             const requestedTypes = input.electrificationTypes!;
             // Cars of each requested model in turn, so the first batches cover every model; the batches go on until each model has been tried (or enough cars are confirmed).
-            const pool = interleaveByGroup(prioritizeElectrificationCandidates(trimOrderedCandidates), coverageKeyOf, coverageGroups);
+            const pool = interleaveByGroup(prioritizeElectrificationCandidates(trimOrderedCandidates, requestedTypes as ElectrifiedType[]), coverageKeyOf, coverageGroups);
             const isConfirmed = (r: NhtsaElectrificationResult | null | undefined) => electrificationStateSatisfies(r?.electrificationState, requestedTypes);
             // With a drivetrain request too (review T93: hybrid plus AWD found nothing because the first 8 confirmed hybrids were FWD): a car counts toward "enough" only when it is confirmed for the
             // requested electrification AND for the requested drive, and the batches may go on further. The decode already holds the drive type, so no extra calls are made for it.
             const driveWanted = wantedDriveClasses(input.drivetrain);
             const isGood = (r: NhtsaElectrificationResult | null | undefined) => isConfirmed(r) && (!driveWanted || judgeDrive(r?.driveType, driveWanted) === "match");
-            const { results, down } = await decodePoolInBatches(pool, (rs) => rs.filter(isGood).length >= targetCount && (rs.length >= 2 * ELECTRIFICATION_BATCH_SIZE || coverageReached(pool, rs, coverageKeyOf, (r) => isGood(r as NhtsaElectrificationResult | null), coverageGroups)), driveWanted ? ELECTRIFICATION_COMBINED_POOL_SIZE : undefined); // coverage may cost at most one extra batch
+            const { results, down } = await decodePoolInBatches(pool, (rs) => rs.filter(isGood).length >= targetCount && (rs.length >= 2 * ELECTRIFICATION_BATCH_SIZE || coverageReached(pool, rs, coverageKeyOf, (r) => isGood(r as NhtsaElectrificationResult | null), coverageGroups)), driveWanted ? ELECTRIFICATION_COMBINED_POOL_SIZE : broadSearch ? ELECTRIFICATION_BROAD_POOL_SIZE : undefined); // coverage may cost at most one extra batch
             const confirmed: VehicleListing[] = [];
             const unknown: VehicleListing[] = [];
             let leftOut = 0;
@@ -1714,7 +1719,14 @@ const handler = createMcpHandler((server) => {
             results.forEach((r, i) => {
               const st = r?.electrificationState;
               if (isConfirmed(r)) confirmed.push(pool[i]);
-              else if (!st || st === "ambiguous") unknown.push(pool[i]);
+              else if (!st || st === "ambiguous") {
+                // NHTSA gave no usable answer. Such a car is kept and marked, unless its own model or trim wording names a DIFFERENT electrified type than the one required (a "Hybrid" in
+                // an electric search, a "Plug-In Hybrid" in a hybrid search): then the name contradicts the request and the car is left out, said plainly (review, 22 Oct 2026: a Grand Highlander
+                // Hybrid whose VIN NHTSA could not read was shown under an electric requirement).
+                const named = electrificationTypesOf(`${pool[i].vehicle?.model ?? ""} ${pool[i].vehicle?.trim ?? ""}`);
+                if (named.size > 0 && ![...named].some((t) => (requestedTypes as string[]).includes(t))) { leftOut++; leftOutModels.push({ model: String(pool[i].vehicle?.model ?? ""), state: "wording" }); }
+                else unknown.push(pool[i]);
+              }
               else { leftOut++; leftOutModels.push({ model: String(pool[i].vehicle?.model ?? ""), state: String(st) }); }
             });
             const kept = confirmed.length >= targetCount ? [] : unknown.slice(0, targetCount - confirmed.length);
@@ -1727,9 +1739,9 @@ const handler = createMcpHandler((server) => {
         ? await (async () => {
             const requestedTypes = input.electrificationTypes!;
             // Cars of each requested model in turn, so the first batches cover every model; the batches go on until each model has been tried (or enough cars are confirmed).
-            const pool = interleaveByGroup(prioritizeElectrificationCandidates(trimOrderedCandidates), coverageKeyOf, coverageGroups);
+            const pool = interleaveByGroup(prioritizeElectrificationCandidates(trimOrderedCandidates, requestedTypes as ElectrifiedType[]), coverageKeyOf, coverageGroups);
             const isConfirmed = (r: NhtsaElectrificationResult | null | undefined) => electrificationStateSatisfies(r?.electrificationState, requestedTypes);
-            const { results, down } = await decodePoolInBatches(pool, (rs) => rs.filter(isConfirmed).length >= targetCount && (rs.length >= 2 * ELECTRIFICATION_BATCH_SIZE || coverageReached(pool, rs, coverageKeyOf, (r) => isConfirmed(r as NhtsaElectrificationResult | null), coverageGroups)));
+            const { results, down } = await decodePoolInBatches(pool, (rs) => rs.filter(isConfirmed).length >= targetCount && (rs.length >= 2 * ELECTRIFICATION_BATCH_SIZE || coverageReached(pool, rs, coverageKeyOf, (r) => isConfirmed(r as NhtsaElectrificationResult | null), coverageGroups)), broadSearch ? ELECTRIFICATION_BROAD_POOL_SIZE : undefined);
             const matchedVins = new Set(pool.slice(0, results.length).filter((_, i) => isConfirmed(results[i])).map((c) => c.vin));
             return { candidates: trimOrderedCandidates, shortfall: null, matchedVins, leftOut: 0, leftOutModels: [], down };
           })()
@@ -2308,11 +2320,20 @@ const handler = createMcpHandler((server) => {
         // T52: unconfirmed cars are kept and marked; cars NHTSA shows as another type are left out. Say both once, plainly.
         const unconfirmedShown = (cards as Array<{ constraintChecks: Array<{ field: string; status: string }> }>).filter((c) => c.constraintChecks.some((x) => x.field === "electrification" && x.status === "unknown")).length;
         if (unconfirmedShown > 0) {
-          dataNotes.push(`${unconfirmedShown} of these could not be confirmed as ${electrificationWords(input.electrificationTypes)} by NHTSA and are marked on each listing; ask the dealer to confirm.`);
+          // When the whole first batch got no answer (the breaker opened), say that the SERVICE did not answer: "could not be confirmed by NHTSA" alone reads as a verdict about the cars
+          // (review F2, 22 Oct 2026, when NHTSA stopped answering the test server for about an hour).
+          dataNotes.push(
+            electrificationResult.down
+              ? `NHTSA's VIN service did not answer, so ${unconfirmedShown} of these could not be confirmed as ${electrificationWords(input.electrificationTypes)} and are marked on each listing; ask the dealer to confirm, or try again shortly.`
+              : `${unconfirmedShown} of these could not be confirmed as ${electrificationWords(input.electrificationTypes)} by NHTSA and are marked on each listing; ask the dealer to confirm.`,
+          );
         }
         if (electrificationResult.leftOut + electrificationLateRemoved.length > 0) {
           dataNotes.push(leftOutNote(electrificationWords(input.electrificationTypes), [...electrificationResult.leftOutModels, ...electrificationLateRemoved]));
         }
+      }
+      if (electrificationPreferred && electrificationResult.down) {
+        dataNotes.push(`NHTSA's VIN service did not answer, so your ${electrificationWords(input.electrificationTypes)} preference could not be used to order these results; ask the dealer to confirm the powertrain, or try again shortly.`);
       }
       {
         // Requested models that matched but did not make the shortlist: said plainly, so nobody concludes they have no matches (SYS-20261021-017).

@@ -11,7 +11,7 @@
  * hybrid or electric (Lexus ES 350e is battery-electric, the BMW 330e is a plug-in hybrid, so e counts for both). About 10,000 cars (Lexus 7,156, BMW 1,883, Mercedes 625,
  * Land Rover 323, FIAT 29, INFINITI 1; evidence doc section 12).
  */
-import { KNOWN_HYBRID_ONLY } from "./fuel-type";
+import { KNOWN_HYBRID_ONLY, KNOWN_BEV_MAKES, KNOWN_BEV_ONLY } from "./fuel-type";
 import { alnumKey } from "./catalog-db/normalize";
 
 export type ElectrifiedType = "hybrid" | "plug_in_hybrid" | "electric";
@@ -124,6 +124,19 @@ export function knownHybridOnlyFor(make: string | undefined, types: ElectrifiedT
   }
   // No make (a request that names models from several makes): only the entries for the models actually asked for, matched by model name.
   const asked = new Set((requestedModels ?? []).map((x) => alnumKey(x)).filter(Boolean));
-  if (asked.size === 0) return [];
+  // Neither a make nor a model (a broad request such as "a hybrid SUV under $40,000"): every entry, so the bounded candidate pool is spent on cars that can be hybrid (review F1, 22 Oct 2026).
+  if (asked.size === 0) return KNOWN_HYBRID_ONLY.map((e) => ({ modelKey: alnumKey(e.model), fromYear: e.fromYear ?? 0 }));
   return KNOWN_HYBRID_ONLY.filter((e) => asked.has(alnumKey(e.model))).map((e) => ({ modelKey: alnumKey(e.model), fromYear: e.fromYear ?? 0 }));
+}
+
+/**
+ * Battery-electric-only makes and models to list first for a request that includes the electric type (review F1, 22 Oct 2026; lists and evidence in lib/fuel-type.ts).
+ * With a make: only that make's entries. Without one: all of them. Nothing for a request that does not include the electric type. A hint for the candidate pool only: NHTSA decides.
+ */
+export function knownBevFor(make: string | undefined, types: ElectrifiedType[]): { bevMakes: string[]; knownBevOnly: Array<{ makeKey: string; modelKey: string }> } {
+  if (!types.includes("electric")) return { bevMakes: [], knownBevOnly: [] };
+  const mk = make ? alnumKey(make) : "";
+  const bevMakes = KNOWN_BEV_MAKES.map((m) => alnumKey(m)).filter((k) => !mk || k === mk);
+  const knownBevOnly = KNOWN_BEV_ONLY.filter((e) => !mk || alnumKey(e.make) === mk).map((e) => ({ makeKey: alnumKey(e.make), modelKey: alnumKey(e.model) }));
+  return { bevMakes, knownBevOnly };
 }

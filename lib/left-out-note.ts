@@ -10,6 +10,14 @@ const MAX_NAMED = 5;
 export function leftOutNote(wantedWords: string, cars: Array<{ model: string; state: string }>): string {
   const seen = new Set<string>();
   const named: string[] = [];
+  // Cars NHTSA gave no answer for whose own model or trim name another electrified type (state "wording"): said separately, because NHTSA did not show them as anything.
+  const byName = new Set<string>();
+  for (const c of cars) {
+    if (c.state !== "wording") continue;
+    const m = String(c.model ?? "").trim();
+    if (m) byName.add(m);
+  }
+  const nameSentence = byName.size === 0 ? "" : ` Cars whose name shows another type than ${wantedWords} were also left out because NHTSA could not check them: ${[...byName].slice(0, MAX_NAMED).join(", ")}${byName.size > MAX_NAMED ? `, and ${byName.size - MAX_NAMED} more` : ""}.`;
   for (const c of cars) {
     const word = STATE_WORDS[c.state];
     const model = String(c.model ?? "").trim();
@@ -18,7 +26,8 @@ export function leftOutNote(wantedWords: string, cars: Array<{ model: string; st
     if (!seen.has(label)) { seen.add(label); named.push(label); }
   }
   const head = `Cars that NHTSA shows as a different type than ${wantedWords} were left out`;
-  if (named.length === 0) return `${head}.`;
+  if (named.length === 0 && byName.size > 0 && cars.every((c) => c.state === "wording")) return nameSentence.replace(" were also left out", " were left out").trim();
+  if (named.length === 0) return `${head}.${nameSentence}`;
   const shown = named.slice(0, MAX_NAMED).join(", ");
-  return `${head}: ${shown}${named.length > MAX_NAMED ? `, and ${named.length - MAX_NAMED} more` : ""}.`;
+  return `${head}: ${shown}${named.length > MAX_NAMED ? `, and ${named.length - MAX_NAMED} more` : ""}.${nameSentence}`;
 }

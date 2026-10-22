@@ -52,8 +52,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
  */
 
 import { specsFromRow, fuelFor, modelsAgree, type NhtsaSpecs } from "./nhtsa-specs";
-import { isKnownHybridOnly } from "./fuel-type";
-import { hasLetterSuffixWording } from "./electrified-models";
+import { isKnownHybridOnly, isKnownBevOnly } from "./fuel-type";
+import { hasLetterSuffixWording, electrificationTypesOf, type ElectrifiedType } from "./electrified-models";
 
 const NHTSA_BASE_URL = "https://vpic.nhtsa.dot.gov/api/vehicles/decodevinvalues";
 const NHTSA_TIMEOUT_MS = 3_000;
@@ -80,10 +80,32 @@ export function resetNhtsaCacheForTests(): void { rowCache.clear(); }
  * in the rest of that request except the 24 h cache, so the drivetrain split and the cards do not repeat the failed round: an outage costs one round, not several. A single VIN that failed
  * while the others answered may still be read again at a later stage (the accepted rule of the 19 Oct review, finding 3: a later read is honoured). The flag lives only as long as the request.
  */
-export interface NhtsaRequestLedger { down: boolean }
+export interface NhtsaRequestLedger {
+  down: boolean;
+  /** Why decodes failed in this request, by class (review F2, 22 Oct 2026): http_<status>, timeout, parse, empty, decode_error (the VIN itself did not decode cleanly), error. Counts only, never a VIN. */
+  failures: Record<string, number>;
+}
 const ledgerStore = new AsyncLocalStorage<NhtsaRequestLedger>();
-export function runWithNhtsaLedger<T>(fn: () => Promise<T>): Promise<T> { return ledgerStore.run({ down: false }, fn); }
+/**
+ * Runs one request with its own ledger and, if any decode failed, writes ONE line to the runtime log with the counts per failure class. Until 22 Oct 2026 a failed decode was silent,
+ * so when NHTSA stopped answering the test server (about 11:15 to 12:20 UTC) there was no record of what it had said. The line carries no VIN and no buyer data.
+ */
+export async function runWithNhtsaLedger<T>(fn: () => Promise<T>): Promise<T> {
+  const ledger: NhtsaRequestLedger = { down: false, failures: {} };
+  try {
+    return await ledgerStore.run(ledger, fn);
+  } finally {
+    if (Object.keys(ledger.failures).length > 0) console.warn(`[nhtsa-failures] ${JSON.stringify(ledger.failures)}${ledger.down ? " breaker=open" : ""}`);
+  }
+}
 function markNhtsaDown(): void { const l = ledgerStore.getStore(); if (l) l.down = true; }
+function noteFailure(kind: string): void { const l = ledgerStore.getStore(); if (l) l.failures[kind] = (l.failures[kind] ?? 0) + 1; }
+function failureKindOf(e: unknown): string {
+  const n = (e as { name?: string } | null)?.name;
+  if (n === "TimeoutError" || n === "AbortError") return "timeout";
+  if (n === "SyntaxError") return "parse";
+  return "error";
+}
 
 /**
  * Canonical electrification classification, replacing
@@ -250,18 +272,18 @@ export async function decodeNhtsaElectrification(
       const res = await fetch(`${NHTSA_BASE_URL}/${encodeURIComponent(vin)}?format=json`, {
         signal: AbortSignal.timeout(NHTSA_TIMEOUT_MS),
       });
-      if (!res.ok) return null;
+      if (!res.ok) { noteFailure(`http_${res.status}`); return null; }
 
       const data = await res.json();
       r = data?.Results?.[0];
-      if (!r) return null;
+      if (!r) { noteFailure("empty"); return null; }
     }
 
     // NHTSA returns ErrorCode "0" for a clean decode; anything else (6, 7,
     // 11, 400, etc, comma-separated) means the VIN was incomplete, unknown
     // to NHTSA, or otherwise not reliably decoded — treat as unknown.
     const errorCode = String(r.ErrorCode ?? "");
-    if (errorCode !== "0") return null;
+    if (errorCode !== "0") { noteFailure("decode_error"); return null; }
     if (!fromCache) cachePut(cacheKey, r);
 
     const make: string | null = r.Make || null;
@@ -308,7 +330,8 @@ export async function decodeNhtsaElectrification(
       trimOptions,
       specs: { ...specsFromRow(r), fuel: fuelFor(electrificationState, r.FuelTypePrimary) },
     };
-  } catch {
+  } catch (e) {
+    noteFailure(failureKindOf(e));
     // Timeout, network error, or malformed JSON — never let this block or
     // fail a search. The shortlist's existing data stands on its own.
     return null;
@@ -354,6 +377,9 @@ export const ELECTRIFICATION_POOL_SIZE = 24;
 /** Cars decoded in parallel per batch. Measured 21 Oct from the sandbox: batches of 8 had a 90th percentile of about 0.27 s, a burst of 45 about 2.2 s against the 3 s limit. */
 export const ELECTRIFICATION_BATCH_SIZE = 8;
 
+/** Most cars decoded for a broad electrified search that names no model (review F1, 22 Oct 2026): four batches. The candidate rows are ranked towards the requested type first, so this only needs room for the rest; four batches of 8 cost about 1.1 s when NHTSA answers normally (p90 0.27 s per batch of 8, 21 Oct measurement). */
+export const ELECTRIFICATION_BROAD_POOL_SIZE = 32;
+
 /** Most cars decoded when a required electrification type is combined with a drivetrain request (review T93, 22 Oct): the batches go on until enough cars satisfy BOTH, so the AWD cars behind the cheap FWD ones are reached. Twelve batches, about 3 s when NHTSA answers normally; an unanswered batch still stops the search. */
 export const ELECTRIFICATION_COMBINED_POOL_SIZE = 96;
 
@@ -379,19 +405,44 @@ export async function decodePoolInBatches<T extends { vin: string; vehicle?: { m
   return { results, down: false };
 }
 
-const ELECTRIFIED_HINT = /\b(hybrid|hev|phev|plug-?in|prime|electric|ev\d*|e-?tron|ioniq|bolt|leaf|volt|prius|niro|mach-?e|id\.?4|taycan|lucid|rivian|polestar|recharge|e-?hybrid|[24]xe|i[3-8x]|ix\d?|model [3sxy])\b/i;
 
 /**
- * For hybrid/EV searches the decode pool is only the first ELECTRIFICATION_POOL_SIZE candidates (decoded in batches, decodePoolInBatches). Put cars whose make, model or
- * trim already hints at electrification first (stable order inside each group), so the bounded pool is spent where hybrids are.
+ * For hybrid/EV searches the decode pool is only the first ELECTRIFICATION_POOL_SIZE candidates (decoded in batches, decodePoolInBatches). Put cars that already hint at the
+ * REQUESTED electrification first (stable order inside each group), so the bounded pool is spent where such cars are.
+ *
+ * Review F1 (22 Oct 2026): the hint used to ignore the requested type. For an electric-only request the hybrids, and the models known to be hybrid-only (RAV4 from 2026,
+ * Camry, Sienna), were hinted too, filled the pool, and NHTSA then left them out, while real battery-electric cars with no electric wording in their name (Model Y, iX, Mach-E)
+ * were never decoded. Now: hybrid and plug-in requests hint on hybrid wording and known hybrid-only models; an electric request hints on electric wording, the known
+ * battery-electric makes and models (lib/fuel-type.ts) and letter suffixes; names sold in more than one form (Ioniq, Niro, Recharge) hint for any type. With no type
+ * given the old behaviour (any electrified hint) is kept.
  */
-export function prioritizeElectrificationCandidates<T extends { vehicle?: { make?: unknown; model?: unknown; trim?: unknown; year?: unknown } | null }>(cands: T[]): T[] {
-  // Wording in the make, model or trim, a letter suffix such as "350h" or "xDrive50e" (R9), or a model year known to be hybrid-only with no wording (the 2026 RAV4;
-  // lib/fuel-type.ts, SYS-20261021-004, T58). Wording first, so the bounded pool is spent where electrified cars are.
-  const hinted = (c: T) =>
-    ELECTRIFIED_HINT.test([c.vehicle?.make, c.vehicle?.model, c.vehicle?.trim].map((x) => (x == null ? "" : String(x))).join(" ")) ||
-    hasLetterSuffixWording([c.vehicle?.model, c.vehicle?.trim].map((x) => (x == null ? "" : String(x))).join(" ")) ||
-    isKnownHybridOnly(c.vehicle?.year == null ? null : Number(c.vehicle.year), c.vehicle?.make == null ? null : String(c.vehicle.make), c.vehicle?.model == null ? null : String(c.vehicle.model));
+const HYBRID_HINT = /\b(hybrid|hev|phev|plug-?in|prime|volt|prius|e-?hybrid|[24]xe)\b/i;
+const ELECTRIC_HINT = /\b(electric|ev\d*|e-?tron|bolt|leaf|mach-?e|id\.?4|taycan|lucid|rivian|polestar|i[3-8x]|ix\d?|model [3sxy])\b/i;
+const MIXED_HINT = /\b(ioniq|niro|recharge)\b/i;
+
+export function prioritizeElectrificationCandidates<T extends { vehicle?: { make?: unknown; model?: unknown; trim?: unknown; year?: unknown } | null }>(cands: T[], types?: ElectrifiedType[]): T[] {
+  const str = (x: unknown): string => (x == null ? "" : String(x));
+  const wantsElectric = !!types?.includes("electric");
+  const wantsHybrid = !!types?.some((t) => t === "hybrid" || t === "plug_in_hybrid");
+  const hinted = (c: T): boolean => {
+    const make = str(c.vehicle?.make), model = str(c.vehicle?.model), trim = str(c.vehicle?.trim);
+    const year = c.vehicle?.year == null ? null : Number(c.vehicle.year);
+    if (!types || types.length === 0) {
+      // No requested type: any electrified hint (the behaviour before the review).
+      return HYBRID_HINT.test(`${make} ${model} ${trim}`) || ELECTRIC_HINT.test(`${make} ${model} ${trim}`) || MIXED_HINT.test(`${make} ${model} ${trim}`) ||
+        hasLetterSuffixWording(`${model} ${trim}`) || isKnownHybridOnly(year, make || null, model || null);
+    }
+    const text = `${make} ${model} ${trim}`;
+    // The wording of the model and trim, including letter suffixes (R9), counts only when it points to a requested type.
+    const wordsPointToRequest = [...electrificationTypesOf(`${model} ${trim}`)].some((t) => types.includes(t));
+    return (
+      wordsPointToRequest ||
+      MIXED_HINT.test(text) ||
+      (wantsElectric && (ELECTRIC_HINT.test(text) || isKnownBevOnly(make || null, model || null))) ||
+      (wantsHybrid && HYBRID_HINT.test(text)) ||
+      (types.includes("hybrid") && isKnownHybridOnly(year, make || null, model || null))
+    );
+  };
   return [...cands.filter(hinted), ...cands.filter((c) => !hinted(c))];
 }
 

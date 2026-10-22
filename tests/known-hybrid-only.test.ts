@@ -66,7 +66,12 @@ test("ranking input: only for a hybrid request, only for the asked make", () => 
   assert.ok(!t.some((k) => k.modelKey === "niro"), "other makes are not included");
   assert.deepEqual(knownHybridOnlyFor("Toyota", ["plug_in_hybrid"]), []);
   assert.deepEqual(knownHybridOnlyFor("Toyota", ["electric"]), []);
-  assert.deepEqual(knownHybridOnlyFor(undefined, ["hybrid"]), []);
+  // Neither a make nor a model (a broad request): every entry, so the candidate pool is ranked towards cars that can be hybrid (review F1, 22 Oct 2026; it used to be empty).
+  assert.equal(knownHybridOnlyFor(undefined, ["hybrid"]).length, KNOWN_HYBRID_ONLY.length);
+  // Models named but no make: only the entries for those models.
+  assert.deepEqual(knownHybridOnlyFor(undefined, ["hybrid"], ["RAV4"]), [{ modelKey: "rav4", fromYear: 2026 }]);
+  // An electric-only request gets none, with or without a make.
+  assert.deepEqual(knownHybridOnlyFor(undefined, ["electric"]), []);
   assert.ok(knownHybridOnlyFor("toyota", ["hybrid", "plug_in_hybrid"]).length > 0);
   assert.deepEqual(knownHybridOnlyFor("Kia", ["hybrid"]), [{ modelKey: "niro", fromYear: 2017 }]);
 });

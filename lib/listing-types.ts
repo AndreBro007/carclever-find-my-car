@@ -105,7 +105,7 @@ export interface ListingsQuery {
    * family as the asked ones whose wording matches ("RAV4 Hybrid", "RAV4 Prime" for "RAV4"), searched as well; `wordedModels` and `trimWording` mark the cars
    * whose model or trim wording matches, which are listed first; `knownHybridOnly` adds model years that are hybrid with no wording ("RAV4" from 2026, lib/fuel-type.ts). Wording is a hint only: NHTSA still decides (lib/electrified-models.ts).
    */
-  electrified?: { extraModels: string[]; wordedModels: string[]; trimWording: string; knownHybridOnly?: Array<{ modelKey: string; fromYear: number }> };
+  electrified?: { extraModels: string[]; wordedModels: string[]; trimWording: string; knownHybridOnly?: Array<{ modelKey: string; fromYear: number }>; bevMakes?: string[]; knownBevOnly?: Array<{ makeKey: string; modelKey: string }> };
 }
 
 export interface ListingsResponse {

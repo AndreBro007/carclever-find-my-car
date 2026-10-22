@@ -123,6 +123,11 @@ function electrifiedRank(q: ListingsQuery, p: Params): string {
   if (worded.length) parts.push(`l.model_key = ANY(${p.add(worded)})`);
   if (e.trimWording) parts.push(`(l.trim IS NOT NULL AND l.trim ~* ${p.add(e.trimWording)})`);
   for (const k of e.knownHybridOnly ?? []) parts.push(`(l.model_key = ${p.add(k.modelKey)} AND l.year >= ${p.add(k.fromYear)})`);
+  // Battery-electric-only makes and models (review F1): an electric request ranks them first although their names carry no electric wording ("Model Y", "iX").
+  const bevMakes = (e.bevMakes ?? []).filter(Boolean);
+  if (bevMakes.length) parts.push(`l.make_key = ANY(${p.add(bevMakes)})`);
+  const bevModels = (e.knownBevOnly ?? []).map((k) => `${k.makeKey}|${k.modelKey}`);
+  if (bevModels.length) parts.push(`(l.make_key || '|' || l.model_key) = ANY(${p.add(bevModels)})`); // one array lookup, not one clause per model: cheap on a million rows
   return parts.length ? `(CASE WHEN ${parts.join(" OR ")} THEN 0 ELSE 1 END)` : "0";
 }
 
