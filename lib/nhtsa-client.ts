@@ -354,6 +354,9 @@ export const ELECTRIFICATION_POOL_SIZE = 24;
 /** Cars decoded in parallel per batch. Measured 21 Oct from the sandbox: batches of 8 had a 90th percentile of about 0.27 s, a burst of 45 about 2.2 s against the 3 s limit. */
 export const ELECTRIFICATION_BATCH_SIZE = 8;
 
+/** Most cars decoded when a required electrification type is combined with a drivetrain request (review T93, 22 Oct): the batches go on until enough cars satisfy BOTH, so the AWD cars behind the cheap FWD ones are reached. Twelve batches, about 3 s when NHTSA answers normally; an unanswered batch still stops the search. */
+export const ELECTRIFICATION_COMBINED_POOL_SIZE = 96;
+
 /**
  * Decode `pool` in order, in parallel batches, and stop as soon as `enough` says so, at ELECTRIFICATION_POOL_SIZE cars, or when a whole batch got no answer
  * at all (NHTSA is down or throttling: `down` is true and no further batch is tried, so an outage costs one round of at most the 3 s limit, never more).
@@ -362,9 +365,10 @@ export const ELECTRIFICATION_BATCH_SIZE = 8;
 export async function decodePoolInBatches<T extends { vin: string; vehicle?: { make?: unknown; model?: unknown; cylinders?: number | null } | null }>(
   pool: T[],
   enough: (results: Array<NhtsaElectrificationResult | null>) => boolean,
+  maxCars: number = ELECTRIFICATION_POOL_SIZE,
 ): Promise<{ results: Array<NhtsaElectrificationResult | null>; down: boolean }> {
   const results: Array<NhtsaElectrificationResult | null> = [];
-  const limit = Math.min(pool.length, ELECTRIFICATION_POOL_SIZE);
+  const limit = Math.min(pool.length, maxCars);
   for (let off = 0; off < limit; off += ELECTRIFICATION_BATCH_SIZE) {
     const chunk = pool.slice(off, Math.min(off + ELECTRIFICATION_BATCH_SIZE, limit));
     const res = await Promise.all(chunk.map((c) => decodeNhtsaElectrification(c.vin, c.vehicle?.make, c.vehicle?.model, c.vehicle?.cylinders)));

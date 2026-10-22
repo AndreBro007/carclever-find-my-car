@@ -40,6 +40,14 @@ ROWS.push({ make: "Ptr", model: "Plot", trim: "EX", year: 2026, price: 35000, vi
 const DR_A = vin("1DA"), DR_B = vin("1DB");
 ROWS.push({ make: "Drv", model: "Drv1", trim: "Base", year: 2026, price: 30000, vin: DR_A, cond: "new", odo: 10 }, { make: "Drv", model: "Drv2", trim: "Base", year: 2026, price: 31000, vin: DR_B, cond: "new", odo: 10 });
 
+// T93 (André's prompt 9): hybrid plus AWD. Hyd1: 40 FWD hybrids ranked first (near the price cap) and 3 AWD hybrids behind them; Hyd2: 10 AWD hybrids first, then 20 FWD; Hyd3: FWD only.
+const AWD_VINS = new Set<string>();
+for (let i = 0; i < 40; i++) ROWS.push({ make: "Hyd", model: "Hyd1", trim: "Base", year: 2026, price: 39000 + i, vin: vin("1HYF"), cond: "new", odo: 10 });
+for (let i = 0; i < 3; i++) { const v = vin("1HYA"); AWD_VINS.add(v); ROWS.push({ make: "Hyd", model: "Hyd1", trim: "Base", year: 2026, price: 30000 + i, vin: v, cond: "new", odo: 10 }); }
+for (let i = 0; i < 10; i++) { const v = vin("1HYB"); AWD_VINS.add(v); ROWS.push({ make: "Hyd", model: "Hyd2", trim: "Base", year: 2026, price: 39500 + i, vin: v, cond: "new", odo: 10 }); }
+for (let i = 0; i < 20; i++) ROWS.push({ make: "Hyd", model: "Hyd2", trim: "Base", year: 2026, price: 39000 + i, vin: vin("1HYC"), cond: "new", odo: 10 });
+for (let i = 0; i < 10; i++) ROWS.push({ make: "Hyd", model: "Hyd3", trim: "Base", year: 2026, price: 30000 + i, vin: vin("1HYD"), cond: "new", odo: 10 });
+
 function line(c: R, n: number): string {
   const id = `zzr${String(n).padStart(29, "0")}`;
   const v: Record<string, string> = { id, title: `${c.year} ${c.make} ${c.model}`, condition: c.cond, description: "d", price: c.price.toFixed(2), image_link: `https://img.example.com/${n}.jpg`,
@@ -258,4 +266,49 @@ test("R3-01 drivetrain: a car whose later read shows another drivetrain is remov
   const o = await call({ make: "Drv", model: "Drv1, Drv2", condition: "new", drivetrain: "AWD", priceMax: 50000 }); const t = textOf(o);
   assert.deepEqual(cards(o).map((c) => c.identity.model), ["Drv1"]);
   assert.ok(!/Also matched but not shown/.test(t) && !/Drv2 \(for example/.test(t), "Drv2 was removed as FWD and is not offered");
+});
+
+// ---- André's test prompt 9 (T93): hybrid plus AWD ----
+const hybAwd = (model: string, extra: Record<string, unknown> = {}) => call({ make: "Hyd", model, condition: "new", priceMax: 40000, drivetrain: "AWD", ...HYB, ...extra });
+const driveAwdOnly = () => { driveOf = (v) => (AWD_VINS.has(v) ? "AWD/All-Wheel Drive" : "4x2"); };
+
+test("T93: hybrid plus AWD reaches the AWD hybrids behind 40 cheaper FWD hybrids instead of reporting no match", opts, async () => {
+  driveAwdOnly();
+  const o = await hybAwd("Hyd1"); const cs = cards(o);
+  assert.equal(cs.length, 3, "all three AWD hybrids are found");
+  assert.ok(cs.every((c) => AWD_VINS.has(c.identity.vin)), "only AWD cars");
+  assert.ok(cs.every((c) => elec(c)[0]?.status === "verified" && (c.constraintChecks ?? []).some((k: any) => k.field === "drivetrain" ? k.status === "verified" : true)));
+  assert.ok(!/No vehicles matched/.test(textOf(o)));
+});
+
+test("T93 control: when 8 AWD hybrids come first, no more cars are decoded than before (no extra NHTSA cost)", opts, async () => {
+  driveAwdOnly();
+  const o = await hybAwd("Hyd2"); assert.equal(cards(o).length, 8);
+  assert.ok(seen.size <= 16, `at most two batches decoded, got ${seen.size}`);
+});
+
+test("T93 control: NHTSA down for a hybrid plus AWD search is still one round (each car decoded once)", opts, async () => {
+  plan = () => "fail";
+  await hybAwd("Hyd1");
+  assert.ok(seen.size <= 8 && [...seen.values()].every((n) => n === 1), `one batch, one decode per car, got ${seen.size} cars`);
+});
+
+test("T93: when no AWD hybrid exists the reply says which combination is unconfirmed, not just the hybrid", opts, async () => {
+  driveAwdOnly();
+  const o = await hybAwd("Hyd3"); const t = textOf(o);
+  assert.equal(cards(o).length, 0);
+  assert.match(t, /None is confirmed as a hybrid car with AWD drive, as you asked/);
+  assert.ok(!/None is confirmed as the electric or hybrid car you asked for/.test(t));
+});
+
+test("T93: hybrid only (no drivetrain) is unchanged: the batches still stop at 8 confirmed", opts, async () => {
+  const o = await call({ make: "Hyd", model: "Hyd1", condition: "new", priceMax: 40000, ...HYB });
+  assert.equal(cards(o).length, 8); assert.ok(seen.size <= 16, `got ${seen.size}`);
+});
+
+test("compare_vehicles: the reply suggests a side-by-side table (one column per vehicle)", opts, async () => {
+  const vs = ROWS.filter((r) => r.model === "Hyd3").slice(0, 2).map((r) => r.vin);
+  const o: any = await rpc({ jsonrpc: "2.0", id: rid++, method: "tools/call", params: { name: "compare_vehicles", arguments: { vins: vs } } });
+  const t = textOf(o);
+  assert.match(t, /Differences \(stated, not ranked\):/); assert.match(t, /side-by-side table: one column per vehicle, one row per line above\./);
 });

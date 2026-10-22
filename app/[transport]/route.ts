@@ -33,7 +33,7 @@ import { computeMatchScore } from "@/lib/match-score";
 import { resolveLinks } from "@/lib/link-resolution";
 import { sanitizeDealerName } from "@/lib/dealer-name";
 import { applyKnownHybridOverride, formatFuelTypeForDisplay } from "@/lib/fuel-type";
-import { decodeNhtsaElectrification, runWithNhtsaLedger, decodePoolInBatches, ELECTRIFICATION_BATCH_SIZE, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, prioritizeElectrificationCandidates, electrificationStateSatisfies } from "@/lib/nhtsa-client";
+import { decodeNhtsaElectrification, runWithNhtsaLedger, decodePoolInBatches, ELECTRIFICATION_BATCH_SIZE, ELECTRIFICATION_COMBINED_POOL_SIZE, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, prioritizeElectrificationCandidates, electrificationStateSatisfies } from "@/lib/nhtsa-client";
 import { isAnomalousPrice, buildCpoSummary, buildHistorySummary, applyLocalBestForBudgetOrdering } from "@/lib/local-ranking";
 import { FindMatchingVehicleInputCatalog } from "@/lib/find-matching-vehicle-input";
 import { fetchRecallStatus, clipRecallText, type RecallInfo } from "@/lib/nhtsa-recalls-client";
@@ -1702,7 +1702,11 @@ const handler = createMcpHandler((server) => {
             // Cars of each requested model in turn, so the first batches cover every model; the batches go on until each model has been tried (or enough cars are confirmed).
             const pool = interleaveByGroup(prioritizeElectrificationCandidates(trimOrderedCandidates), coverageKeyOf, coverageGroups);
             const isConfirmed = (r: NhtsaElectrificationResult | null | undefined) => electrificationStateSatisfies(r?.electrificationState, requestedTypes);
-            const { results, down } = await decodePoolInBatches(pool, (rs) => rs.filter(isConfirmed).length >= targetCount && (rs.length >= 2 * ELECTRIFICATION_BATCH_SIZE || coverageReached(pool, rs, coverageKeyOf, (r) => isConfirmed(r as NhtsaElectrificationResult | null), coverageGroups))); // coverage may cost at most one extra batch
+            // With a drivetrain request too (review T93: hybrid plus AWD found nothing because the first 8 confirmed hybrids were FWD): a car counts toward "enough" only when it is confirmed for the
+            // requested electrification AND for the requested drive, and the batches may go on further. The decode already holds the drive type, so no extra calls are made for it.
+            const driveWanted = wantedDriveClasses(input.drivetrain);
+            const isGood = (r: NhtsaElectrificationResult | null | undefined) => isConfirmed(r) && (!driveWanted || judgeDrive(r?.driveType, driveWanted) === "match");
+            const { results, down } = await decodePoolInBatches(pool, (rs) => rs.filter(isGood).length >= targetCount && (rs.length >= 2 * ELECTRIFICATION_BATCH_SIZE || coverageReached(pool, rs, coverageKeyOf, (r) => isGood(r as NhtsaElectrificationResult | null), coverageGroups)), driveWanted ? ELECTRIFICATION_COMBINED_POOL_SIZE : undefined); // coverage may cost at most one extra batch
             const confirmed: VehicleListing[] = [];
             const unknown: VehicleListing[] = [];
             let leftOut = 0;
@@ -2490,7 +2494,7 @@ const handler = createMcpHandler((server) => {
 
       const alternativesText =
         cards.length === 0 && !serviceFailureMessage && !zipLikelyInvalid && !rawResult.error
-          ? await buildNoResultsAlternatives(effectiveQuery, searchListingsLean, { trim: typeof input.trimRequired === "string" ? input.trimRequired : undefined, trimFacets: () => getTrimFacets(effectiveQuery), modelFacets: () => getModelFacets({ ...effectiveQuery, model: undefined, priceMin: undefined, priceMax: undefined, zip: undefined, state: undefined, radius: undefined }), unmet: input.electrificationRequirement === "required" ? "as the electric or hybrid car you asked for" : undefined })
+          ? await buildNoResultsAlternatives(effectiveQuery, searchListingsLean, { trim: typeof input.trimRequired === "string" ? input.trimRequired : undefined, trimFacets: () => getTrimFacets(effectiveQuery), modelFacets: () => getModelFacets({ ...effectiveQuery, model: undefined, priceMin: undefined, priceMax: undefined, zip: undefined, state: undefined, radius: undefined }), unmet: input.electrificationRequirement === "required" ? (wantedDriveClasses(input.drivetrain) ? `as a ${electrificationWords(input.electrificationTypes)} car with ${String(input.drivetrain)} drive, as you asked` : "as the electric or hybrid car you asked for") : undefined })
           : "";
 
       const thinAreaRadius = input.radiusMiles ?? 50;
@@ -2972,7 +2976,7 @@ const handler = createMcpHandler((server) => {
         const cards = usable.map((x) => x.card);
         const compareResults = shapeCardsForSource(cards);
         const text =
-          `Comparing ${usable.length} vehicles from this inventory:\n\n${carLines.join("\n\n")}\n\n${comparisonText(rows)}` +
+          `Comparing ${usable.length} vehicles from this inventory:\n\n${carLines.join("\n\n")}\n\n${comparisonText(rows)}${rows.length > 0 ? "\n\nThese differences read well as a side-by-side table: one column per vehicle, one row per line above." : ""}` +
           (notFound.length > 0 ? `\n\nNot found in this inventory (left out): ${notFound.join(", ")}.` : "") +
           nhtsaTextFootnote(cards) + recallCheckFootnote(cards);
 
