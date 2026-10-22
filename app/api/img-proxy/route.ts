@@ -42,26 +42,40 @@ export async function GET(req: Request): Promise<Response> {
     return new Response("Unsupported protocol", { status: 400 });
   }
 
+  // One attempt with our own identity; if the host answers with something that is not an image (or refuses us), ONE more attempt with a browser's identity and the host's own address as the
+  // referer. Found 23 Oct 2026: imageonthefly.autodatadirect.com, a stock-photo service dealers use for new cars, shows its photo in a browser but answered our proxy with a non-image, so
+  // every car using it showed no photo. Hosts that answer normally never see the second request.
+  const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
+  const attempt = async (browser: boolean): Promise<Response> =>
+    fetch(parsed.toString(), {
+      signal: AbortSignal.timeout(browser ? 8000 : FETCH_TIMEOUT_MS),
+      headers: browser
+        ? { "User-Agent": BROWSER_UA, Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8", Referer: `${parsed.origin}/` }
+        : { "User-Agent": "CarCleverFindMyCar-ImageProxy/1.0", Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8" },
+    });
+  const usable = (r: Response): boolean => r.ok && !!r.body && (r.headers.get("content-type") || "").startsWith("image/");
   let upstream: Response;
   try {
-    upstream = await fetch(parsed.toString(), {
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      headers: {
-        "User-Agent": "CarCleverFindMyCar-ImageProxy/1.0",
-        Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-      },
-    });
+    upstream = await attempt(false);
   } catch {
     return new Response("Upstream fetch failed", { status: 502 });
   }
+  if (!usable(upstream) && upstream.status !== 404) {
+    try {
+      const second = await attempt(true);
+      if (usable(second)) upstream = second;
+    } catch {
+      /* keep the first answer */
+    }
+  }
 
   if (!upstream.ok || !upstream.body) {
-    return new Response("Upstream error", { status: 502 });
+    return new Response(`Upstream error (status ${upstream.status})`, { status: 502 });
   }
 
   const contentType = upstream.headers.get("content-type") || "";
   if (!contentType.startsWith("image/")) {
-    return new Response("Upstream did not return an image", { status: 502 });
+    return new Response(`Upstream did not return an image (status ${upstream.status}, content-type ${contentType.slice(0, 40) || "none"})`, { status: 502 });
   }
 
   const contentLength = upstream.headers.get("content-length");

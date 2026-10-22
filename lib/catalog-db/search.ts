@@ -269,9 +269,10 @@ export async function trimFacets(db: Queryable, q: ListingsQuery, models: string
 
 /**
  * Stock photos for cars that have none of their own (23 Oct 2026): for each request, ONE photo of another listing of the same make, model and year (never the same VIN), preferring the
- * same colour, then the same trim, then a new car's photo (cleaner than a used car's). One query for all requests, using the (make_key, model_key, year) index. A request with no
- * donor simply gets no row.
+ * same colour, then the same trim, then a new car's photo (cleaner than a used car's). One query for all requests, using the (make_key, model_key, year) index. Only photos from the stock sources in lib/stock-photo-sources.ts qualify (a photo with text on it is never used). A request with no
+ * donor simply gets no row. A donor with NO colour (or trim) must never outrank one that matches: in PostgreSQL a NULL sorts FIRST in a descending order, so each comparison is wrapped in COALESCE(..., false) (found on the real data, 23 Oct 2026: a white car got a different colour although white donors existed).
  */
+import { stockPhotoSourcePatterns } from "../stock-photo-sources";
 export interface StockPhotoRequest { vin: string; makeKey: string; modelKey: string; year: number; color: string; trim: string }
 export interface StockPhoto { vin: string; imageUrl: string; colourMatched: boolean }
 export async function stockPhotos(db: Queryable, reqs: StockPhotoRequest[]): Promise<StockPhoto[]> {
@@ -280,13 +281,13 @@ export async function stockPhotos(db: Queryable, reqs: StockPhotoRequest[]): Pro
     `SELECT q.q_vin AS vin, d.image_url, d.colour_ok
        FROM unnest($1::text[], $2::text[], $3::text[], $4::int[], $5::text[], $6::text[]) AS q(q_vin, q_make, q_model, q_year, q_color, q_trim)
        CROSS JOIN LATERAL (
-         SELECT l.image_url, (q.q_color <> '' AND lower(l.ext_color) = q.q_color) AS colour_ok
+         SELECT l.image_url, COALESCE(q.q_color <> '' AND lower(l.ext_color) = q.q_color, false) AS colour_ok
            FROM listing l
-          WHERE l.make_key = q.q_make AND l.model_key = q.q_model AND l.year = q.q_year AND l.image_url IS NOT NULL AND l.vin <> q.q_vin
-          ORDER BY (q.q_color <> '' AND lower(l.ext_color) = q.q_color) DESC, (q.q_trim <> '' AND l.trim = q.q_trim) DESC, (l.condition = 'n') DESC, l.id
+          WHERE l.make_key = q.q_make AND l.model_key = q.q_model AND l.year = q.q_year AND l.image_url IS NOT NULL AND l.vin <> q.q_vin AND l.image_url LIKE ANY($7::text[])
+          ORDER BY COALESCE(q.q_color <> '' AND lower(l.ext_color) = q.q_color, false) DESC, COALESCE(q.q_trim <> '' AND l.trim = q.q_trim, false) DESC, COALESCE(l.condition = 'n', false) DESC, l.id
           LIMIT 1
        ) d`,
-    [reqs.map((x) => x.vin), reqs.map((x) => x.makeKey), reqs.map((x) => x.modelKey), reqs.map((x) => x.year), reqs.map((x) => x.color), reqs.map((x) => x.trim)],
+    [reqs.map((x) => x.vin), reqs.map((x) => x.makeKey), reqs.map((x) => x.modelKey), reqs.map((x) => x.year), reqs.map((x) => x.color), reqs.map((x) => x.trim), stockPhotoSourcePatterns()],
   );
   return (r.rows as Array<{ vin: string; image_url: string; colour_ok: boolean }>).map((x) => ({ vin: x.vin, imageUrl: x.image_url, colourMatched: !!x.colour_ok }));
 }

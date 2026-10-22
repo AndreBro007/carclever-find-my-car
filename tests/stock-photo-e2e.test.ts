@@ -16,12 +16,16 @@ type C = { vin: string; make: string; model: string; year: number; cond: "new" |
 const V = (n: number) => `1FTVE${String(n).padStart(12, "0")}`;
 const CARS: C[] = [
   { vin: V(1), make: "Ford", model: "Maverick", year: 2027, cond: "new", color: "Gray", image: null, price: 30000 },                       // no photo, gray donor exists
-  { vin: V(2), make: "Ford", model: "Maverick", year: 2027, cond: "new", color: "White", image: "https://img.example.com/white.jpg", price: 30100 },
-  { vin: V(3), make: "Ford", model: "Maverick", year: 2027, cond: "new", color: "Gray", image: "https://img.example.com/gray.jpg", price: 30200 },
+  { vin: V(8), make: "Ford", model: "Maverick", year: 2027, cond: "new", color: "", image: "https://partners.fastly.carvana.io/nocolour.jpg", price: 30050 },   // a donor with NO colour, listed first: it must never beat a matching donor
+  { vin: V(9), make: "Ford", model: "Maverick", year: 2027, cond: "new", color: "Red", image: "https://content.homenetiol.com/red-with-dealer-text.jpg", price: 30060 }, // a RED photo, but on a host whose photos carry text: never a donor
+  { vin: "3N6AD1EJ0TN000001", make: "Nissan", model: "Frontier", year: 2026, cond: "new", color: "Black", image: null, price: 33000 },                  // no photo; its only possible donor is on a host with text
+  { vin: "3N6AD1EJ0TN000002", make: "Nissan", model: "Frontier", year: 2026, cond: "new", color: "Black", image: "https://assets.cai-media-management.com/dealer-banner.jpg", price: 33100 },
+  { vin: V(2), make: "Ford", model: "Maverick", year: 2027, cond: "new", color: "White", image: "https://images.dealer.com/white.jpg", price: 30100 },
+  { vin: V(3), make: "Ford", model: "Maverick", year: 2027, cond: "new", color: "Gray", image: "https://partners.fastly.carvana.io/gray.jpg", price: 30200 },
   { vin: V(4), make: "Ford", model: "Maverick", year: 2027, cond: "new", color: "Red", image: null, price: 30300 },                         // no photo, no red donor
   { vin: V(5), make: "Ford", model: "Maverick", year: 2027, cond: "used", color: "Black", image: null, price: 28000 },                      // used, no photo
-  { vin: V(6), make: "Ford", model: "Maverick", year: 2027, cond: "new", color: "Blue", image: "https://img.example.com/own.jpg", price: 30400 }, // has its own photo
-  { vin: V(7), make: "Ford", model: "Maverick", year: 2026, cond: "new", color: "Gray", image: "https://img.example.com/y2026.jpg", price: 29000 }, // other year: never a donor for 2027
+  { vin: V(6), make: "Ford", model: "Maverick", year: 2027, cond: "new", color: "Blue", image: "https://content.homenetiol.com/own.jpg", price: 30400 }, // has its own photo
+  { vin: V(7), make: "Ford", model: "Maverick", year: 2026, cond: "new", color: "Gray", image: "https://partners.fastly.carvana.io/y2026.jpg", price: 29000 }, // other year: never a donor for 2027
   { vin: "3TMLB5JN7TM000001", make: "Toyota", model: "Tacoma", year: 2026, cond: "new", color: "Black", image: null, price: 40000 },        // no photo, no donor at all
 ];
 const line = (c: C, n: number): string => {
@@ -64,7 +68,7 @@ const opts = { skip: DB ? false : "TEST_DATABASE_URL not set" };
 test("a new car with no photo gets the photo of another same-year listing in the SAME colour, labelled 1 (stock photo)", opts, async () => {
   const cs = cardsOf(await call(10, "find_matching_vehicle", { make: "Ford", model: "Maverick", yearMin: 2027, yearMax: 2027 }));
   const a = cs.find((c) => c.identity.vin === V(1))!;
-  assert.equal(rawOf(a.media.cardImageUrl), "https://img.example.com/gray.jpg", "the gray donor, not the white one");
+  assert.equal(rawOf(a.media.cardImageUrl), "https://partners.fastly.carvana.io/gray.jpg", "the gray donor, not the white one");
   assert.equal(stockOf(a.media.cardImageUrl), "1");
   assert.equal(a.media.primaryImage, null, "the car's own image field stays empty: the schema is unchanged");
 });
@@ -72,8 +76,8 @@ test("no donor of the same colour: another colour is used and labelled 2 (colour
   const cs = cardsOf(await call(11, "find_matching_vehicle", { make: "Ford", model: "Maverick", yearMin: 2027, yearMax: 2027 }));
   const red = cs.find((c) => c.identity.vin === V(4))!;
   assert.equal(stockOf(red.media.cardImageUrl), "2");
-  assert.ok(["https://img.example.com/white.jpg", "https://img.example.com/gray.jpg", "https://img.example.com/own.jpg"].includes(rawOf(red.media.cardImageUrl)!), rawOf(red.media.cardImageUrl)!);
-  assert.notEqual(rawOf(red.media.cardImageUrl), "https://img.example.com/y2026.jpg", "a photo of another model YEAR is never used");
+  assert.ok(["https://images.dealer.com/white.jpg", "https://partners.fastly.carvana.io/gray.jpg", "https://partners.fastly.carvana.io/nocolour.jpg"].includes(rawOf(red.media.cardImageUrl)!), rawOf(red.media.cardImageUrl)!);
+  assert.notEqual(rawOf(red.media.cardImageUrl), "https://partners.fastly.carvana.io/y2026.jpg", "a photo of another model YEAR is never used");
 });
 test("a used car with no photo gets a stock photo labelled 3 (not this car)", opts, async () => {
   const cs = cardsOf(await call(12, "find_matching_vehicle", { make: "Ford", model: "Maverick", yearMin: 2027, yearMax: 2027 }));
@@ -82,9 +86,9 @@ test("a used car with no photo gets a stock photo labelled 3 (not this car)", op
 });
 test("a car with its own photo keeps it, with no stock label", opts, async () => {
   const cs = cardsOf(await call(13, "find_matching_vehicle", { make: "Ford", model: "Maverick", yearMin: 2027, yearMax: 2027 }));
-  for (const [vin, img] of [[V(2), "white"], [V(3), "gray"], [V(6), "own"]] as const) {
+  for (const [vin, img] of [[V(2), "https://images.dealer.com/white.jpg"], [V(3), "https://partners.fastly.carvana.io/gray.jpg"], [V(6), "https://content.homenetiol.com/own.jpg"]] as const) {
     const c = cs.find((x) => x.identity.vin === vin)!;
-    assert.equal(rawOf(c.media.cardImageUrl), `https://img.example.com/${img}.jpg`); assert.equal(stockOf(c.media.cardImageUrl), null, "no stock label on a real photo");
+    assert.equal(rawOf(c.media.cardImageUrl), img); assert.equal(stockOf(c.media.cardImageUrl), null, "no stock label on a real photo");
   }
 });
 test("a model with no photo anywhere stays without one (the widget draws its placeholder)", opts, async () => {
@@ -106,4 +110,32 @@ test("the signed address still verifies, so the proxy accepts it", opts, async (
   const cs = cardsOf(await call(17, "find_matching_vehicle", { make: "Ford", model: "Maverick", yearMin: 2027, yearMax: 2027 }));
   const u = new URL(cs.find((c) => c.identity.vin === V(1))!.media.cardImageUrl!);
   assert.ok(verifyImageUrlSignature(u.searchParams.get("u")!, u.searchParams.get("sig")));
+});
+
+test("a donor with no recorded colour never outranks one that matches (PostgreSQL sorts NULL first when descending)", opts, async () => {
+  const cs = cardsOf(await call(18, "find_matching_vehicle", { make: "Ford", model: "Maverick", yearMin: 2027, yearMax: 2027 }));
+  const gray = cs.find((c) => c.identity.vin === V(1))!;
+  assert.equal(rawOf(gray.media.cardImageUrl), "https://partners.fastly.carvana.io/gray.jpg"); assert.equal(stockOf(gray.media.cardImageUrl), "1");
+  const red = cs.find((c) => c.identity.vin === V(4))!;
+  assert.equal(stockOf(red.media.cardImageUrl), "2", "no red donor: another colour, honestly labelled");
+  const blank = cs.find((c) => c.identity.vin === V(8))!;
+  assert.equal(rawOf(blank.media.cardImageUrl), "https://partners.fastly.carvana.io/nocolour.jpg", "the no-colour car keeps its own photo");
+});
+test("a car with no recorded colour of its own still gets a stock photo, labelled colour may differ", opts, async () => {
+  const { stockPhotos } = await import("../lib/catalog-db/search");
+  const r = await stockPhotos(pool as never, [{ vin: V(99), makeKey: "ford", modelKey: "maverick", year: 2027, color: "", trim: "" }]);
+  assert.equal(r.length, 1); assert.equal(r[0].colourMatched, false);
+});
+
+test("a photo from a host whose pictures carry text is never used, even when it is the only one in the car's colour", opts, async () => {
+  const cs = cardsOf(await call(19, "find_matching_vehicle", { make: "Ford", model: "Maverick", yearMin: 2027, yearMax: 2027 }));
+  const red = cs.find((c) => c.identity.vin === V(4))!;
+  assert.notEqual(rawOf(red.media.cardImageUrl), "https://content.homenetiol.com/red-with-dealer-text.jpg"); assert.equal(stockOf(red.media.cardImageUrl), "2", "another colour, from a stock source");
+  for (const c of cs) if (stockOf(c.media.cardImageUrl)) assert.ok(!/homenetiol|cai-media|dlron|inventoryrsc|driveway/.test(rawOf(c.media.cardImageUrl)!), rawOf(c.media.cardImageUrl)!);
+});
+test("a model whose only possible donor carries text gets no stock photo at all (the placeholder stays)", opts, async () => {
+  const cs = cardsOf(await call(20, "find_matching_vehicle", { make: "Nissan", model: "Frontier" }));
+  const noPhoto = cs.find((c) => c.identity.vin === "3N6AD1EJ0TN000001")!;
+  assert.equal(noPhoto.media.cardImageUrl, null);
+  assert.equal(rawOf(cs.find((c) => c.identity.vin === "3N6AD1EJ0TN000002")!.media.cardImageUrl), "https://assets.cai-media-management.com/dealer-banner.jpg", "the car's own photo is untouched");
 });
