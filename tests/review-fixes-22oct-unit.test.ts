@@ -132,3 +132,19 @@ test("F7: the Searched line does not present an unrecognised drivetrain as appli
   assert.ok(!/not applied/.test(appliedFiltersLine({ make: "Honda", model: "CR-V", drivetrain: "AWD, FWD" })));
   assert.ok(!/not applied/.test(appliedFiltersLine({ make: "Honda", model: "CR-V", drivetrain: "4WD" })));
 });
+
+// Broad-search round robin (review F8 and the Model Y gap, 22 Oct 2026). interleaveByGroup did nothing for a broad search; interleaveByModel gives every model a turn.
+import { interleaveByModel } from "../lib/model-coverage";
+test("F8: a broad search decodes ONE car per model per round, so a model further down the pool is reached in the first batch", () => {
+  const pool = [...Array.from({ length: 30 }, (_, i) => `Niro${i}`), "ModelY0", "ModelY1", "Equinox0"];
+  const key = (s: string) => s.replace(/\d+$/, "");
+  const out = interleaveByModel(pool, key);
+  assert.equal(out.length, pool.length, "nothing is lost");
+  assert.ok(out.slice(0, 3).includes("ModelY0"), "Model Y is in the first three, not after 30 Niros");
+  assert.deepEqual(out.slice(0, 4), ["Niro0", "ModelY0", "Equinox0", "Niro1"], "round robin in first-appearance order");
+  assert.deepEqual(out.filter((x) => x.startsWith("Niro")), pool.filter((x) => x.startsWith("Niro")), "order inside a model is kept");
+});
+test("F8: cars with no model key keep their place at the end and nothing is dropped", () => {
+  const out = interleaveByModel(["a1", "", "b1", "a2", ""], (s: string) => (s ? s[0] : null));
+  assert.deepEqual(out, ["a1", "b1", "a2", "", ""]);
+});

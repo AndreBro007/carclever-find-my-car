@@ -49,15 +49,16 @@ import { normalizeToolArguments, invalidFieldsFromError, ignoredInputsNote, addN
 import { getCorpusCountForDescription } from "@/lib/corpus-count";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting, type CardIntentInput } from "@/lib/qualifier-accounting";
-import { RESULTS_CARD_RESOURCE_URI, buildResultsCardHtml, getAppOrigin } from "@/lib/results-card";
+import { RESULTS_CARD_RESOURCE_URI, RESULTS_CARD_LEGACY_RESOURCE_URIS, buildResultsCardHtml, getAppOrigin } from "@/lib/results-card";
 import { signImageUrl } from "@/lib/image-proxy-sign";
 import { trimMatchesAny, trimContainsAllAny } from "@/lib/trim-match";
 import { resolveRequiredTrims } from "@/lib/trim-resolution";
+import { resultsSummaryLine } from "@/lib/results-summary";
 import { electrifiedModelsFor, electrificationTypesOf, knownHybridOnlyFor, knownBevFor, trimWordingRegex, type ElectrifiedType } from "@/lib/electrified-models";
 import { needsWorthAsking } from "@/lib/needs-note";
 import { leftOutNote } from "@/lib/left-out-note";
 import { appliedFiltersLine, normalizeRadiusMiles } from "@/lib/applied-filters";
-import { requestedGroups, groupKeyOf, interleaveByGroup, coverageReached, applyModelCoverage, modelsNotShown } from "@/lib/model-coverage";
+import { requestedGroups, groupKeyOf, interleaveByGroup, interleaveByModel, coverageReached, applyModelCoverage, modelsNotShown } from "@/lib/model-coverage";
 import { formatVehicleTitle } from "@/lib/vehicle-title";
 import { CatalogDbOutputSchema, type FindMatchingVehicleOutput } from "@/lib/find-matching-vehicle-output";
 import { buildConstraintChecks, aggregateSearchConstraintStatus, type ConstraintEvidenceRequest } from "@/lib/constraint-evidence";
@@ -717,9 +718,11 @@ const handler = createMcpHandler((server) => {
   // registration never re-renders per request. Hosts that don't support MCP
   // Apps ignore this entirely and fall back to the tool's normal
   // content/structuredContent response below, unchanged.
+  // The current widget URI, and each legacy URI answered with the same current widget (RESULTS_CARD_LEGACY_RESOURCE_URIS in lib/results-card.ts).
+  for (const [resName, resUri] of [["find-my-car-results-card", RESULTS_CARD_RESOURCE_URI] as const, ...RESULTS_CARD_LEGACY_RESOURCE_URIS.map((u, i) => [`find-my-car-results-card-legacy-${i + 1}`, u] as const)])
   server.registerResource(
-    "find-my-car-results-card",
-    RESULTS_CARD_RESOURCE_URI,
+    resName,
+    resUri,
     {
       title: "CarClever - Find My Car results",
       description: "Compact vehicle result carousel: photo, price, mileage, match score, one Edmunds click-through CTA per card.",
@@ -1705,7 +1708,9 @@ const handler = createMcpHandler((server) => {
         ? await (async () => {
             const requestedTypes = input.electrificationTypes!;
             // Cars of each requested model in turn, so the first batches cover every model; the batches go on until each model has been tried (or enough cars are confirmed).
-            const pool = interleaveByGroup(prioritizeElectrificationCandidates(trimOrderedCandidates, requestedTypes as ElectrifiedType[]), coverageKeyOf, coverageGroups);
+            const pool = broadSearch
+              ? interleaveByModel(prioritizeElectrificationCandidates(trimOrderedCandidates, requestedTypes as ElectrifiedType[]), (c) => String(c.vehicle?.model ?? "").toLowerCase().replace(/[^a-z0-9]/g, ""))
+              : interleaveByGroup(prioritizeElectrificationCandidates(trimOrderedCandidates, requestedTypes as ElectrifiedType[]), coverageKeyOf, coverageGroups);
             const isConfirmed = (r: NhtsaElectrificationResult | null | undefined) => electrificationStateSatisfies(r?.electrificationState, requestedTypes);
             // With a drivetrain request too (review T93: hybrid plus AWD found nothing because the first 8 confirmed hybrids were FWD): a car counts toward "enough" only when it is confirmed for the
             // requested electrification AND for the requested drive, and the batches may go on further. The decode already holds the drive type, so no extra calls are made for it.
@@ -1739,7 +1744,9 @@ const handler = createMcpHandler((server) => {
         ? await (async () => {
             const requestedTypes = input.electrificationTypes!;
             // Cars of each requested model in turn, so the first batches cover every model; the batches go on until each model has been tried (or enough cars are confirmed).
-            const pool = interleaveByGroup(prioritizeElectrificationCandidates(trimOrderedCandidates, requestedTypes as ElectrifiedType[]), coverageKeyOf, coverageGroups);
+            const pool = broadSearch
+              ? interleaveByModel(prioritizeElectrificationCandidates(trimOrderedCandidates, requestedTypes as ElectrifiedType[]), (c) => String(c.vehicle?.model ?? "").toLowerCase().replace(/[^a-z0-9]/g, ""))
+              : interleaveByGroup(prioritizeElectrificationCandidates(trimOrderedCandidates, requestedTypes as ElectrifiedType[]), coverageKeyOf, coverageGroups);
             const isConfirmed = (r: NhtsaElectrificationResult | null | undefined) => electrificationStateSatisfies(r?.electrificationState, requestedTypes);
             const { results, down } = await decodePoolInBatches(pool, (rs) => rs.filter(isConfirmed).length >= targetCount && (rs.length >= 2 * ELECTRIFICATION_BATCH_SIZE || coverageReached(pool, rs, coverageKeyOf, (r) => isConfirmed(r as NhtsaElectrificationResult | null), coverageGroups)), broadSearch ? ELECTRIFICATION_BROAD_POOL_SIZE : undefined);
             const matchedVins = new Set(pool.slice(0, results.length).filter((_, i) => isConfirmed(results[i])).map((c) => c.vin));
@@ -2524,12 +2531,28 @@ const handler = createMcpHandler((server) => {
           ? `Only ${cards.length} within ${thinAreaRadius} miles of ${input.zip}. Want me to search wider? Ask for ${thinAreaRadius < 100 ? "100 miles" : "the whole state or the whole country"} and I'll look again.\n\n`
           : "";
 
+      // Option A (22 Oct 2026, André's decision): a REQUIRED electrification type with nothing kept is said plainly, with a next step, instead of only "no vehicles matched". Only when NHTSA
+      // answered (not an outage), cars were left out as another type, and none was kept: then the cars checked really are not the required type.
+      const electrificationNoneFound =
+        electrificationRequired && !electrificationResult.down && electrificationResult.leftOut > 0 && electrificationResult.candidates.length === 0 && cards.length === 0;
+      const electrificationNoneNote = electrificationNoneFound
+        ? (() => {
+            const words = electrificationWords(input.electrificationTypes);
+            const named = [input.make, input.model].filter((x) => typeof x === "string" && x.trim() !== "").join(" ");
+            const subject = named !== "" && !named.includes(",") ? named : "car among those asked for";
+            return `\n\nNo ${words} ${subject} was found: the cars NHTSA's VIN decode could check show as a different type, so none is listed as ${words}. Next step: tell the buyer plainly that no ${words} ${subject} turned up in this search, and offer to search ${words} cars in the same budget without naming this model. Any cars listed after this are NOT confirmed as ${words}.`;
+          })()
+        : "";
+      // Summary line (22 Oct 2026): server-calculated, placed after the "Found N" line and before card 1, where the Lite parser ignores it.
+      const summaryBlock = (() => { const line = resultsSummaryLine(cards as never); return line ? line + "\n\n" : ""; })();
+
       const summary =
         serviceFailureMessage
           ? disclosurePrefix + serviceFailureMessage
           : cards.length === 0
-          ? disclosurePrefix + noResultsMessage + alternativesText + zeroResultsExitLine(input.make, input.model, input.used, input.trimRequired ?? input.trimPreference)
+          ? disclosurePrefix + noResultsMessage + electrificationNoneNote + alternativesText + zeroResultsExitLine(input.make, input.model, input.used, input.trimRequired ?? input.trimPreference)
           : disclosurePrefix + thinAreaOffer + partialWideningNote + `Found ${cards.length} closely matching vehicle${cards.length === 1 ? "" : "s"}${totalPhrase}:\n\n` +
+            summaryBlock +
             cards
               .map((c, i) => {                const id = c.identity;
                 const l = c.listing;

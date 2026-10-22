@@ -83,7 +83,8 @@ test("F1: a broad electric search finds the battery-electric cars buried behind 
   const out = (await call(20, { electrificationTypes: ["electric"], electrificationRequirement: "required", priceMax: 50000 })) as Out;
   const found = models(out);
   assert.equal(found.length, 8, `eight cars, got ${found.join(", ")}`);
-  assert.ok(found.every((m) => /Tesla Model Y|Ford Mustang Mach-E|BMW iX/.test(m)), `only battery-electric cars: ${found.join(", ")}`);
+  // Round robin (F8, 22 Oct 2026) reaches more models in 8 results; every one must still be battery-electric (Subaru Solterra is battery-electric too).
+  assert.ok(found.every((m) => /Tesla Model Y|Ford Mustang Mach-E|BMW iX|Subaru Solterra/.test(m)), `only battery-electric cars: ${found.join(", ")}`);
   assert.ok(!/Hybrid|Accord/.test(textOf(out).split("Found")[1] ?? ""), "no hybrid and no gasoline car in the list");
   assert.ok(out.result.structuredContent.results.every((r) => r.constraintChecks.some((c) => c.field === "electrification" && c.status === "verified")));
   assert.ok(calls <= 16, `the first batch of 8 is enough when the pool is ranked towards electric: ${calls} NHTSA calls`);
@@ -93,7 +94,9 @@ test("F1: a broad hybrid search finds the hybrids buried behind the same gasolin
   const out = (await call(21, { electrificationTypes: ["hybrid"], electrificationRequirement: "required", priceMax: 50000 })) as Out;
   const found = models(out);
   assert.equal(found.length, 8, found.join(", "));
-  assert.ok(found.every((m) => m === "Toyota Highlander Hybrid"), found.join(", "));
+  // Round robin (F8, 22 Oct 2026): every result is a hybrid, from more than one model.
+  assert.ok(found.every((m) => /Highlander Hybrid|Grand Outback Hybrid/.test(m)), found.join(", "));
+  assert.ok(new Set(found).size >= 2, `more than one model: ${[...new Set(found)].join(", ")}`);
   assert.ok(calls <= 16, `${calls} NHTSA calls`);
 });
 

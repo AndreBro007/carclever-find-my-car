@@ -106,3 +106,24 @@ export function modelsNotShown<T extends { vehicle?: { model?: unknown } | null;
   }
   return out;
 }
+
+/**
+ * Round-robin over EVERY model in the pool, for a broad search that names no model (review F8 and the Model Y gap, 22 Oct 2026).
+ * interleaveByGroup only interleaves named groups, so a broad search decoded its pool in price order: the first model with many cheap cars (Kia Niro EV, Sportage Hybrid)
+ * filled the first batches, the decode stopped once 8 cars were confirmed, and a Tesla Model Y further down the pool was never checked. Here the first car of each model comes
+ * first (in the pool's own order), then the second car of each, and so on. Order inside a model is kept; a car with no model key keeps its place at the end.
+ */
+export function interleaveByModel<T>(pool: T[], keyOf: (t: T) => string | null): T[] {
+  const lanes = new Map<string, T[]>();
+  const order: string[] = [];
+  const rest: T[] = [];
+  for (const c of pool) {
+    const k = keyOf(c) ?? "";
+    if (k === "") { rest.push(c); continue; }
+    if (!lanes.has(k)) { lanes.set(k, []); order.push(k); }
+    lanes.get(k)!.push(c);
+  }
+  const out: T[] = [];
+  for (let i = 0; order.some((k) => i < lanes.get(k)!.length); i++) for (const k of order) { const c = lanes.get(k)![i]; if (c !== undefined) out.push(c); }
+  return [...out, ...rest];
+}

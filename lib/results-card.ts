@@ -42,6 +42,11 @@
 // URI (see the v2 and v3 notes above), so a content change needs a new URI to show up.
 export const RESULTS_CARD_RESOURCE_URI = "ui://carclever-find-my-car/results-card-v4";
 
+// 2026-10-22 (André agreed in chat): the URIs of EARLIER widget versions that the server still ANSWERS, with the CURRENT widget. Tool lists and widget caches on the hosts are what point at a URI;
+// a host that still names v3 (the live address served v3 until this release, and the three platform apps were listed with it) would otherwise get "Resource not found" and lose the cards, while
+// the text reply would still work. The cache-busting reason for the version bump is unchanged: the tools now name v4, so a host that re-reads the tool list fetches v4.
+export const RESULTS_CARD_LEGACY_RESOURCE_URIS: readonly string[] = ["ui://carclever-find-my-car/results-card-v3"];
+
 // Set to the real deployed origin. Used both for the CSP resourceDomains
 // declaration and for building proxied photo URLs client-side.
 // Widget-serving origin, declared to hosts via CSP resourceDomains and
