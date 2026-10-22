@@ -5,7 +5,7 @@ import { type VehicleListing, type ListingsQuery } from "@/lib/listing-types";
 import { shapeCardsForSource, shapeBuyerCheckForCatalog, nhtsaTextLines, nhtsaTextFootnote, catalogCheckVehicleDescription, freshnessSignals, freshnessTextLine } from "@/lib/catalog-output";
 import { withNhtsaSpecs, modelsAgree } from "@/lib/nhtsa-specs";
 import { notListedLinksText, titleCaseMake } from "@/lib/vin-not-listed";
-import { buildComparison, comparisonText, type CompareItem } from "@/lib/compare";
+import { buildComparison, comparisonText, comparisonTable, type CompareItem } from "@/lib/compare";
 import { closingExitLine, zeroResultsExitLine, sortByScoreThenDistance } from "@/lib/dead-end-links";
 import { attachNhtsaRatings } from "@/lib/nhtsa-ratings";
 import { searchListingsLean, getListingByVin, getModelFacets, getAllModelNames, getTrimFacets, lookupListingByVin } from "@/lib/listing-source";
@@ -2977,7 +2977,7 @@ const handler = createMcpHandler((server) => {
         const cards = usable.map((x) => x.card);
         const compareResults = shapeCardsForSource(cards);
         const text =
-          `Comparing ${usable.length} vehicles from this inventory:\n\n${carLines.join("\n\n")}\n\n${comparisonText(rows)}${rows.length > 0 ? "\n\nThese differences read well as a side-by-side table: one column per vehicle, one row per line above, keeping every row. In the price, mileage, year and distance rows, mark the best value in bold (lowest price, lowest mileage, newest year, shortest distance)." : ""}` +
+          `Comparing ${usable.length} vehicles from this inventory:\n\n${carLines.join("\n\n")}\n\n${comparisonText(rows)}${rows.length > 0 ? `\n\nSide-by-side table (one column per vehicle; the best price, mileage, year and distance are in bold):\n\n${comparisonTable(items, rows)}\n\nThis table can be shown to the buyer as it is.` : ""}` +
           (notFound.length > 0 ? `\n\nNot found in this inventory (left out): ${notFound.join(", ")}.` : "") +
           nhtsaTextFootnote(cards) + recallCheckFootnote(cards);
 

@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { buildComparison, comparisonText, zipDistanceMiles, type CompareItem } from "../lib/compare";
+import { buildComparison, comparisonText, comparisonTable, zipDistanceMiles, type CompareItem } from "../lib/compare";
 
 const a: CompareItem = { vin: "A", year: 2024, make: "Toyota", model: "RAV4", trim: "XLE", price: 31990, mileage: 12300, condition: "used", fuel: "Hybrid", drive: "AWD", engine: "2.5L 4-cyl 219 hp", rating: 5, recallCampaigns: 3, dealerZip: "90210" };
 const b: CompareItem = { vin: "B", year: 2023, make: "Toyota", model: "RAV4", trim: "LE", price: 28500, mileage: 30100, condition: "used", fuel: "Gasoline", drive: "AWD", engine: "2.5L 4-cyl 203 hp", rating: 4, recallCampaigns: 3, dealerZip: "92101" };
@@ -51,4 +51,23 @@ test("extra rows: transmission, body style, doors, seats, colours and dealer app
   assert.deepEqual(r("Dealer")!.values, ["One Motors, Inglewood CA", "Two Motors, Gardena CA"]);
   const none = buildComparison([{ vin: "A".repeat(17) }, { vin: "B".repeat(17) }]).map((q) => q.label);
   for (const l of ["Transmission", "Body style", "Doors", "Seats (NHTSA)", "Exterior color", "Interior color", "Dealer"]) assert.ok(!none.includes(l), `${l} is left out when nothing is known`);
+});
+
+test("comparisonTable: header, Vehicle and VIN rows, the best value in bold only for price, mileage, year and distance, ties all bold, equal values and other rows plain, pipes escaped", () => {
+  const x: CompareItem = { vin: "A".repeat(17), year: 2023, make: "Toyota", model: "Camry", trim: "LE | Plus", price: 20000, mileage: 30000, dealerZip: "90210", rating: 5, recallCampaigns: 2, fuel: "Hybrid" };
+  const y: CompareItem = { vin: "B".repeat(17), year: 2026, make: "Toyota", model: "Camry", trim: null, price: 20000, mileage: 10000, dealerZip: "92101", rating: 4, recallCampaigns: 5, fuel: "Hybrid" };
+  const z: CompareItem = { vin: "C".repeat(17), year: 2026, make: "Toyota", model: "Camry", price: 25000, mileage: null, dealerZip: "90210", fuel: "Hybrid" };
+  const rows = buildComparison([x, y, z], "90210"); const t = comparisonTable([x, y, z], rows); const L = t.split("\n");
+  assert.equal(L[0], "| | #1 | #2 | #3 |"); assert.equal(L[1], "|---|---|---|---|");
+  assert.match(L[2], /^\| Vehicle \| 2023 Toyota Camry LE \/ Plus \| 2026 Toyota Camry \| 2026 Toyota Camry \|$/); assert.match(L[3], /^\| VIN \| A{17} \| B{17} \| C{17} \|$/);
+  const r = (l: string) => L.find((q) => q.startsWith(`| ${l} |`))!;
+  assert.equal(r("Price"), "| Price | **$20,000** | **$20,000** | $25,000 |", "a tie for lowest: both bold");
+  assert.equal(r("Mileage"), "| Mileage | 30,000 mi | **10,000 mi** | unknown |");
+  assert.equal(r("Year"), "| Year | 2023 | **2026** | **2026** |", "newest year: the tie is bold");
+  assert.match(r("Distance from 90210"), /^\| Distance from 90210 \| \*\*0 mi\*\* \| \d+ mi \| \*\*0 mi\*\* \|$/);
+  assert.ok(!/\*\*/.test(r("Fuel")) && !/\*\*/.test(r("NHTSA overall rating (model year)")) && !/\*\*/.test(r("NHTSA recall campaigns (model year, not this car)")), "fuel, safety rating and recalls are never marked");
+  assert.equal(comparisonTable([x], rows), ""); assert.equal(comparisonTable([x, y], []), "");
+  const same = comparisonTable([{ vin: "A".repeat(17), price: 100 }, { vin: "B".repeat(17), price: 100 }], buildComparison([{ vin: "A".repeat(17), price: 100 }, { vin: "B".repeat(17), price: 100 }]));
+  assert.ok(!/\*\*/.test(same), "equal values are not marked");
+  assert.ok(!/\b(best|better|worse|winner)\b/i.test(comparisonText(rows)), "the Differences block itself still ranks nothing");
 });

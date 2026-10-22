@@ -310,7 +310,7 @@ test("compare_vehicles: the reply suggests a side-by-side table (one column per 
   const vs = ROWS.filter((r) => r.model === "Hyd3").slice(0, 2).map((r) => r.vin);
   const o: any = await rpc({ jsonrpc: "2.0", id: rid++, method: "tools/call", params: { name: "compare_vehicles", arguments: { vins: vs } } });
   const t = textOf(o);
-  assert.match(t, /Differences \(stated, not ranked\):/); assert.match(t, /side-by-side table: one column per vehicle, one row per line above, keeping every row\. In the price, mileage, year and distance rows, mark the best value in bold \(lowest price, lowest mileage, newest year, shortest distance\)\./);
+  assert.match(t, /Differences \(stated, not ranked\):/); assert.match(t, /Side-by-side table \(one column per vehicle; the best price, mileage, year and distance are in bold\):/); assert.match(t, /This table can be shown to the buyer as it is\./);
 });
 
 // ---- compare_vehicles without a widget (22 Oct 2026, André: option B) ----
@@ -332,7 +332,7 @@ test("compare_vehicles declares no widget; search and VIN check keep theirs; the
 test("compare_vehicles still returns the differences, the links and the table suggestion as text, and the structured result", opts, async () => {
   const vs = ROWS.filter((r) => r.model === "Hyd3").slice(0, 2).map((r) => r.vin);
   const o: any = await rpc({ jsonrpc: "2.0", id: rid++, method: "tools/call", params: { name: "compare_vehicles", arguments: { vins: vs } } }); const t = textOf(o);
-  assert.match(t, /Comparing 2 vehicles/); assert.match(t, /Differences \(stated, not ranked\):/); assert.match(t, /Link: https:\/\//); assert.match(t, /side-by-side table/);
+  assert.match(t, /Comparing 2 vehicles/); assert.match(t, /Differences \(stated, not ranked\):/); assert.match(t, /Link: https:\/\//); assert.match(t, /[Ss]ide-by-side table/);
   assert.equal(o.result.structuredContent.results.length, 2); assert.ok(o.result.structuredContent.comparison.length > 0);
 });
 
@@ -343,4 +343,19 @@ test("compare_vehicles reply carries the extra rows: body style, doors, colours 
   assert.match(t, /- Dealer: #1 Test Dealer, Beverly Hills CA/);
   assert.ok(!/- Seats \(NHTSA\):/.test(t) && !/- Transmission:/.test(t), "no row when no vehicle has the value");
   const ids = o.result.structuredContent.comparison.map((r: any) => r.label); assert.ok(ids.includes("Dealer") && ids.includes("Body style"));
+});
+
+test("compare_vehicles reply carries a ready-made markdown table with the best values in bold", opts, async () => {
+  const vs = [T_A, T_B, T_C]; // Zeta: 2023 $45,000, 2026 $35,000, 2025 $40,000, all 10 mi (valid VINs; the Orb fixture VINs contain the letter O)
+  const o: any = await rpc({ jsonrpc: "2.0", id: rid++, method: "tools/call", params: { name: "compare_vehicles", arguments: { vins: vs, zip: "90210" } } }); const t = textOf(o);
+  const lines = t.split("\n"); const i = lines.findIndex((l) => /^\| +\| #1 \| #2 \| #3 \|$/.test(l)); assert.ok(i > 0, "table header found");
+  assert.match(lines[i + 1], /^\|---\|---\|---\|---\|$/);
+  const rowOf = (label: string) => lines.slice(i).find((l) => l.startsWith(`| ${label} |`))!;
+  assert.match(rowOf("Vehicle"), /^\| Vehicle \| 2023 Zed Zeta Base \| 2026 Zed Zeta Base \| 2025 Zed Zeta Base \|$/);
+  assert.match(rowOf("Price"), /^\| Price \| \$45,000 \| \*\*\$35,000\*\* \| \$40,000 \|$/, "lowest price bold");
+  assert.match(rowOf("Mileage"), /^\| Mileage \| 10 mi \| 10 mi \| 10 mi \|$/, "equal mileage: no bold");
+  assert.match(rowOf("Year"), /^\| Year \| 2023 \| \*\*2026\*\* \| 2025 \|$/, "newest year bold");
+  assert.match(rowOf("Distance from 90210"), /^\| Distance from 90210 \| \*?\*?\d+ mi\*?\*? \| \*?\*?\d+ mi\*?\*? \| \*?\*?\d+ mi\*?\*? \|$/);
+  assert.ok(!/\*\*/.test(rowOf("Condition")) && !/\*\*/.test(rowOf("Body style")), "no bold on rows that have no best value");
+  assert.match(rowOf("Dealer"), /Test Dealer, Beverly Hills CA/);
 });
