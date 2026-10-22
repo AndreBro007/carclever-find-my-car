@@ -118,7 +118,10 @@ export const FindMatchingVehicleInputCatalog = z.object({
   oneOwner: z.boolean().optional().describe("Request for one-owner history. Reported as unconfirmed; the buyer checks the listing and the dealer."),
   bodyType: z.string().optional().describe("Body style: SUV, Sedan, Truck, Hatchback, Coupe, Convertible, Wagon, Minivan or Van; several may be comma-separated. A crossover is an SUV."),
   mileageMax: z.number().optional().describe("Maximum odometer mileage. New cars with no reading are included; used cars with no reading are not."),
-  radiusMiles: z.number().optional().describe("Search radius in miles from the ZIP; 50 when omitted."),
+  radiusMiles: z.number().optional().describe("Search radius in miles from the ZIP; 50 when omitted, 1,000 at most."),
+  trimRequired: z.string().optional().describe("Real trim or variant the buyer requires (for example, AMG GLA 35); comma-separated alternatives accepted. Exact matches come first; when none exists, close trims that include the requested words (for example EX-L for EX) may be shown and are marked as close matches. If there are no close trims either, the reply lists the model's trims."),
+  seatsMinPreference: z.number().optional().describe("Preferred minimum seats. Reported from NHTSA seat data when it is available; it does not filter or change the order, and does not confirm a third row. Missing means unknown, not a failure."),
+  electrificationRequirement: z.enum(["required", "preferred"]).optional().describe("Whether the stated electrification types are required or preferred; required when omitted."),
   doors: z.number().optional().describe("Requested door count. Cars with no door count on file are not matched."),
   condition: z.enum(["new", "used"]).optional().describe("new = new cars only; used = used, pre-owned or certified only; leave out when the buyer says neither."),
 }).strict().superRefine(electrificationRefine);

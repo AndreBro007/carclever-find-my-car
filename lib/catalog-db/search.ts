@@ -159,14 +159,15 @@ async function countCapped(db: Queryable, whereSql: string, values: unknown[]): 
 
 /**
  * Per-model share of the candidate rows when a request names two or more models (SYS-20261021-017, option A). Without it the best-ranked 300 rows can all belong to one model
- * (many new cars at one dealer) and the others never reach the result. A model keeps at most this many of its best-ranked rows, the global order is unchanged, and the total
- * stays at the usual limit. Null (no change at all) for one model or none.
+ * (many new cars at one dealer) and the others never reach the result. A model keeps at most this many of its best-ranked rows, the global order is unchanged, and the shares always
+ * add up to no more than the limit (review BA22-04: a floor of 60 per model let six families ask for 360 rows against a pool of 300, and the global cut then removed one family
+ * entirely, with no note). So every model with a match keeps at least its best row in the pool. Null (no change at all) for one model or none.
  */
 function modelQuota(q: ListingsQuery, models: string[] | null, lim: number): number | null {
   if (!models || models.length === 0) return null;
   const keys = new Set([...models.map(alnumKey), ...(q.electrified?.extraModels ?? []).map(alnumKey)].filter(Boolean));
   if (keys.size < 2) return null;
-  return Math.max(60, Math.ceil(lim / keys.size));
+  return Math.max(1, Math.floor(lim / keys.size));
 }
 
 async function plainSearch(db: Queryable, q: ListingsQuery, models: string[] | null, strict = false): Promise<DbSearchResult> {

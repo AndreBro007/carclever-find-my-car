@@ -10,7 +10,7 @@ export interface AppliedFilters {
   priceMin?: number; priceMax?: number;
   yearMin?: number; yearMax?: number; mileageMax?: number;
   drivetrain?: string; trimRequired?: unknown; trimPreference?: unknown; exteriorColor?: string; interiorColor?: string; doors?: number; seatsMinPreference?: number;
-  electrificationTypes?: string[]; electrificationRequirement?: string;
+  electrificationTypes?: string[]; electrificationRequirement?: string; electrificationRequirementDefault?: boolean;
   zip?: string; zipUsable?: boolean; radiusMiles?: number; state?: string;
   priorityAxis?: string;
 }
@@ -27,7 +27,7 @@ export function appliedFiltersLine(f: AppliedFilters): string {
   if (make && model) parts.push(`${make}, models ${model}`); else if (make) parts.push(`make ${make}`); else if (model) parts.push(`models ${model}`);
   if (text(f.bodyType)) parts.push(`body style ${text(f.bodyType)}`);
   const types = (f.electrificationTypes ?? []).map((t) => TYPE_WORDS[t] ?? t);
-  if (types.length) parts.push(`${types.join(" or ")} ${f.electrificationRequirement === "preferred" ? "preferred" : "required"}`);
+  if (types.length) parts.push(`${types.join(" or ")} ${f.electrificationRequirement === "preferred" ? "preferred" : "required"}${f.electrificationRequirementDefault ? " (assumed: no requirement was given)" : ""}`);
   if (f.priceMin != null && f.priceMax != null) parts.push(`${money(f.priceMin)} to ${money(f.priceMax)}`);
   else if (f.priceMax != null) parts.push(`up to ${money(f.priceMax)}`);
   else if (f.priceMin != null) parts.push(`from ${money(f.priceMin)}`);

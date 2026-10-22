@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 /**
  * NHTSA vPIC client — free, no-key, government VIN decode.
  *
@@ -73,6 +74,16 @@ function cachePut(key: string, r: Record<string, unknown>): void {
   rowCache.set(key, { t: Date.now(), r });
 }
 export function resetNhtsaCacheForTests(): void { rowCache.clear(); }
+
+/**
+ * One search request's memory that NHTSA is down (ChatGPT review BA22-10, SYS-20261022-056). Once a whole batch of the electrification check got no answer, nothing more is asked of NHTSA
+ * in the rest of that request except the 24 h cache, so the drivetrain split and the cards do not repeat the failed round: an outage costs one round, not several. A single VIN that failed
+ * while the others answered may still be read again at a later stage (the accepted rule of the 19 Oct review, finding 3: a later read is honoured). The flag lives only as long as the request.
+ */
+export interface NhtsaRequestLedger { down: boolean }
+const ledgerStore = new AsyncLocalStorage<NhtsaRequestLedger>();
+export function runWithNhtsaLedger<T>(fn: () => Promise<T>): Promise<T> { return ledgerStore.run({ down: false }, fn); }
+function markNhtsaDown(): void { const l = ledgerStore.getStore(); if (l) l.down = true; }
 
 /**
  * Canonical electrification classification, replacing
@@ -229,11 +240,12 @@ export async function decodeNhtsaElectrification(
 ): Promise<NhtsaElectrificationResult | null> {
   const claimedMake = claimedMakeRaw == null ? null : String(claimedMakeRaw);
   const claimedModel = claimedModelRaw == null ? null : String(claimedModelRaw);
+  const ledger = ledgerStore.getStore();
+  const cacheKey = String(vin).toUpperCase();
   try {
-    const cacheKey = String(vin).toUpperCase();
     let r: any = cacheGet(cacheKey);
     const fromCache = r != null;
-    if (!r && opts?.cacheOnly) return null;
+    if (!r && (opts?.cacheOnly || ledger?.down)) return null;
     if (!r) {
       const res = await fetch(`${NHTSA_BASE_URL}/${encodeURIComponent(vin)}?format=json`, {
         signal: AbortSignal.timeout(NHTSA_TIMEOUT_MS),
@@ -357,7 +369,7 @@ export async function decodePoolInBatches<T extends { vin: string; vehicle?: { m
     const chunk = pool.slice(off, Math.min(off + ELECTRIFICATION_BATCH_SIZE, limit));
     const res = await Promise.all(chunk.map((c) => decodeNhtsaElectrification(c.vin, c.vehicle?.make, c.vehicle?.model, c.vehicle?.cylinders)));
     results.push(...res);
-    if (res.every((r) => r == null)) return { results, down: true };
+    if (res.every((r) => r == null)) { markNhtsaDown(); return { results, down: true }; }
     if (enough(results)) break;
   }
   return { results, down: false };

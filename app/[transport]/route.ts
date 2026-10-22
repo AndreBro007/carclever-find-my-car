@@ -33,7 +33,7 @@ import { computeMatchScore } from "@/lib/match-score";
 import { resolveLinks } from "@/lib/link-resolution";
 import { sanitizeDealerName } from "@/lib/dealer-name";
 import { applyKnownHybridOverride, formatFuelTypeForDisplay } from "@/lib/fuel-type";
-import { decodeNhtsaElectrification, decodePoolInBatches, ELECTRIFICATION_BATCH_SIZE, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, prioritizeElectrificationCandidates, electrificationStateSatisfies } from "@/lib/nhtsa-client";
+import { decodeNhtsaElectrification, runWithNhtsaLedger, decodePoolInBatches, ELECTRIFICATION_BATCH_SIZE, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, prioritizeElectrificationCandidates, electrificationStateSatisfies } from "@/lib/nhtsa-client";
 import { isAnomalousPrice, buildCpoSummary, buildHistorySummary, applyLocalBestForBudgetOrdering } from "@/lib/local-ranking";
 import { FindMatchingVehicleInputCatalog } from "@/lib/find-matching-vehicle-input";
 import { fetchRecallStatus, clipRecallText, type RecallInfo } from "@/lib/nhtsa-recalls-client";
@@ -808,12 +808,15 @@ const handler = createMcpHandler((server) => {
         "openai/outputTemplate": RESULTS_CARD_RESOURCE_URI,
       },
     },
-    async (rawInput) => {
+    async (rawInput) => runWithNhtsaLedger(async () => {
       // The published `condition` (new or used; left out means both) becomes the boolean the search code reads: false = new only, true = used only, unset = both.
       // The five inputs the database cannot use are no longer published (SYS-20261021-047), so here they are always unset; the code below that reads them stays as it was.
       const input = {
         ...rawInput,
         used: rawInput.condition === "new" ? false : rawInput.condition === "used" ? true : undefined,
+        // Types without a requirement mean required (review BA22-02): the search, the evidence and the Searched line all read this one value; the line says it was assumed.
+        electrificationRequirement: rawInput.electrificationRequirement ?? ((rawInput.electrificationTypes?.length ?? 0) > 0 ? ("required" as const) : undefined),
+        electrificationRequirementDefaulted: rawInput.electrificationRequirement === undefined && (rawInput.electrificationTypes?.length ?? 0) > 0,
         vehicleType: undefined as string | undefined,
         priceFlexibility: undefined as "strict" | "flexible" | undefined,
         transmission: undefined as "Automatic" | "Manual" | undefined,
@@ -1017,6 +1020,7 @@ const handler = createMcpHandler((server) => {
             used: input.used,
             state: input.state,
             trimRequired: intent.trimRequired,
+            electrificationTypes: input.electrificationRequirement === "required" ? input.electrificationTypes : undefined, // review BA22-07: the requirement is assessed for this car too
           },
           // A direct VIN lookup never widens/relaxes anything — this is
           // always the exact requested VIN, so no field is ever "relaxed"
@@ -1056,6 +1060,13 @@ const handler = createMcpHandler((server) => {
                 )}) — shown anyway since a specific VIN identifies exactly one vehicle, never substituted for a different one.`,
               ]
             : [];
+        // Review BA22-07: a required electrification type is assessed for this exact car as well; a car that is not that type is still shown (a VIN identifies one car), and the reply says so.
+        const vinElectrification = (vinCard?.constraintChecks as Array<{ field: string; status: string; actual?: unknown }> | undefined)?.find((x) => x.field === "electrification");
+        if (vinElectrification?.status === "mismatch") {
+          vinDataNotes.push(`This exact vehicle is not ${electrificationWords(input.electrificationTypes)} according to NHTSA (it shows as ${String(vinElectrification.actual ?? "another type").replace(/_/g, " ")}) \u2014 shown anyway since a specific VIN identifies exactly one vehicle, never substituted for a different one.`);
+        } else if (vinElectrification?.status === "unknown") {
+          vinDataNotes.push(`NHTSA could not confirm this vehicle as ${electrificationWords(input.electrificationTypes)}; ask the dealer to confirm.`);
+        }
 
         const BUYER_CHECK_OUTCOME_LABEL: Record<BuyerCheck["outcome"], string> = {
           promising: "Promising",
@@ -1085,6 +1096,9 @@ const handler = createMcpHandler((server) => {
                 const primaryLinkStr = c.links.affiliateUrl
                   ?? (c.links.affiliateFallbackUrl ? `Similar options on Edmunds: ${c.links.affiliateFallbackUrl}` : null)
                   ?? "no link available";
+                const vinElectrificationText = vinElectrification?.status === "mismatch"
+                  ? `\n   \u26A0\uFE0F Not ${electrificationWords(input.electrificationTypes)} according to NHTSA (it shows as ${String(vinElectrification.actual ?? "another type").replace(/_/g, " ")}) \u2014 this is the exact VIN requested, not a different vehicle.`
+                  : vinElectrification?.status === "unknown" ? `\n   NHTSA could not confirm ${electrificationWords(input.electrificationTypes)}: ask the dealer.` : "";
                 const violationNote =
                   vinConstraintViolations.length > 0
                     ? `\n   ⚠️ Doesn't fully meet: ${vinConstraintViolations.join(", ")} — this is the exact VIN requested, not a different vehicle.`
@@ -1098,7 +1112,7 @@ const handler = createMcpHandler((server) => {
                       : "") +
                     (buyerCheck.nextSteps.length > 0 ? `\n  Next steps: ${buyerCheck.nextSteps.join(" ")}` : "")
                   : "";
-                return `Found the exact vehicle for VIN ${rawVin}:\n\n${formatVehicleTitle(id)} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel}${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${(c as any).constraintChecks?.some((k: any) => k.field === "drivetrain" && k.status === "unknown") ? " · drive type not confirmed" : ""}${violationNote}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${primaryLinkStr}${buyerCheckText}${nhtsaTextFootnote([c])}${recallCheckLine(c)}`;
+                return `Found the exact vehicle for VIN ${rawVin}:\n\n${formatVehicleTitle(id)} — ${priceStr}, ${mileageStr}${dealerStr}\n   ${r.matchScoreLabel}${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${(c as any).constraintChecks?.some((k: any) => k.field === "drivetrain" && k.status === "unknown") ? " · drive type not confirmed" : ""}${violationNote}${vinElectrificationText}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${primaryLinkStr}${buyerCheckText}${nhtsaTextFootnote([c])}${recallCheckLine(c)}`;
               })();
 
         return {
@@ -1785,8 +1799,13 @@ const handler = createMcpHandler((server) => {
         : null;
       const diversifiedBase = strictBase ?? applyModelCoverage(diversified, coverageGroups, targetCount); // each requested model with a car gets a seat; ranking otherwise unchanged
       // Drivetrain request: confirmed cars are listed first (stable order), cars the decode is silent about follow.
-      const diversifiedOrdered = driveConfirmedVins.size > 0
-        ? [...diversifiedBase.filter((c) => driveConfirmedVins.has(c.vin)), ...diversifiedBase.filter((c) => !driveConfirmedVins.has(c.vin))]
+      // Required electrification (review BA22-03): when cars NHTSA could not answer for are kept to fill the list, every confirmed car precedes every unconfirmed one, whatever the
+      // objective; the same for a drivetrain request. The sort is stable, so inside a tier the order is the shopping objective's own.
+      const electrificationUnconfirmedKept = electrificationRequired && electrificationResult.matchedVins != null;
+      const confirmationTier = (c: VehicleListing): number =>
+        (electrificationUnconfirmedKept && !electrificationResult.matchedVins!.has(c.vin) ? 2 : 0) + (driveConfirmedVins.size > 0 && !driveConfirmedVins.has(c.vin) ? 1 : 0);
+      const diversifiedOrdered = electrificationUnconfirmedKept || driveConfirmedVins.size > 0
+        ? [...diversifiedBase].sort((a, b) => confirmationTier(a) - confirmationTier(b))
         : diversifiedBase;
       const leanShortlist = diversifiedOrdered.slice(0, targetCount);
       // Held in reserve for stage-2 backfill (SYS-20260817-013) if body-style
@@ -2193,6 +2212,27 @@ const handler = createMcpHandler((server) => {
       let driveAllMismatch = false;
       { const dw = wantedDriveClasses(input.drivetrain); if (dw) { const fin = finalizeByDrive(cards, (c: any) => c.powertrain?.drivetrain, dw); driveLateRemoved = fin.removed; driveAllMismatch = fin.allMismatch; cards.splice(0, cards.length, ...fin.cards); } }
 
+      // Required electrification (review BA22-03), last word on the order: when cars NHTSA could not answer for are in the list, every confirmed car precedes every unconfirmed one.
+      // Stable, so the score, distance and drivetrain order holds inside each group.
+      if (electrificationUnconfirmedKept) {
+        const mv = electrificationResult.matchedVins!;
+        const ordered = [...cards.filter((c) => mv.has(c.identity.vin)), ...cards.filter((c) => !mv.has(c.identity.vin))];
+        cards.splice(0, cards.length, ...ordered);
+      }
+
+      // Required electrification, last word (review BA22-01): a car kept because NHTSA had no answer in the first round can get one at the card stage. If that later answer shows another type
+      // or not electrified, the car is removed and counted with the cars left out (as the drivetrain request does above), never shown with a mismatch under a text that counts it as a match.
+      const electrificationLateRemoved: Array<{ model: string; state: string }> = [];
+      if (electrificationRequired) {
+        const kept: typeof cards = [];
+        for (const c of cards as Array<(typeof cards)[number] & { constraintChecks: Array<{ field: string; status: string; actual?: unknown }> }>) {
+          const chk = c.constraintChecks.find((x) => x.field === "electrification");
+          if (chk?.status === "mismatch") electrificationLateRemoved.push({ model: String(c.identity.model ?? ""), state: String(chk.actual ?? "not_electrified") });
+          else kept.push(c);
+        }
+        if (electrificationLateRemoved.length > 0) cards.splice(0, cards.length, ...kept);
+      }
+
       const dataNotes: string[] = [];
       { const hint = broadBodyTypeHint(input); if (hint) dataNotes.push(hint); }
       { const note = unappliedFilterNote(input, cards); if (note) dataNotes.push(note); }
@@ -2247,8 +2287,8 @@ const handler = createMcpHandler((server) => {
         if (unconfirmedShown > 0) {
           dataNotes.push(`${unconfirmedShown} of these could not be confirmed as ${electrificationWords(input.electrificationTypes)} by NHTSA and are marked on each listing; ask the dealer to confirm.`);
         }
-        if (electrificationResult.leftOut > 0) {
-          dataNotes.push(leftOutNote(electrificationWords(input.electrificationTypes), electrificationResult.leftOutModels));
+        if (electrificationResult.leftOut + electrificationLateRemoved.length > 0) {
+          dataNotes.push(leftOutNote(electrificationWords(input.electrificationTypes), [...electrificationResult.leftOutModels, ...electrificationLateRemoved]));
         }
       }
       {
@@ -2259,9 +2299,13 @@ const handler = createMcpHandler((server) => {
         }
       }
       if (electrificationShortfall) {
-        dataNotes.push(
-          `Only ${electrificationShortfall.confirmed} of the results matched your electric or hybrid requirement. Check each listing, or ask the dealer about any others.`,
-        );
+        // Counted from the cards actually shown (review BA22-01): a kept car NHTSA could not confirm is not a match, and it is described by the unconfirmed note above.
+        const confirmedShown = (cards as Array<{ constraintChecks: Array<{ field: string; status: string }> }>).filter((c) => c.constraintChecks.some((x) => x.field === "electrification" && x.status === "verified")).length;
+        if (confirmedShown > 0) {
+          dataNotes.push(
+            `Only ${confirmedShown} of the results matched your electric or hybrid requirement. Check each listing, or ask the dealer about any others.`,
+          );
+        }
       }
       if (electrificationPreferredNoMatch) {
         // (SYS-20260924-008) See electrificationPreferredNoMatch definition
@@ -2313,11 +2357,11 @@ const handler = createMcpHandler((server) => {
       // narrates* any relaxations").
       // The first line of every reply says what the search really used (SYS-20261021-036), so the AI can check it against the buyer's request.
       const searchedLine = appliedFiltersLine({
-        used: input.used, make: input.make, model: input.model, bodyType: input.bodyType,
+        used: effectiveUsed, make: input.make, model: effectiveQuery.model ?? input.model, bodyType: input.bodyType,
         priceMin: input.priceMin, priceMax: input.priceMax, yearMin: input.yearMin, yearMax: input.yearMax, mileageMax: input.mileageMax,
         drivetrain: input.drivetrain, trimRequired: input.trimRequired, trimPreference: input.trimPreference, exteriorColor: input.exteriorColor, interiorColor: input.interiorColor,
-        doors: input.doors, seatsMinPreference: input.seatsMinPreference, electrificationTypes: input.electrificationTypes, electrificationRequirement: input.electrificationRequirement,
-        zip: input.zip, zipUsable: zipIsValid, radiusMiles: input.radiusMiles, state: input.state, priorityAxis: input.priorityAxis,
+        doors: input.doors, seatsMinPreference: input.seatsMinPreference, electrificationTypes: input.electrificationTypes, electrificationRequirement: input.electrificationRequirement, electrificationRequirementDefault: input.electrificationRequirementDefaulted,
+        zip: input.zip, zipUsable: zipIsValid, radiusMiles: Math.min(effectiveQuery.radius ?? input.radiusMiles ?? 50, 1000), state: input.state, priorityAxis: input.priorityAxis,
       });
       const disclosurePrefix =
         searchedLine + "\n\n" +
@@ -2504,7 +2548,7 @@ const handler = createMcpHandler((server) => {
         structuredContent: response,
       };
       });
-    },
+    }),
   );
 
 
