@@ -2957,6 +2957,9 @@ const handler = createMcpHandler((server) => {
           dealerZip: card.listing.zip ?? null,
           fuel: card.detail.fuelTypeDisplay ?? null, drive: card.powertrain.drivetrain ?? null, engine: card.powertrain.engine ?? null,
           rating: card.detail.nhtsaOverallRating ?? null, recallCampaigns: card.detail.nhtsaRecallCampaigns ?? null,
+          transmission: card.powertrain.transmission ?? null, bodyStyle: card.body?.bodyStyle ?? null, doors: card.body?.doors ?? null, seats: card.detail.seats ?? null,
+          exteriorColor: card.detail.exteriorColor ?? null, interiorColor: card.detail.interiorColor ?? null,
+          dealer: card.listing.dealer ? `${card.listing.dealer}${card.listing.city ? `, ${card.listing.city}` : ""}${card.listing.state ? ` ${card.listing.state}` : ""}` : null,
         }));
         const rows = buildComparison(items, fromZip);
 
@@ -2974,7 +2977,7 @@ const handler = createMcpHandler((server) => {
         const cards = usable.map((x) => x.card);
         const compareResults = shapeCardsForSource(cards);
         const text =
-          `Comparing ${usable.length} vehicles from this inventory:\n\n${carLines.join("\n\n")}\n\n${comparisonText(rows)}${rows.length > 0 ? "\n\nThese differences read well as a side-by-side table: one column per vehicle, one row per line above." : ""}` +
+          `Comparing ${usable.length} vehicles from this inventory:\n\n${carLines.join("\n\n")}\n\n${comparisonText(rows)}${rows.length > 0 ? "\n\nThese differences read well as a side-by-side table: one column per vehicle, one row per line above, keeping every row. In the price, mileage, year and distance rows, mark the best value in bold (lowest price, lowest mileage, newest year, shortest distance)." : ""}` +
           (notFound.length > 0 ? `\n\nNot found in this inventory (left out): ${notFound.join(", ")}.` : "") +
           nhtsaTextFootnote(cards) + recallCheckFootnote(cards);
 

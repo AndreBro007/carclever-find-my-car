@@ -40,3 +40,15 @@ test("tool wiring: compare_vehicles is registered with a title, 2 to 4 VINs, bou
   assert.match(block, /use find_matching_vehicle/); assert.match(block, /use check_vehicle/); assert.ok(!/RESULTS_CARD_RESOURCE_URI|openai\/outputTemplate/.test(block), "compare_vehicles declares no widget");
   assert.ok(!/carfax|accident-free|risk tier/i.test(block));
 });
+
+test("extra rows: transmission, body style, doors, seats, colours and dealer appear only when at least one vehicle has the value; numeric rows state lowest and highest", () => {
+  const x = { vin: "A".repeat(17), bodyStyle: "Sedan", doors: 4, seats: 5, exteriorColor: "Black", dealer: "One Motors, Inglewood CA" };
+  const y = { vin: "B".repeat(17), bodyStyle: "SUV", doors: 4, seats: 7, exteriorColor: "Blue", interiorColor: "Gray", dealer: "Two Motors, Gardena CA", transmission: "Automatic" };
+  const rows = buildComparison([x, y]);
+  const r = (l: string) => rows.find((q) => q.label === l);
+  assert.deepEqual(r("Body style")!.values, ["Sedan", "SUV"]); assert.deepEqual(r("Seats (NHTSA)")!.values, ["5", "7"]); assert.match(r("Seats (NHTSA)")!.note!, /lowest #1; highest #2/);
+  assert.match(r("Doors")!.note!, /^same door count/); assert.deepEqual(r("Interior color")!.values, [null, "Gray"]); assert.deepEqual(r("Transmission")!.values, [null, "Automatic"]);
+  assert.deepEqual(r("Dealer")!.values, ["One Motors, Inglewood CA", "Two Motors, Gardena CA"]);
+  const none = buildComparison([{ vin: "A".repeat(17) }, { vin: "B".repeat(17) }]).map((q) => q.label);
+  for (const l of ["Transmission", "Body style", "Doors", "Seats (NHTSA)", "Exterior color", "Interior color", "Dealer"]) assert.ok(!none.includes(l), `${l} is left out when nothing is known`);
+});

@@ -310,7 +310,7 @@ test("compare_vehicles: the reply suggests a side-by-side table (one column per 
   const vs = ROWS.filter((r) => r.model === "Hyd3").slice(0, 2).map((r) => r.vin);
   const o: any = await rpc({ jsonrpc: "2.0", id: rid++, method: "tools/call", params: { name: "compare_vehicles", arguments: { vins: vs } } });
   const t = textOf(o);
-  assert.match(t, /Differences \(stated, not ranked\):/); assert.match(t, /side-by-side table: one column per vehicle, one row per line above\./);
+  assert.match(t, /Differences \(stated, not ranked\):/); assert.match(t, /side-by-side table: one column per vehicle, one row per line above, keeping every row\. In the price, mileage, year and distance rows, mark the best value in bold \(lowest price, lowest mileage, newest year, shortest distance\)\./);
 });
 
 // ---- compare_vehicles without a widget (22 Oct 2026, André: option B) ----
@@ -330,4 +330,13 @@ test("compare_vehicles still returns the differences, the links and the table su
   const o: any = await rpc({ jsonrpc: "2.0", id: rid++, method: "tools/call", params: { name: "compare_vehicles", arguments: { vins: vs } } }); const t = textOf(o);
   assert.match(t, /Comparing 2 vehicles/); assert.match(t, /Differences \(stated, not ranked\):/); assert.match(t, /Link: https:\/\//); assert.match(t, /side-by-side table/);
   assert.equal(o.result.structuredContent.results.length, 2); assert.ok(o.result.structuredContent.comparison.length > 0);
+});
+
+test("compare_vehicles reply carries the extra rows: body style, doors, colours and dealer (and none for data the listing lacks)", opts, async () => {
+  const vs = ROWS.filter((r) => r.model === "Hyd3").slice(0, 2).map((r) => r.vin);
+  const o: any = await rpc({ jsonrpc: "2.0", id: rid++, method: "tools/call", params: { name: "compare_vehicles", arguments: { vins: vs, zip: "90210" } } }); const t = textOf(o);
+  for (const label of ["Body style", "Doors", "Exterior color", "Interior color", "Dealer", "Distance from 90210"]) assert.match(t, new RegExp(`- ${label}: #1 `), `row ${label}`);
+  assert.match(t, /- Dealer: #1 Test Dealer, Beverly Hills CA/);
+  assert.ok(!/- Seats \(NHTSA\):/.test(t) && !/- Transmission:/.test(t), "no row when no vehicle has the value");
+  const ids = o.result.structuredContent.comparison.map((r: any) => r.label); assert.ok(ids.includes("Dealer") && ids.includes("Body style"));
 });

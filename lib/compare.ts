@@ -7,6 +7,8 @@ export interface CompareItem {
   price?: number | null; mileage?: number | null; condition?: string | null;
   dealerZip?: string | null; fuel?: string | null; drive?: string | null; engine?: string | null;
   rating?: number | null; recallCampaigns?: number | null;
+  transmission?: string | null; bodyStyle?: string | null; doors?: number | null; seats?: number | null;
+  exteriorColor?: string | null; interiorColor?: string | null; dealer?: string | null;
 }
 export interface CompareRow { label: string; values: Array<string | null>; note?: string }
 
@@ -57,6 +59,13 @@ export function buildComparison(items: CompareItem[], fromZip?: string | null): 
     textRow("Fuel", items.map((i) => i.fuel)),
     textRow("Drive", items.map((i) => i.drive)),
     textRow("Engine", items.map((i) => i.engine)),
+    textRow("Transmission", items.map((i) => i.transmission)),
+    textRow("Body style", items.map((i) => i.bodyStyle)),
+    numericRow("Doors", items.map((i) => i.doors ?? null), (n) => String(Math.round(n)), "door count"),
+    numericRow("Seats (NHTSA)", items.map((i) => i.seats ?? null), (n) => String(Math.round(n)), "seat count"),
+    textRow("Exterior color", items.map((i) => i.exteriorColor)),
+    textRow("Interior color", items.map((i) => i.interiorColor)),
+    textRow("Dealer", items.map((i) => i.dealer)),
     numericRow("NHTSA overall rating (model year)", items.map((i) => i.rating ?? null), (n) => `${Math.round(n)} of 5`, "rating"),
     numericRow("NHTSA recall campaigns (model year, not this car)", items.map((i) => i.recallCampaigns ?? null), (n) => String(Math.round(n)), "count"),
     fromZip ? numericRow(`Distance from ${fromZip}`, items.map((i) => zipDistanceMiles(fromZip, i.dealerZip)), miles, "distance") : null,
