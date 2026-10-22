@@ -51,7 +51,8 @@ export function stageLine(r: CatalogRow): string {
  * Body class for cars the feed does not classify (SYS-20261021-047, tightened in SYS-20261022-055 after ChatGPT's review finding BA22-05 and the real Neon numbers: of 37,351 cars the first rule
  * would have classified, 3,621 sat in models whose classified cars agree less than 95%). A car with no body class, or the class "other", takes the class of the cars of the SAME make, model and
  * model year, and of the same door count when the car has one, when at least 3 of those cars are classified and at least 95% of them are in one class. A car with no door count only
- * takes a class when all doors agree, so a model sold as a sedan and a coupe in one year is never guessed. A model year with no classified cars gives no evidence (an older generation is not
+ * takes a class when all doors agree (the 95% rule over the whole model year AND no door group of its own that leans another way: a group's own majority, or a tie, in a different class blocks it,
+ * review R2-03: 100 four-door sedans and 3 two-door coupes must not turn an unknown-door car into a sedan), so a model sold as a sedan and a coupe in one year is never guessed. A model year with no classified cars gives no evidence (an older generation is not
  * judged by a newer one). Cars the feed classified are never touched. The raw label is kept as it came.
  */
 export const INFER_BODY_CLASS_SQL = `
@@ -74,6 +75,8 @@ export const INFER_BODY_CLASS_SQL = `
   ), p2 AS (
     SELECT DISTINCT ON (make_key, model_key, year) make_key, model_key, year, body_class
     FROM v2 WHERE total >= 3 AND n >= 0.95 * total
+      AND NOT EXISTS (SELECT 1 FROM v1 WHERE v1.make_key = v2.make_key AND v1.model_key = v2.model_key AND v1.year = v2.year
+                        AND v1.body_class <> v2.body_class AND v1.n * 2 >= v1.total)
     ORDER BY make_key, model_key, year, n DESC
   ), pick AS (
     SELECT s.id, CASE WHEN s.doors IS NOT NULL THEN p1.body_class ELSE p2.body_class END AS body_class

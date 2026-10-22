@@ -27,9 +27,15 @@ add(4, "BMW", "X5", "Sports Activity Vehicle", 2023, 4); one("x5-u", "BMW", "X5"
 add(3, "Ford", "F-150", "Pickup", 2022, 4); one("f1-u", "Ford", "F-150", "4WD CREW", 2022, 4);               // exactly 3 classified: inferred truck
 add(18, "Ford", "Mustang", "Coupe", 2021, 2); add(2, "Ford", "Mustang", "Convertible", 2021, 2); one("mus-u", "Ford", "Mustang", "", 2021, 2);   // 90/10: stays empty
 add(19, "Ford", "Mustang", "Coupe", 2020, 2); add(1, "Ford", "Mustang", "Convertible", 2020, 2); one("mus-v", "Ford", "Mustang", "", 2020, 2);   // 95/5 exactly: coupe
+// R2-03 (ChatGPT round 2): 100 four-door sedans and 3 two-door coupes in one year: the unknown-door car stays empty (the door groups disagree) although 100/103 is above 95%;
+// the unknown cars with a door count still take their own door group's class.
+add(100, "Loa", "Lo", "Sedan", 2026, 4); add(3, "Loa", "Lo", "Coupe", 2026, 2);
+one("lo-u", "Loa", "Lo", "", 2026, null); one("lo-v", "Loa", "Lo", "", 2026, 4); one("lo-w", "Loa", "Lo", "", 2026, 2);
+// all door groups agree (sedan with four and with two doors): the unknown-door car is a sedan
+add(50, "Sed", "Se", "Sedan", 2026, 4); add(4, "Sed", "Se", "Sedan", 2026, 2); one("se-u", "Sed", "Se", "", 2026, null);
 const EXPECT: Record<string, string | null> = { "rav-u1": "suv", "rav-u2": "suv", "rav-u3": "suv", "civ-u1": null, "civ-u2": "sedan", "civ-u3": null, "civ-u4": null, "civ-u5": null, "acc-u": null,
-  "pas-u": "suv", "x5-u": "suv", "f1-u": "truck", "mus-u": null, "mus-v": "coupe" };
-const EXPECT_INFERRED = 3 + 1 + 2 + 1 + 1 + 1;
+  "pas-u": "suv", "x5-u": "suv", "f1-u": "truck", "mus-u": null, "mus-v": "coupe", "lo-u": null, "lo-v": "sedan", "lo-w": "coupe", "se-u": "sedan" };
+const EXPECT_INFERRED = 3 + 1 + 2 + 1 + 1 + 1 + 2 + 1;
 
 function line(r: R, n: number): string {
   const vin = `1HGCM826${String(n).padStart(9, "0")}`; const id = `bci${String(n).padStart(29, "0")}`;
@@ -63,6 +69,11 @@ test("each unknown car gets the class its own model year and door count support,
 
 test("BA22-05: an 80/20 sedan and coupe model never turns an unknown two-door car or an older-generation car into a sedan", opts, async () => {
   for (const tag of ["civ-u1", "civ-u3", "civ-u4", "civ-u5"]) assert.deepEqual(await classOfTag(tag), [null], tag);
+});
+
+test("R2-03: an unknown-door car is not classified when the door groups of its model year disagree, however lopsided the overall split", opts, async () => {
+  await loadFeed(pool, lines());
+  assert.deepEqual(await classOfTag("lo-u"), [null]); assert.deepEqual(await classOfTag("lo-v"), ["sedan"]); assert.deepEqual(await classOfTag("lo-w"), ["coupe"]); assert.deepEqual(await classOfTag("se-u"), ["sedan"]);
 });
 
 test("cars the feed classified are never changed, and the raw label is kept as it came", opts, async () => {
