@@ -1,3 +1,4 @@
+import { ResourceTemplate } from "@modelcontextprotocol/server";
 import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
 import { type VehicleListing, type ListingsQuery } from "@/lib/listing-types";
@@ -733,9 +734,12 @@ const handler = createMcpHandler((server) => {
   // content/structuredContent response below, unchanged.
   // The current widget URI, and each legacy URI answered with the same current widget (RESULTS_CARD_LEGACY_RESOURCE_URIS in lib/results-card.ts).
   for (const [resName, resUri] of [["find-my-car-results-card", RESULTS_CARD_RESOURCE_URI] as const, ...RESULTS_CARD_LEGACY_RESOURCE_URIS.map((u, i) => [`find-my-car-results-card-legacy-${i + 1}`, u] as const)])
+  // The current widget is a listed resource. A legacy address is only READABLE (a ResourceTemplate with no list callback), not listed: a host that cached the old address still gets the
+  // current widget when it asks, but resources/list shows exactly one widget, as it did before the alias existed (23 Oct 2026: ChatGPT stopped mounting the widget on the test connector; the
+  // two-listed-widgets change was one of the few protocol-level differences from live, so the alias no longer adds a second entry to the list).
   server.registerResource(
     resName,
-    resUri,
+    (resUri === RESULTS_CARD_RESOURCE_URI ? resUri : new ResourceTemplate(resUri, { list: undefined })) as never,
     {
       title: "CarClever - Find My Car results",
       description: "Compact vehicle result carousel: photo, price, mileage, match score, one Edmunds click-through CTA per card.",
