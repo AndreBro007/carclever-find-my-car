@@ -85,3 +85,23 @@ test("R4-01: ordinary requests are unaffected: initialize, tools/list and a real
   const s: any = await call(3, "find_matching_vehicle", { make: "Ford", model: "Maverick", vehicleNeeds: ["commuter car", "work truck"], electrificationTypes: ["hybrid", "plug_in_hybrid"] });
   assert.ok(s.result.structuredContent.results.length >= 0 && !s.error);
 });
+
+// ---- the fix of 23 Oct 2026: a connector-shaped request (ChatGPT adds nested _meta around the call) ----
+const chatgptMeta = { "openai/userLocation": { city: "Brisbane", region: "Queensland", country: "AU", timezone: "Australia/Brisbane", longitude: 153.02, latitude: -27.47 }, "openai/locale": "en-AU",
+  "openai/subject": "v1/abcdef", "openai/session": "v1/012345", progressToken: 7, "openai/widgetSession": { id: "w1", state: { view: { panel: { section: { item: { leaf: { value: 1 } } } } } } } };
+const withMeta = (name: string, args: unknown, extraMeta: unknown = chatgptMeta) => post(JSON.stringify({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name, arguments: args, _meta: extraMeta } }));
+test("the fix: an ordinary search with ChatGPT-style nested _meta works through the real route, as do the other tools", opts, async () => {
+  evVins.clear(); await load([{ vin: "1FTEW1EP0TFA00001", make: "Ford", model: "Maverick", year: 2027, price: 35000, odo: 5, cond: "new" }, { vin: "1FTEW1EP0TFA00002", make: "Ford", model: "Maverick", year: 2027, price: 36000, odo: 5, cond: "new" }]);
+  const r = await withMeta("find_matching_vehicle", { make: "Ford", model: "Maverick", used: false, zip: "77002" });
+  assert.equal(r.status, 200); const t = await r.text(); const j = JSON.parse((t.match(/data: (.*)/) ?? [null, t])[1]);
+  assert.ok(!j.error, JSON.stringify(j.error)); assert.ok(j.result.structuredContent.results.length >= 1, "the search ran and returned cars");
+  const c = await withMeta("compare_vehicles", { vins: ["1FTEW1EP0TFA00001", "1FTEW1EP0TFA00002"] }); assert.equal(c.status, 200); assert.ok(!/nesting deeper/.test(await c.text()));
+  const k = await withMeta("check_vehicle", { vin: "1FTEW1EP0TFA00001" }); assert.equal(k.status, 200); assert.ok(!/nesting deeper/.test(await k.text()));
+  const l = await withMeta("get_edmunds_vehicle_link", { vin: "1FTEW1EP0TFA00001" }); assert.equal(l.status, 200); assert.ok(!/nesting deeper/.test(await l.text()));
+});
+test("the fix: deeply nested ARGUMENTS and an over-deep or over-large _meta are still refused with a clear reason", opts, async () => {
+  const a = await withMeta("find_matching_vehicle", { make: "Ford", x: [[[[[[1]]]]]] }); assert.equal(a.status, 400); assert.match(((await a.json()) as any).error.message, /nesting deeper than 6 levels/);
+  let deep: unknown = 1; for (let i = 0; i < 40; i++) deep = { n: deep };
+  const m = await withMeta("find_matching_vehicle", { make: "Ford" }, deep); assert.equal(m.status, 400); assert.match(((await m.json()) as any).error.message, /request's own metadata has nesting deeper than 32 levels/);
+  const big = await withMeta("find_matching_vehicle", { make: "Ford" }, { list: new Array(5000).fill(1) }); assert.equal(big.status, 400); assert.match(((await big.json()) as any).error.message, /metadata has a list of more than 1000 items/);
+});

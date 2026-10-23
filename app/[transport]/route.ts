@@ -55,7 +55,7 @@ import { signImageUrl } from "@/lib/image-proxy-sign";
 import { trimMatchesAny, trimContainsAllAny } from "@/lib/trim-match";
 import { resolveRequiredTrims } from "@/lib/trim-resolution";
 import { resultsSummaryLine } from "@/lib/results-summary";
-import { readBodyCapped, argumentLimitProblem, requestTooLargeResponse, invalidParamsResponse, MAX_BATCH_MESSAGES } from "@/lib/request-limits";
+import { readBodyCapped, requestLimitProblem, requestTooLargeResponse, invalidParamsResponse, MAX_BATCH_MESSAGES } from "@/lib/request-limits";
 import { electrifiedModelsFor, electrificationTypesOf, knownHybridOnlyFor, knownBevFor, trimWordingRegex, type ElectrifiedType } from "@/lib/electrified-models";
 import { needsWorthAsking } from "@/lib/needs-note";
 import { leftOutNote } from "@/lib/left-out-note";
@@ -3178,8 +3178,11 @@ async function POST(req: Request): Promise<Response> {
     if (raw.includes("tools/call")) {
       const body = JSON.parse(raw);
       if (Array.isArray(body) && body.length > MAX_BATCH_MESSAGES) return invalidParamsResponse(null, `more than ${MAX_BATCH_MESSAGES} messages in one batch`);
-      const tooBig = argumentLimitProblem(body);
-      if (tooBig) return invalidParamsResponse(Array.isArray(body) ? null : (body as { id?: unknown })?.id, tooBig);
+      // The tool's own arguments get the strict limits; the protocol envelope and the caller's _meta get generous ones (they were rejected before the fix of 23 Oct 2026: ChatGPT adds nested metadata).
+      for (const m of Array.isArray(body) ? body : [body]) {
+        const tooBig = requestLimitProblem(m);
+        if (tooBig) return invalidParamsResponse(Array.isArray(body) ? null : (m as { id?: unknown })?.id, tooBig);
+      }
       const rebuild = (b: unknown) => new Request(req.url, { method: "POST", headers: req.headers, body: JSON.stringify(b) });
       if (Array.isArray(body)) {
         // batches: repair each call, no notes or retry

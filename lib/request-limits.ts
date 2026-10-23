@@ -8,6 +8,13 @@
 export const MAX_REQUEST_BODY_BYTES = 64 * 1024;
 export const MAX_BATCH_MESSAGES = 20;
 export const ARGUMENT_LIMITS = { maxDepth: 6, maxNodes: 1500, maxArrayLength: 200, maxObjectKeys: 100, maxStringLength: 4000 } as const;
+/**
+ * The rest of an MCP message: the protocol envelope and the `_meta` a caller adds around it (ChatGPT sends user location, locale, session and widget-session data, nested several levels deep).
+ * Fix of 23 Oct 2026: the first version applied the six-level ARGUMENT limit to the whole message, so ChatGPT's metadata was rejected ("nesting deeper than 6 levels") and every search through
+ * ChatGPT failed. Only the tool's own arguments get the strict limits; the envelope gets these generous ones, which still bound what a hostile caller can cost (the 64 KB body cap bounds it too).
+ */
+export const ENVELOPE_LIMITS = { maxDepth: 32, maxNodes: 4000, maxArrayLength: 1000, maxObjectKeys: 200, maxStringLength: 32000 } as const;
+export type Limits = { readonly maxDepth: number; readonly maxNodes: number; readonly maxArrayLength: number; readonly maxObjectKeys: number; readonly maxStringLength: number };
 
 /** The request body as text, or null when it is larger than `maxBytes` (declared or actual: a missing or lying content-length does not get past it). Reads no more than maxBytes + one chunk. */
 export async function readBodyCapped(req: Request, maxBytes: number = MAX_REQUEST_BODY_BYTES): Promise<string | null> {
@@ -31,8 +38,8 @@ export async function readBodyCapped(req: Request, maxBytes: number = MAX_REQUES
 }
 
 /** Null when a parsed JSON value is within the limits, otherwise a short reason. Walks with its own stack, so a deeply nested value cannot overflow the call stack. */
-export function argumentLimitProblem(value: unknown): string | null {
-  const L = ARGUMENT_LIMITS;
+export function argumentLimitProblem(value: unknown, limits: Limits = ARGUMENT_LIMITS): string | null {
+  const L = limits;
   const stack: Array<[unknown, number]> = [[value, 0]];
   let nodes = 0;
   while (stack.length > 0) {
@@ -51,6 +58,21 @@ export function argumentLimitProblem(value: unknown): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Null when ONE JSON-RPC message is within the limits: its tool arguments (params.arguments) against the strict ARGUMENT_LIMITS, everything else in the message against the generous
+ * ENVELOPE_LIMITS. A problem in the envelope is reported as such, so a caller can tell their metadata is the cause.
+ */
+export function requestLimitProblem(message: unknown): string | null {
+  if (message === null || typeof message !== "object") return argumentLimitProblem(message, ENVELOPE_LIMITS);
+  const m = message as Record<string, unknown>;
+  const params = m.params !== null && typeof m.params === "object" ? (m.params as Record<string, unknown>) : undefined;
+  const inArguments = argumentLimitProblem(params?.arguments);
+  if (inArguments) return inArguments;
+  const envelope = { ...m, params: params ? { ...params, arguments: undefined } : m.params };
+  const inEnvelope = argumentLimitProblem(envelope, ENVELOPE_LIMITS);
+  return inEnvelope ? `the request's own metadata has ${inEnvelope}` : null;
 }
 
 export function requestTooLargeResponse(): Response {

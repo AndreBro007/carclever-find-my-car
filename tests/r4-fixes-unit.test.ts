@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { readBodyCapped, argumentLimitProblem, MAX_REQUEST_BODY_BYTES, ARGUMENT_LIMITS } from "../lib/request-limits";
+import { readBodyCapped, argumentLimitProblem, requestLimitProblem, MAX_REQUEST_BODY_BYTES, ARGUMENT_LIMITS, ENVELOPE_LIMITS } from "../lib/request-limits";
 import { lookupModelYearSafety, attachNhtsaRatings, resetNhtsaRatingCacheForTests } from "../lib/nhtsa-ratings";
 import { buildComparison } from "../lib/compare";
 
@@ -20,25 +20,26 @@ test("R4-01: a body over the limit is refused, whether content-length says so or
   assert.equal(await readBodyCapped(new Request("http://localhost/mcp", { method: "POST", body: stream, duplex: "half" } as RequestInit)), null, "a stream with no content-length is cut off at the cap");
   assert.equal(await readBodyCapped(req("x".repeat(MAX_REQUEST_BODY_BYTES))), "x".repeat(MAX_REQUEST_BODY_BYTES), "exactly the limit is allowed");
 });
-const call = (args: unknown) => ({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "find_matching_vehicle", arguments: args } });
+const call = (args: unknown, meta?: unknown) => ({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "find_matching_vehicle", arguments: args, ...(meta !== undefined ? { _meta: meta } : {}) } });
+const probArgs = (args: unknown, meta?: unknown) => requestLimitProblem(call(args, meta));
 test("R4-01: ordinary tool calls are far inside the limits", () => {
-  assert.equal(argumentLimitProblem(call({ make: "Toyota", model: Array.from({ length: 30 }, (_, i) => `Model ${i}`).join(", "), electrificationTypes: ["hybrid", "plug_in_hybrid", "electric"], vehicleNeeds: ["large family SUV", "commuter car"], priceMax: 40000, zip: "90210" })), null);
-  assert.equal(argumentLimitProblem(call({ vins: ["1HGCV1F3XJA000001", "1HGCV1F3XJA000002", "1HGCV1F3XJA000003", "1HGCV1F3XJA000004"] })), null);
-  assert.equal(argumentLimitProblem([call({}), call({})]), null, "a small batch");
+  assert.equal(probArgs(({ make: "Toyota", model: Array.from({ length: 30 }, (_, i) => `Model ${i}`).join(", "), electrificationTypes: ["hybrid", "plug_in_hybrid", "electric"], vehicleNeeds: ["large family SUV", "commuter car"], priceMax: 40000, zip: "90210" })), null);
+  assert.equal(probArgs(({ vins: ["1HGCV1F3XJA000001", "1HGCV1F3XJA000002", "1HGCV1F3XJA000003", "1HGCV1F3XJA000004"] })), null);
+  assert.equal(requestLimitProblem(call({})), null, "an empty call");
 });
 test("R4-01: too many values, too long a list, too deep, too long a text, too many fields are all refused with a reason", () => {
   const L = ARGUMENT_LIMITS;
-  assert.match(argumentLimitProblem(call({ vehicleNeeds: new Array(L.maxArrayLength + 1).fill("a") }))!, /list of more than 200 items/);
-  assert.equal(argumentLimitProblem(call({ vehicleNeeds: new Array(L.maxArrayLength).fill("a") })), null, "exactly the list limit is allowed");
-  assert.match(argumentLimitProblem(call({ a: Array.from({ length: 10 }, () => new Array(190).fill(1)) }))!, /more than 1500 values/);
-  assert.match(argumentLimitProblem(call({ a: [[[[[[1]]]]]] }))!, /nesting deeper than 6 levels/);
-  assert.match(argumentLimitProblem(call({ model: "x".repeat(L.maxStringLength + 1) }))!, /text value longer than 4000/);
-  assert.match(argumentLimitProblem(call(Object.fromEntries(Array.from({ length: L.maxObjectKeys + 1 }, (_, i) => [`k${i}`, 1]))))!, /more than 100 fields/);
+  assert.match(probArgs(({ vehicleNeeds: new Array(L.maxArrayLength + 1).fill("a") }))!, /list of more than 200 items/);
+  assert.equal(probArgs(({ vehicleNeeds: new Array(L.maxArrayLength).fill("a") })), null, "exactly the list limit is allowed");
+  assert.match(probArgs(({ a: Array.from({ length: 10 }, () => new Array(190).fill(1)) }))!, /more than 1500 values/);
+  assert.match(probArgs(({ a: [[[[[[1]]]]]] }))!, /nesting deeper than 6 levels/);
+  assert.match(probArgs(({ model: "x".repeat(L.maxStringLength + 1) }))!, /text value longer than 4000/);
+  assert.match(probArgs((Object.fromEntries(Array.from({ length: L.maxObjectKeys + 1 }, (_, i) => [`k${i}`, 1]))))!, /more than 100 fields/);
 });
 test("R4-01: a value nested 20,000 levels deep is refused without overflowing the stack, and a million-element list is refused at once", () => {
   let deep: unknown = 1; for (let i = 0; i < 20000; i++) deep = [deep];
   const t = Date.now(); assert.match(argumentLimitProblem(deep)!, /nesting deeper/);
-  assert.match(argumentLimitProblem(call({ vehicleNeeds: new Array(1_000_000).fill(1) }))!, /list of more than 200 items/);
+  assert.match(probArgs(({ vehicleNeeds: new Array(1_000_000).fill(1) }))!, /list of more than 200 items/);
   assert.ok(Date.now() - t < 500, "refusal is immediate");
 });
 
@@ -122,4 +123,33 @@ test("R4-06: without a flag nothing changes; with only one unflagged price there
   assert.equal(r.best, undefined); assert.equal(r.note, "#2 looks like a data error and is not counted");
   const both = price(buildComparison([{ vin: "A", price: 90, priceLikelyInaccurate: true }, { vin: "B", price: 85, priceLikelyInaccurate: true }]));
   assert.equal(both.best, undefined); assert.equal(both.note, "#1, #2 look like a data error and are not counted");
+});
+
+// ---- the fix of 23 Oct 2026: ChatGPT's request has nested metadata around the tool arguments ----
+const chatgptMeta = () => ({
+  "openai/userLocation": { city: "Brisbane", region: "Queensland", country: "AU", timezone: "Australia/Brisbane", longitude: 153.02, latitude: -27.47 },
+  "openai/locale": "en-AU", "openai/userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", "openai/subject": "v1/abcdef0123456789", "openai/session": "v1/0123456789abcdef", progressToken: 7,
+  "openai/widgetSession": { id: "w1", state: { view: { panel: { section: { item: { leaf: { value: 1 } } } } } } }, // nested 9 levels below the message
+});
+test("the fix: a request whose METADATA is nested deeper than 6 levels is accepted when the tool arguments are ordinary (this is what ChatGPT sends)", () => {
+  assert.equal(probArgs({ make: "Honda", model: "CR-V", used: false, zip: "90210", electrificationTypes: ["hybrid"] }, chatgptMeta()), null);
+  assert.equal(probArgs({}, { a: { b: { c: { d: { e: { f: { g: { h: 1 } } } } } } } }), null, "eight levels of metadata");
+  assert.equal(requestLimitProblem({ jsonrpc: "2.0", id: "x", method: "tools/list", params: { _meta: chatgptMeta() } }), null, "a message with no arguments at all");
+});
+test("the fix: the strict limits still apply to the tool arguments, whatever the metadata looks like", () => {
+  assert.match(probArgs({ a: [[[[[[1]]]]]] }, chatgptMeta())!, /nesting deeper than 6 levels/);
+  assert.match(probArgs({ vehicleNeeds: new Array(ARGUMENT_LIMITS.maxArrayLength + 1).fill("a") }, chatgptMeta())!, /list of more than 200 items/);
+  assert.match(probArgs({ model: "x".repeat(ARGUMENT_LIMITS.maxStringLength + 1) })!, /text value longer than 4000/);
+});
+test("the fix: the metadata is still bounded (a hostile caller cannot hide cost there): depth, size, list length and text length", () => {
+  let deep: unknown = 1; for (let i = 0; i < ENVELOPE_LIMITS.maxDepth + 2; i++) deep = { n: deep };
+  assert.match(probArgs({}, deep)!, /^the request's own metadata has nesting deeper than 32 levels$/);
+  assert.match(probArgs({}, { list: new Array(ENVELOPE_LIMITS.maxArrayLength + 1).fill(1) })!, /metadata has a list of more than 1000 items/);
+  assert.match(probArgs({}, Array.from({ length: 5 }, () => new Array(900).fill(1)))!, /metadata has more than 4000 values/);
+  assert.match(probArgs({}, { s: "x".repeat(ENVELOPE_LIMITS.maxStringLength + 1) })!, /metadata has a text value longer than 32000/);
+  assert.match(requestLimitProblem({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "x" }, extra: new Array(5000).fill(1) })!, /metadata has a list of more than 1000 items/, "an oversized field outside params too");
+});
+test("the fix: a deeply nested metadata value does not overflow the stack", () => {
+  let deep: unknown = 1; for (let i = 0; i < 20000; i++) deep = [deep];
+  assert.match(probArgs({}, deep)!, /metadata has nesting deeper/);
 });
