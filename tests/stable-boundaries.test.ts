@@ -134,7 +134,7 @@ test("D1g. applyDiversity() make/model diversity: alternative make preferred bef
 // D2. LINK RESOLUTION — REAL resolveLinks() + buildEdmundsCategoryUrl()
 // ============================================================================
 
-test("D2a. resolveLinks() normal non-Carvana listing: affiliateUrl is VIN-specific, fallback exists, dealerListingUrl separate, isCarvana false", async () => {
+test("D2a. resolveLinks() normal non-Carvana used listing: affiliateUrl is the exact-VIN URL, fallback exists, dealerListingUrl separate, isCarvana false", async () => {
   const { resolveLinks } = await import("../lib/link-resolution");
 
   const l = {
@@ -145,15 +145,16 @@ test("D2a. resolveLinks() normal non-Carvana listing: affiliateUrl is VIN-specif
 
   const links = resolveLinks(l as any);
 
-  assert.ok(links.affiliateUrl, "affiliateUrl should be present for a normal non-Carvana listing");
-  assert.ok(links.affiliateUrl!.includes("1FTEW2KP9TKE60602"), "affiliateUrl should be VIN-specific");
+  assert.ok(links.affiliateUrl, "affiliateUrl should be present for a normal Used listing");
+  assert.ok(links.affiliateUrl!.includes("1FTEW2KP9TKE60602"), "affiliateUrl should be the exact-VIN URL");
   assert.ok(links.affiliateFallbackUrl, "affiliateFallbackUrl should be present");
   assert.equal(links.dealerListingUrl, "https://dealer.example.com/vdp/12345", "dealerListingUrl must remain the raw dealer VDP, separate from affiliateUrl");
   assert.notEqual(links.dealerListingUrl, links.affiliateUrl, "dealer VDP must never replace/equal affiliateUrl");
   assert.equal(links.isCarvana, false);
+  assert.equal(links.checkAvailSource, "exact", "Used vehicles get the exact-VIN tier by default (SYS-20260904-002)");
 });
 
-test("D2b. resolveLinks() Carvana listing: affiliateUrl is null, dealerListingUrl and fallback remain available", async () => {
+test("D2b. resolveLinks() Carvana listing: SYS-20260904-002 -- gets the same close/loose treatment as New, not a null Check avail. anymore", async () => {
   const { resolveLinks } = await import("../lib/link-resolution");
 
   const l = {
@@ -165,9 +166,215 @@ test("D2b. resolveLinks() Carvana listing: affiliateUrl is null, dealerListingUr
   const links = resolveLinks(l as any);
 
   assert.equal(links.isCarvana, true, "Carvana dealer name should be detected");
-  assert.equal(links.affiliateUrl, null, "affiliateUrl must be null for a Carvana listing (known-dead on Edmunds)");
-  assert.equal(links.dealerListingUrl, "https://www.carvana.com/vehicle/1234567", "dealerListingUrl must remain available for internal use");
-  assert.ok(links.affiliateFallbackUrl, "affiliateFallbackUrl (category page) should still be available since make/model are valid");
+  assert.ok(links.affiliateUrl, "Carvana now gets a real Check avail. link -- the close (trim-specific) category URL, per the Andre/ChatGPT-approved refinement");
+  assert.ok(!links.affiliateUrl!.includes("1FTEW2KPXTKE60933"), "must never be the exact-VIN URL -- Carvana's exact-VIN link is confirmed 100% dead, no attempt is ever made");
+  assert.ok(links.affiliateUrl!.includes("honda-cr-v"), "should be the trim-specific/category construction, not a VIN page");
+  assert.equal(links.dealerListingUrl, "https://www.carvana.com/vehicle/1234567", "dealerListingUrl must remain available for internal use, never surfaced as the user-facing link");
+  assert.ok(links.affiliateFallbackUrl, "affiliateFallbackUrl (loose category page) should still be available");
+  assert.equal(links.checkAvailSource, "close", "Carvana takes the same 'close' tier as New vehicles");
+});
+
+test("D2p. resolveLinks() unavailable-bare: neither exact-VIN nor category fallback available (make/model missing) -- the one combination with genuinely no CJ destination", async () => {
+  const { resolveLinks } = await import("../lib/link-resolution");
+
+  // Carvana (routes to the close/loose path) AND make/model missing (kills
+  // both the close and loose category tiers, since buildEdmundsCategoryUrl
+  // requires both) -- the one combination that genuinely has no CJ
+  // destination at all, matching Edmunds' own "unavailable, no similar
+  // grid" case from the original design doc's Chrome ground-truth testing
+  // (2/24 URLs, both 2027 MINI Cooper Countryman).
+  const l = {
+    vin: "1FTEW2KPXTKE60933",
+    vehicle: { make: undefined, model: undefined, year: 2026 },
+    retailListing: { used: true, vdp: "https://www.carvana.com/vehicle/1234567", dealer: "Carvana" },
+  };
+
+  const links = resolveLinks(l as any);
+
+  assert.equal(links.affiliateUrl, null);
+  assert.equal(links.affiliateFallbackUrl, null, "unavailable-bare: no category fallback either when make/model are unknown");
+  assert.equal(links.linkStatus, "dealer-only", "dealerListingUrl is the only thing left -- never routed to as a user-facing link, but present internally");
+  assert.equal(links.checkAvailSource, "none");
+});
+
+// ----------------------------------------------------------------------------
+// D2q-s. NHTSA trim decode (SYS-20260904-004) -- piggybacks the already-
+// happening electrification decode call, zero additional network cost.
+// Trim is frequently ambiguous (comma-separated) or absent; these tests
+// lock in that decodeNhtsaElectrification() never collapses that
+// ambiguity into a single confident-looking string.
+// ----------------------------------------------------------------------------
+
+function withMockedNhtsaFetch(responseBody: unknown) {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => ({
+    ok: true,
+    json: async () => responseBody,
+  })) as unknown as typeof fetch;
+  return () => {
+    globalThis.fetch = originalFetch;
+  };
+}
+
+test("D2q. decodeNhtsaElectrification() parses a single unambiguous Trim into a one-element trimOptions array", async () => {
+  const { decodeNhtsaElectrification } = await import("../lib/nhtsa-client");
+  const restore = withMockedNhtsaFetch({
+    Results: [{ ErrorCode: "0", Make: "HONDA", Model: "CR-V", ModelYear: "2026", Trim: "EX-L" }],
+  });
+  try {
+    const result = await decodeNhtsaElectrification("1HGCV1F34NA000001", "Honda", "CR-V", null);
+    assert.deepEqual(result?.trimOptions, ["EX-L"]);
+  } finally {
+    restore();
+  }
+});
+
+test("D2r. decodeNhtsaElectrification() parses an ambiguous comma-separated Trim into a multi-element trimOptions array, never picks one for the caller", async () => {
+  const { decodeNhtsaElectrification } = await import("../lib/nhtsa-client");
+  const restore = withMockedNhtsaFetch({
+    Results: [{ ErrorCode: "0", Make: "KIA", Model: "Sportage Hybrid", ModelYear: "2027", Trim: "EX, X-Line" }],
+  });
+  try {
+    const result = await decodeNhtsaElectrification("KNDPVDDG9V7439369", "Kia", "Sportage Hybrid", null);
+    assert.deepEqual(result?.trimOptions, ["EX", "X-Line"], "must expose both candidates, whitespace-trimmed, never silently pick the first one itself");
+  } finally {
+    restore();
+  }
+});
+
+test("D2s. decodeNhtsaElectrification() returns an empty trimOptions array (never null/undefined) when NHTSA has no Trim data", async () => {
+  const { decodeNhtsaElectrification } = await import("../lib/nhtsa-client");
+  const restore = withMockedNhtsaFetch({
+    Results: [{ ErrorCode: "0", Make: "FORD", Model: "Bronco", ModelYear: "2026", Trim: "" }],
+  });
+  try {
+    const result = await decodeNhtsaElectrification("1FMDE6AH0TLB04898", "Ford", "Bronco", null);
+    assert.deepEqual(result?.trimOptions, [], "empty Trim field must produce an empty array, not null/undefined -- callers check .length, not truthiness of the field itself");
+  } finally {
+    restore();
+  }
+});
+
+// ----------------------------------------------------------------------------
+// D2h-l. Deterministic condition-aware design (SYS-20260904-002) --
+// supersedes the host-AI-driven live-search design (SYS-20260903-005
+// through -013), which worked and was verified live but cost 85-100
+// seconds per search. No host search, no vendor API, fully synchronous.
+// ----------------------------------------------------------------------------
+
+const CJ_PREFIX = "https://www.anrdoezrs.net/click-";
+
+test("D2h. resolveLinks() Used vehicle -> checkAvailSource 'exact', Check avail. is the deterministic exact-VIN URL", async () => {
+  const { resolveLinks } = await import("../lib/link-resolution");
+
+  const l = {
+    vin: "1FTEW2KP9TKE60602",
+    vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" },
+    retailListing: { used: true, dealer: "Example Ford" },
+  };
+
+  const links = resolveLinks(l as any);
+
+  assert.equal(links.checkAvailSource, "exact");
+  assert.ok(links.affiliateUrl!.startsWith(CJ_PREFIX));
+  const decoded = decodeURIComponent(links.affiliateUrl!.split("url=")[1]);
+  assert.ok(decoded.includes("1FTEW2KP9TKE60602"));
+});
+
+test("D2i. resolveLinks() New vehicle (used: false) -> checkAvailSource 'close', Check avail. is the trim-specific category URL, no exact-VIN attempt at all", async () => {
+  const { resolveLinks } = await import("../lib/link-resolution");
+
+  const l = {
+    vin: "1FTEW2KP9TKE60602",
+    vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" },
+    retailListing: { used: false, dealer: "Example Ford" },
+  };
+
+  const links = resolveLinks(l as any);
+
+  assert.equal(links.checkAvailSource, "close");
+  assert.ok(links.affiliateUrl!.startsWith(CJ_PREFIX));
+  const decoded = decodeURIComponent(links.affiliateUrl!.split("url=")[1]);
+  assert.ok(!decoded.includes("1FTEW2KP9TKE60602"), "New must never attempt the exact-VIN URL -- ~15-23% real hit rate doesn't justify presenting it");
+  assert.ok(decoded.includes("new-ford-f-150-lariat-for-sale"), "should be the trim-specific new-vehicle category URL");
+});
+
+test("D2j. resolveLinks() View similar: close (trim-specific) for Used, loose (bare make/model) for New/Carvana -- must be a genuinely different tier than Check avail., not a near-duplicate", async () => {
+  const { resolveLinks } = await import("../lib/link-resolution");
+
+  const usedListing = {
+    vin: "1FTEW2KP9TKE60602",
+    vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" },
+    retailListing: { used: true, dealer: "Example Ford" },
+  };
+  const used = resolveLinks(usedListing as any);
+  assert.equal(used.checkAvailSource, "exact");
+  assert.ok(used.affiliateFallbackUrl!.includes("lariat"), "Used: View similar stays trim-specific ('close') -- a genuine upgrade next to the exact-VIN Check avail.");
+
+  const newListing = {
+    vin: "1FTEW2KP9TKE60602",
+    vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" },
+    retailListing: { used: false, dealer: "Example Ford" },
+  };
+  const newVehicle = resolveLinks(newListing as any);
+  assert.equal(newVehicle.checkAvailSource, "close");
+  assert.ok(!newVehicle.affiliateFallbackUrl!.includes("lariat"), "New: View similar must widen (drop trim) -- Check avail. is already the close tier, so View similar must be a genuinely broader alternative");
+  const decodedNew = decodeURIComponent(newVehicle.affiliateFallbackUrl!.split("url=")[1]);
+  assert.ok(decodedNew.includes("new-ford-f-150-for-sale"), "should fall to the bare make/model tier");
+
+  const carvanaListing = {
+    vin: "1FTEW2KPXTKE60933",
+    vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" },
+    retailListing: { used: true, dealer: "Carvana" },
+  };
+  const carvana = resolveLinks(carvanaListing as any);
+  assert.equal(carvana.checkAvailSource, "close");
+  assert.ok(!carvana.affiliateFallbackUrl!.includes("lariat"), "Carvana: same loose treatment as New");
+});
+
+test("D2k. resolveLinks() CPO listing: affiliateFallbackUrl always routes to the dedicated used-certified-pre-owned-{make}-{model} page, regardless of Used/New/Carvana branch -- SYS-20260903-011", async () => {
+  const { resolveLinks } = await import("../lib/link-resolution");
+
+  const cpoUsed = {
+    vin: "KM8HFCAB1TU453247",
+    vehicle: { make: "Hyundai", model: "Kona", year: 2026, trim: "SEL Sport" },
+    retailListing: { used: true, cpo: true, dealer: "Example Hyundai" },
+  };
+  const used = resolveLinks(cpoUsed as any);
+  const decodedUsed = decodeURIComponent(used.affiliateFallbackUrl!.split("url=")[1]);
+  assert.equal(decodedUsed, "https://www.edmunds.com/used-certified-pre-owned-hyundai-kona/", "CPO must override the close-tier trim URL even on the Used branch");
+
+  // Non-CPO listing must NOT be affected by this at all.
+  const nonCpo = {
+    vin: "3CZRZ2H52TM772942",
+    vehicle: { make: "Honda", model: "HR-V", year: 2026, trim: "Sport" },
+    retailListing: { used: true, dealer: "Example Honda" },
+  };
+  const plain = resolveLinks(nonCpo as any);
+  const decodedPlain = decodeURIComponent(plain.affiliateFallbackUrl!.split("url=")[1]);
+  assert.ok(!decodedPlain.includes("certified-pre-owned"), "non-CPO listings must keep the existing plain used-{make}-{model}-{trim} fallback, unaffected");
+});
+
+test("D2l. resolveLinks() all final links remain CJ-wrapped across every branch (Used/New/Carvana/CPO/unavailable-bare)", async () => {
+  const { resolveLinks } = await import("../lib/link-resolution");
+
+  const scenarios = [
+    { vin: "1FTEW2KP9TKE60602", vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" }, retailListing: { used: true, dealer: "Example Ford" } },
+    { vin: "1FTEW2KP9TKE60602", vehicle: { make: "Ford", model: "F-150", year: 2026, trim: "Lariat" }, retailListing: { used: false, dealer: "Example Ford" } },
+    { vin: "1FTEW2KPXTKE60933", vehicle: { make: "Honda", model: "CR-V", year: 2026, trim: "EX" }, retailListing: { used: true, dealer: "Carvana" } },
+    { vin: "KM8HFCAB1TU453247", vehicle: { make: "Hyundai", model: "Kona", year: 2026, trim: "SEL Sport" }, retailListing: { used: true, cpo: true, dealer: "Example Hyundai" } },
+  ];
+
+  for (const s of scenarios) {
+    const links = resolveLinks(s as any);
+    if (links.affiliateUrl) {
+      assert.ok(links.affiliateUrl.startsWith(CJ_PREFIX), `affiliateUrl must be CJ-wrapped for scenario ${JSON.stringify(s)}`);
+      assert.ok(!links.affiliateUrl.includes("google.com"), "must never expose a raw Google URL");
+    }
+    if (links.affiliateFallbackUrl) {
+      assert.ok(links.affiliateFallbackUrl.startsWith(CJ_PREFIX), "affiliateFallbackUrl must always be CJ-wrapped");
+    }
+  }
 });
 
 test("D2c. buildEdmundsCategoryUrl() USED + safe trim: exact trim URL, no year in path", async () => {
@@ -263,11 +470,13 @@ test("D3a. Card routing: affiliateUrl + affiliateFallbackUrl + dealerListingUrl 
   assert.ok(titleLink, "title link should exist");
   assert.equal(titleLink!.getAttribute("data-url"), "https://cj.example.com/affiliate-vin-specific", "title destination must be affiliateUrl");
 
-  assert.ok(leftBtn, "View listing CTA should exist");
-  assert.equal(leftBtn!.getAttribute("data-url"), "https://cj.example.com/affiliate-vin-specific", "'View listing' must use affiliateUrl");
+  assert.ok(leftBtn, "Check avail. CTA should exist");
+  assert.equal(leftBtn!.getAttribute("data-url"), "https://cj.example.com/affiliate-vin-specific", "'Check avail.' must use affiliateUrl");
+  assert.ok(leftBtn!.textContent!.includes("Check avail."), "split left button must be labeled 'Check avail.' per 2026-09-03 design decision, not 'View listing'");
 
   assert.ok(rightBtn, "View similar CTA should exist");
   assert.equal(rightBtn!.getAttribute("data-url"), "https://cj.example.com/affiliate-fallback", "'View similar' must use affiliateFallbackUrl");
+  assert.ok(rightBtn!.textContent!.includes("View similar"), "split right button must be labeled 'View similar'");
 
   const cardHtml = doc.querySelector(".cc-card")!.innerHTML;
   assert.ok(!cardHtml.includes("https://dealer.example.com/vdp/999"), "dealerListingUrl must never appear as any clickable destination");
@@ -298,8 +507,20 @@ test("D3b. Card routing: fallback-only -> photo/title/CTA all use affiliateFallb
   assert.equal(primaryBtn!.getAttribute("data-url"), "https://cj.example.com/affiliate-fallback-only");
 
   // Split CTA buttons must NOT be present in fallback-only mode
-  assert.equal(doc.querySelector(".cc-cta-left"), null, "split 'View listing' button must not render in fallback-only mode");
+  assert.equal(doc.querySelector(".cc-cta-left"), null, "split 'Check avail.' button must not render in fallback-only mode");
   assert.equal(doc.querySelector(".cc-cta-right"), null, "split 'View similar' button must not render in fallback-only mode");
+
+  // Fallback-only label deliberately stays "Similar options on Edmunds",
+  // NOT "Check avail." — affiliateFallbackUrl is a make/model category page,
+  // not a VIN-specific destination, so labeling it as an availability check
+  // would misrepresent what the link does. See 2026-09-03 design decision
+  // comment in results-card.ts for the reasoning (the "Check avail." fallback
+  // tier described in the design doc is a separate, unbuilt targeted-search
+  // feature, not this category link).
+  assert.ok(
+    primaryBtn!.textContent!.includes("Similar options on Edmunds"),
+    "fallback-only primary CTA must keep 'Similar options on Edmunds' label, not be relabeled 'Check avail.'"
+  );
 
   const cardHtml = doc.querySelector(".cc-card")!.innerHTML;
   assert.ok(!cardHtml.includes("https://dealer.example.com/vdp/888"), "dealerListingUrl must not be substituted anywhere");
@@ -406,9 +627,11 @@ test("D6. MCP metadata contract: domain absent, single widgetDomain, prefersBord
   const hasUnquotedDomainField = /\bdomain\s*:\s*["'`]/.test(routeSource);
   assert.ok(!hasUnquotedDomainField, "_meta.ui.domain must be absent as an actual executable field");
 
-  // b. Exactly ONE actual "openai/widgetDomain": "https://carclever-find-my-car.vercel.app"
-  const widgetDomainMatches = routeSource.match(/"openai\/widgetDomain":\s*"https:\/\/carclever-find-my-car\.vercel\.app"/g) ?? [];
-  assert.equal(widgetDomainMatches.length, 1, `expected exactly one openai/widgetDomain field, found ${widgetDomainMatches.length}`);
+  // b. Exactly ONE actual openai/widgetDomain field, now derived dynamically via
+  //    getAppOrigin() rather than hardcoded (SYS-20260831-002 — hardcoding this to
+  //    production broke any preview deployment's widget domain declaration).
+  const widgetDomainMatches = routeSource.match(/"openai\/widgetDomain":\s*getAppOrigin\(\)/g) ?? [];
+  assert.equal(widgetDomainMatches.length, 1, `expected exactly one dynamic openai/widgetDomain field, found ${widgetDomainMatches.length}`);
 
   // c. prefersBorder is exactly false (boolean literal, not just the word present)
   const prefersBorderMatches = routeSource.match(/prefersBorder:\s*false/g) ?? [];
@@ -418,8 +641,11 @@ test("D6. MCP metadata contract: domain absent, single widgetDomain, prefersBord
   const mimeMatches = routeSource.match(/mimeType:\s*"text\/html;profile=mcp-app"/g) ?? [];
   assert.ok(mimeMatches.length >= 1, "mimeType text/html;profile=mcp-app must be present");
 
-  // e. exact production origin appears in CSP resourceDomains
-  assert.ok(routeSource.includes('"https://carclever-find-my-car.vercel.app"'), "production origin must appear as an actual string literal");
+  // e. CSP resourceDomains is derived dynamically via getAppOrigin(), never a hardcoded
+  //    production literal (SYS-20260831-002 — same reasoning as (b) above).
+  const cspMatches = routeSource.match(/csp:\s*\{\s*resourceDomains:\s*\[getAppOrigin\(\)\]\s*\}/g) ?? [];
+  assert.equal(cspMatches.length, 2, `expected exactly two dynamic csp.resourceDomains fields (registration + resources/read), found ${cspMatches.length}`);
+  assert.ok(!routeSource.includes('"https://carclever-find-my-car.vercel.app"'), "no hardcoded production literal should remain in route.ts's widget metadata — everything must derive from getAppOrigin()");
 
   // f. exact resource URI wired through resourceUri
   assert.ok(/ui:\s*\{\s*resourceUri:\s*RESULTS_CARD_RESOURCE_URI\s*\}/.test(routeSource), "tool registration must wire resourceUri: RESULTS_CARD_RESOURCE_URI");
@@ -429,5 +655,272 @@ test("D6. MCP metadata contract: domain absent, single widgetDomain, prefersBord
 
   // Confirm the constant itself resolves to the expected URI (results-card.ts)
   const resultsCardSource = fs.readFileSync("lib/results-card.ts", "utf8");
-  assert.ok(resultsCardSource.includes('"ui://carclever-find-my-car/results-card"'), "RESULTS_CARD_RESOURCE_URI must resolve to ui://carclever-find-my-car/results-card");
+  assert.ok(resultsCardSource.includes('"ui://carclever-find-my-car/results-card-v3"'), "RESULTS_CARD_RESOURCE_URI must resolve to ui://carclever-find-my-car/results-card-v3");
 });
+
+// ============================================================================
+// D7. RESULT-COUNT DISPLAY — resultsShown ground-truth contract
+test("D7c. tool description no longer instructs opening with totalMatches immediately before introducing results, and explicitly names resultsShown as the authoritative shown-count field", () => {
+  const routeSource = stripComments(fs.readFileSync("app/[transport]/route.ts", "utf8"));
+
+  // The old priming phrase ("...matching this request, here are the
+  // strongest options:") juxtaposed totalMatches directly against the
+  // results that followed — must not reappear verbatim.
+  assert.ok(
+    !routeSource.includes("matching this request, here are the strongest options"),
+    "the old totalMatches-priming phrasing must not reappear — it directly caused the resurfaced count-display bug",
+  );
+
+  // The description must explicitly tell the calling LLM to use
+  // resultsShown, not totalMatches/totalCandidatesConsidered, for stating
+  // how many results are shown.
+  assert.ok(
+    /use \\`resultsShown\\`/.test(routeSource) || /use `resultsShown`/.test(routeSource),
+    "tool description must explicitly instruct using resultsShown for the shown-result count",
+  );
+});
+
+// ============================================================================
+//
+// Regression guard for the resurfaced totalMatches count-display bug
+// (Aug 17 testing: host narrated "5 strong matches" while only 4 result
+// cards were actually returned). Root cause was the tool description
+// priming the calling LLM to state totalMatches right before "here are the
+// strongest options," inviting it to treat a corpus/candidate-pool-scale
+// number as if it were the count of items about to be shown. Fix adds a
+// ground-truth `resultsShown` field, set from the same array as `results`
+// at every response-construction site, plus rewritten guidance telling the
+// calling LLM to use ONLY resultsShown for that purpose.
+
+test("D7a. FindMatchingVehicleOutputSchema requires meta.resultsShown as a number", async () => {
+  const { FindMatchingVehicleOutputSchema } = await import("../lib/find-matching-vehicle-output");
+
+  const base = {
+    meta: {
+      totalCandidatesConsidered: 5,
+      totalMatches: 5,
+      corpusSizeApprox: "3,000,000+",
+      relaxations: [],
+      dataNotes: [],
+      scopeNote: "local" as const,
+      serviceError: null,
+      interpretationNotes: [],
+      qualifierAccounting: [],
+    },
+    results: [],
+  };
+
+  // Missing resultsShown must fail validation.
+  assert.throws(() => FindMatchingVehicleOutputSchema.parse(base));
+
+  // Present as a number must pass.
+  const withField = { ...base, meta: { ...base.meta, resultsShown: 0 } };
+  assert.doesNotThrow(() => FindMatchingVehicleOutputSchema.parse(withField));
+});
+
+test("D7b. every meta object literal in route.ts sets resultsShown from the same array as its results field, never a different variable", () => {
+  const routeSource = stripComments(fs.readFileSync("app/[transport]/route.ts", "utf8"));
+
+  // Four response-construction sites as of SYS-20260904-002 (retiring the
+  // mandatory two-call flow and its resolve_vehicle_availability tool,
+  // which had briefly been a legitimate fifth site under SYS-20260903-012):
+  // 2 VIN-error paths, 1 VIN-success path, 1 normal-search path. This count
+  // must stay in lockstep with any future response-construction site added
+  // to route.ts.
+  const resultsShownMatches = routeSource.match(/resultsShown:\s*[^,]+,/g) ?? [];
+  assert.equal(resultsShownMatches.length, 4, `expected exactly 4 resultsShown assignments, found ${resultsShownMatches.length} — every meta object must set it`);
+
+  // The two empty-result error paths must use the literal 0, not a variable
+  // that could silently drift from the actual (empty) results array.
+  const zeroAssignments = routeSource.match(/resultsShown:\s*0,/g) ?? [];
+  assert.equal(zeroAssignments.length, 2, "both VIN-error paths (invalid format, not found) must set resultsShown: 0 to match their empty results: [] arrays");
+
+  // The VIN-success and normal-search paths must derive resultsShown from
+  // a `.length` expression (ground truth), never a hardcoded/copied number.
+  const lengthDerivedAssignments = routeSource.match(/resultsShown:\s*\w+(\.\w+)*\.length,/g) ?? [];
+  assert.equal(lengthDerivedAssignments.length, 2, "VIN-success and normal-search paths must derive resultsShown via .length, not a separate hardcoded number");
+});
+
+// ============================================================================
+// D8. WIDGET CARD-COUNT HONESTY — real jsdom render, results.length > 5
+// ============================================================================
+//
+// Real bug found via live testing (Aug 31, screenshot from a "bodyType: SUV,
+// zip: 90210" search): the text summary correctly said "Found 8 closely
+// matching vehicles," but the rendered widget's header said only "Top 5
+// shown" with no indication 3 more results existed in the same response.
+// buildResultsCardHtml()'s own render() function hardcodes
+// `results.slice(0, 5)` for the carousel — a deliberate, reasonable display
+// cap — but the header label previously read the sliced array's own length
+// ("Top " + visible.length + " shown"), which is tautological and can never
+// reveal a cap is in effect. This is the same class of bug as D7 (a stated
+// count that doesn't reflect the true result count) in a different surface
+// (the widget DOM, not the text/meta contract).
+
+async function renderCardWithResults(resultCount: number) {
+  const { buildResultsCardHtml } = await import("@/lib/results-card");
+  const { JSDOM } = await import("jsdom");
+
+  const html = buildResultsCardHtml();
+  const dom = new JSDOM(html, { runScripts: "dangerously", resources: "usable", url: "https://carclever-find-my-car.vercel.app/" });
+  const { window } = dom;
+  await new Promise((r) => setTimeout(r, 200));
+
+  const results = Array.from({ length: resultCount }, (_, i) => ({
+    identity: { vin: `1FTEW2KP9TKE6060${i}`, year: 2027, make: "Kia", model: "Seltos", trim: "EX" },
+    condition: { inventoryType: "used", used: true, cpo: false },
+    powertrain: { drivetrain: "FWD" },
+    listing: { price: 31899, mileage: 102, dealer: "Test Dealer", city: "Cerritos", state: "CA" },
+    media: { cardImageUrl: null },
+    detail: { carfaxUrl: null, exteriorColor: "Blue", fuelTypeDisplay: "Gasoline" },
+    ranking: { matchScore: 100 },
+    links: { affiliateUrl: null, affiliateFallbackUrl: null, dealerListingUrl: null, isCarvana: false, linkStatus: "none-available" },
+    badges: [],
+    intentConfirmations: [],
+    risk: { tier: "unknown" },
+  }));
+
+  const mockResult = {
+    structuredContent: {
+      meta: { corpusSizeApprox: "3.4 million", totalMatches: 61455 },
+      results,
+    },
+  };
+
+  window.postMessage({ method: "ui/notifications/tool-result", params: mockResult }, "*");
+  await new Promise((r) => setTimeout(r, 200));
+
+  return window.document;
+}
+
+test("D8a. Widget header discloses the cap when results.length (8) exceeds the display slice (5): 'Top 5 of 8 shown', not the tautological 'Top 5 shown'", async () => {
+  const doc = await renderCardWithResults(8);
+  const header = doc.querySelector(".cc-header-center");
+  assert.ok(header, "cc-header-center element must exist");
+  assert.equal(header?.textContent, "Top 5 of 8 shown", `expected 'Top 5 of 8 shown', got '${header?.textContent}'`);
+});
+
+test("D8b. Widget header does NOT claim a cap when results.length (5) does not exceed the display slice (5)", async () => {
+  const doc = await renderCardWithResults(5);
+  const header = doc.querySelector(".cc-header-center");
+  assert.equal(header?.textContent, "5 shown", `expected '5 shown' with no false 'Top' cap language, got '${header?.textContent}'`);
+});
+
+test("D8c. Widget header uses singular phrasing for exactly one result", async () => {
+  const doc = await renderCardWithResults(1);
+  const header = doc.querySelector(".cc-header-center");
+  assert.equal(header?.textContent, "1 match shown", `expected '1 match shown', got '${header?.textContent}'`);
+});
+
+test("D8d. Carousel itself still renders at most 5 cards even when more results are present (display cap unchanged, only its label was dishonest)", async () => {
+  const doc = await renderCardWithResults(8);
+  const cards = doc.querySelectorAll("#cc-carousel > article");
+  assert.equal(cards.length, 5, `expected exactly 5 rendered cards (unchanged display cap), got ${cards.length}`);
+});
+
+// ============================================================================
+// D9. WIDGET-ORIGIN SAFETY — production output must stay byte-identical
+// ============================================================================
+//
+// Real bug found live (Aug 31, 2026): APP_ORIGIN, csp.resourceDomains,
+// openai/widgetDomain, and a since-removed duplicate (IMG_PROXY_ORIGIN)
+// were all hardcoded to the production URL. Any preview deployment
+// declared a domain it wasn't actually being served from, matching an
+// already-documented failure class (SYS-20260825: "fetch it, then fail to
+// mount/render it"). Fixed by deriving APP_ORIGIN from Vercel's own
+// VERCEL_ENV/VERCEL_PROJECT_PRODUCTION_URL/VERCEL_URL system env vars.
+//
+// This is the safety invariant that made the fix acceptable to ship on a
+// branch of an app currently IN REVIEW with Anthropic: production's
+// declared domain must be byte-identical to the old hardcoded value,
+// regardless of whether these env vars are even correctly populated.
+// These tests assert that directly against the real module, not by
+// inspection of the diff.
+
+test("D9a. getAppOrigin() returns the exact pre-existing hardcoded production URL when VERCEL_ENV=production, even with no other Vercel env vars set", async () => {
+  const { getAppOrigin } = await import("@/lib/results-card");
+  const originalEnv = { ...process.env };
+  try {
+    delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
+    delete process.env.VERCEL_URL;
+    process.env.VERCEL_ENV = "production";
+    assert.equal(getAppOrigin(), "https://carclever-find-my-car.vercel.app", `production fallback must be byte-identical to the pre-fix hardcoded value, got '${getAppOrigin()}'`);
+  } finally {
+    process.env = originalEnv;
+  }
+});
+
+test("D9b. getAppOrigin() uses VERCEL_PROJECT_PRODUCTION_URL when present and VERCEL_ENV=production (correct precedence, not VERCEL_URL)", async () => {
+  const { getAppOrigin } = await import("@/lib/results-card");
+  const originalEnv = { ...process.env };
+  try {
+    process.env.VERCEL_ENV = "production";
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = "custom-prod-domain.example.com";
+    process.env.VERCEL_URL = "should-not-be-used-in-production.vercel.app";
+    assert.equal(getAppOrigin(), "https://custom-prod-domain.example.com");
+  } finally {
+    process.env = originalEnv;
+  }
+});
+
+test("D9c. getAppOrigin() falls back to VERCEL_URL only when VERCEL_BRANCH_URL is absent, for any non-production environment", async () => {
+  const { getAppOrigin } = await import("@/lib/results-card");
+  const originalEnv = { ...process.env };
+  try {
+    process.env.VERCEL_ENV = "preview";
+    delete process.env.VERCEL_BRANCH_URL;
+    process.env.VERCEL_URL = "carclever-find-my-car-git-some-branch-team.vercel.app";
+    assert.equal(getAppOrigin(), "https://carclever-find-my-car-git-some-branch-team.vercel.app", "preview must declare its own actual serving domain, not production's");
+  } finally {
+    process.env = originalEnv;
+  }
+});
+
+test("D10. getAppOrigin() prefers VERCEL_BRANCH_URL (the stable branch alias a connector actually reaches) over VERCEL_URL (the per-deployment hash), for preview -- SYS-20260831-004, a real bug caught live where these two were confused", async () => {
+  const { getAppOrigin } = await import("@/lib/results-card");
+  const originalEnv = { ...process.env };
+  try {
+    process.env.VERCEL_ENV = "preview";
+    process.env.VERCEL_BRANCH_URL = "carclever-find-my-car-git-fix-total-matches-count-bug-andre-broekmans-projects.vercel.app";
+    process.env.VERCEL_URL = "carclever-find-my-76cqhr7vq-andre-broekmans-projects.vercel.app";
+    assert.equal(
+      getAppOrigin(),
+      "https://carclever-find-my-car-git-fix-total-matches-count-bug-andre-broekmans-projects.vercel.app",
+      "must use the stable branch alias (VERCEL_BRANCH_URL), never the per-deployment hash URL (VERCEL_URL), when both are present",
+    );
+  } finally {
+    process.env = originalEnv;
+  }
+});
+
+// ============================================================================
+// D11. BUILD-IDENTITY VISIBILITY -- diagnostic only, invisible to end users
+// ============================================================================
+//
+// Added Aug 31 2026 to stop chasing symptoms that turn out to be stale/cached
+// code rather than real bugs -- a recurring problem this same session. Pure
+// MCP protocol metadata (serverInfo, exchanged during `initialize`), never
+// rendered to a user, never part of any screenshot -- zero relation to
+// anything submitted to Anthropic or OpenAI. This is intentionally NOT a
+// widget/visual change; see DECISIONS.md SYS-20260831-005 for why a visible
+// marker was considered and rejected (OpenAI's locked submission screenshots).
+
+test("D11a. route.ts passes an explicit serverInfo to createMcpHandler, not the package default", () => {
+  const routeSource = stripComments(fs.readFileSync("app/[transport]/route.ts", "utf8"));
+  assert.ok(/serverInfo:\s*\{/.test(routeSource), "createMcpHandler must be given an explicit serverInfo option");
+  assert.ok(routeSource.includes('name: "carclever-find-my-car"'), "serverInfo.name must identify this specific app");
+});
+
+test("D11b. serverInfo.version derives from VERCEL_GIT_COMMIT_SHA (real build identity), with a static fallback only for environments where it's unset (e.g. local dev)", () => {
+  const routeSource = stripComments(fs.readFileSync("app/[transport]/route.ts", "utf8"));
+  assert.ok(routeSource.includes("process.env.VERCEL_GIT_COMMIT_SHA"), "version must be derived from the real per-deployment commit SHA, not a hand-maintained number");
+  assert.ok(/VERCEL_GIT_COMMIT_SHA\?\.slice\(0,\s*7\)\s*\?\?\s*"0\.1\.0"/.test(routeSource), "must have a safe static fallback for environments without this env var (e.g. local dev), never throw or return undefined");
+});
+
+
+test("D9d. route.ts's img-proxy URL construction and widget domain metadata all derive from the single shared getAppOrigin() — no second hardcoded copy exists anymore", () => {
+  const routeSource = stripComments(fs.readFileSync("app/[transport]/route.ts", "utf8"));
+  assert.ok(!routeSource.includes('"https://carclever-find-my-car.vercel.app"'), "no literal production URL should remain hardcoded in route.ts — everything must derive from the imported getAppOrigin()");
+  assert.ok(routeSource.includes("getAppOrigin()"), "route.ts must import and call the shared getAppOrigin() function");
+});
+

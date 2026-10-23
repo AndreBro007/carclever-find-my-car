@@ -41,6 +41,19 @@ const QualifierAccountingEntrySchema = z.object({
 const MetaSchema = z.object({
   totalCandidatesConsidered: z.number(),
   totalMatches: z.number().nullable(),
+  // Ground-truth count of items actually present in `results` below,
+  // added to fix the resurfaced totalMatches count-display bug (Aug 17
+  // testing: host narrated "5 strong matches" while only 4 result cards
+  // were actually returned). `totalCandidatesConsidered` and `totalMatches`
+  // are both corpus/candidate-pool-scale figures from earlier pipeline
+  // stages — they are NOT guaranteed to equal `results.length`, since
+  // verification, body-style exclusion, trim/geo/price drift checks, and
+  // diversity capping can all still drop candidates after those numbers
+  // are computed. `resultsShown` is set from the same array as `results`
+  // (never a separate count) so it can never drift from it, and is the
+  // ONLY field the calling LLM should use when stating how many results
+  // are below — never totalMatches or totalCandidatesConsidered.
+  resultsShown: z.number(),
   corpusSizeApprox: z.string(),
   relaxations: z.array(RelaxationSchema),
   dataNotes: z.array(z.string()),
@@ -135,6 +148,14 @@ const LinksSchema = z.object({
   dealerListingUrl: z.string().nullable(),
   isCarvana: z.boolean(),
   linkStatus: z.enum(["both-available", "edmunds-only", "dealer-only", "fallback-only", "none-available"]),
+  // Updated 2026-09-04 (SYS-20260904-002): matches the new deterministic
+  // checkAvailSource values on LinkResolution -- "exact" (Used, may 404),
+  // "close" (New/Carvana, trim-specific category URL, no exact-VIN attempt
+  // made), "none" (no destination could be built). The earlier host-search
+  // values ("confirmed-exact" / "targeted-fallback" / "unconfirmed") no
+  // longer apply now that live search has been retired in favor of a fully
+  // deterministic design.
+  checkAvailSource: z.enum(["exact", "close", "none"]),
 });
 
 const DetailSchema = z.object({
@@ -184,6 +205,11 @@ const BuyerCheckSchema = z.object({
 // every card, ordinary search results included.
 const RiskSchema = z.object({
   tier: z.enum(["positive", "unknown", "amber", "red"]),
+  // (SYS-20260904-004) Companion to tier — the actual reason(s) behind an
+  // "amber"/"red" classification, from lib/risk-tier.ts's explainRiskTier(),
+  // so a host AI asked "why is this flagged?" has a ready structured
+  // answer. Always an empty array for "positive"/"unknown".
+  reasons: z.array(z.string()),
 });
 
 const ResultSchema = z.object({

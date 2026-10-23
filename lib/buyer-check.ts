@@ -7,6 +7,7 @@
  * extraction — no logic changed, same function body, same behavior.
  */
 import type { VerificationResult } from "./vin-cross-check";
+import type { RecallInfo } from "./nhtsa-recalls-client";
 
 export interface BuyerCheck {
   outcome: "promising" | "verify_before_proceeding" | "caution" | "significant_concern";
@@ -14,6 +15,13 @@ export interface BuyerCheck {
   concerns: string[];
   needsVerification: string[];
   nextSteps: string[];
+  /** Recalls (V2.3, check_vehicle only — never populated for ordinary
+   * search cards). Null when no recall lookup was attempted (e.g. no
+   * make/model/year was resolvable at all). A lookup FAILURE still
+   * produces a non-null RecallInfo with state "unavailable" — this field
+   * is only null when the lookup itself was never attempted, per
+   * DECISION-20260902-008's "honest partial Buyer Check" requirement. */
+  recall: RecallInfo | null;
 }
 
 /**
@@ -47,13 +55,16 @@ export interface BuyerCheck {
  *    enough either way, or something material still needs confirming
  *    before this can be called promising).
  */
-export function buildBuyerCheck(card: {
-  verification: VerificationResult;
-  history: { state: "known_clean" | "known_issues" | "unreported"; note: string; ownerNote: string | null };
-  condition: { cpoEvidenceState: "confirmed_cpo" | "reported_not_cpo" | "unknown" };
-  detail: { carfaxUrl: string | null };
-  dataConflicts: string[];
-}): BuyerCheck {
+export function buildBuyerCheck(
+  card: {
+    verification: VerificationResult;
+    history: { state: "known_clean" | "known_issues" | "unreported"; note: string; ownerNote: string | null };
+    condition: { cpoEvidenceState: "confirmed_cpo" | "reported_not_cpo" | "unknown" };
+    detail: { carfaxUrl: string | null };
+    dataConflicts: string[];
+  },
+  recall: RecallInfo | null = null,
+): BuyerCheck {
   const goodSigns: string[] = [];
   const concerns: string[] = [];
   const needsVerification: string[] = [];
@@ -129,10 +140,27 @@ export function buildBuyerCheck(card: {
   }
   nextSteps.push("Have a pre-purchase inspection done by an independent mechanic if you haven't already.");
 
+  // Recalls (V2.3, DECISION-20260902-008): a severe (parkIt/parkOutSide)
+  // recall is a manufacturer safety directive, not a listing-data
+  // signal — distinct enough from every other input here that it gets its
+  // own concern line and can independently push the outcome to at least
+  // "caution" (never silently folded into needsVerification the way a
+  // routine recall or an unavailable lookup is). Routine/none/unavailable
+  // states are surfaced via the `recall` field itself, not restated here
+  // as a concern — a routine recall alone should not read as alarming.
+  if (recall?.state === "severe") {
+    concerns.push(recall.detail);
+    nextSteps.push("Do not delay on the recall above — contact the dealer/manufacturer about remedy availability before proceeding.");
+  } else if (recall?.state === "routine") {
+    needsVerification.push(recall.detail);
+  } else if (recall?.state === "unavailable") {
+    needsVerification.push("Recall status could not be retrieved for this vehicle — check manually via NHTSA before purchase.");
+  }
+
   let outcome: BuyerCheck["outcome"];
   if (card.verification.identityVerificationStatus === "failed") {
     outcome = "significant_concern";
-  } else if (card.history.state === "known_issues") {
+  } else if (card.history.state === "known_issues" || recall?.state === "severe") {
     // SYS-20260827 fix: dataConflicts.length > 0 removed from this
     // condition — a data conflict alone is verification information, not
     // a reason for "caution" on its own (see the needsVerification push
@@ -140,7 +168,9 @@ export function buildBuyerCheck(card: {
     // A genuine accident/history concern still triggers caution exactly
     // as before; a data conflict riding alongside an accident doesn't
     // change the outcome (still caution, because of the accident) — it
-    // simply doesn't independently cause caution by itself anymore.
+    // simply doesn't independently cause caution by itself anymore. A
+    // severe recall (V2.3) is added as an equal trigger for the same
+    // reason an accident is: real, current safety-relevant evidence.
     outcome = "caution";
   } else if (
     card.verification.identityVerificationStatus === "verified_match" &&
@@ -156,5 +186,5 @@ export function buildBuyerCheck(card: {
     outcome = "verify_before_proceeding";
   }
 
-  return { outcome, goodSigns, concerns, needsVerification, nextSteps };
+  return { outcome, goodSigns, concerns, needsVerification, nextSteps, recall };
 }
