@@ -5,6 +5,8 @@ export interface CompareItem {
   vin: string;
   year?: number | null; make?: string | null; model?: string | null; trim?: string | null;
   price?: number | null; mileage?: number | null; condition?: string | null;
+  /** The card carries the "price-likely-inaccurate" flag: the price is shown, but never counted as the best or as an extreme (R4-06). */
+  priceLikelyInaccurate?: boolean;
   dealerZip?: string | null; fuel?: string | null; drive?: string | null; engine?: string | null;
   rating?: number | null; recallCampaigns?: number | null;
   transmission?: string | null; bodyStyle?: string | null; doors?: number | null; seats?: number | null;
@@ -25,9 +27,11 @@ export function zipDistanceMiles(a: string | null | undefined, b: string | null 
 }
 
 /** A numeric row with a plain-words note about the extremes (lowest and highest), only when the values differ. */
-function numericRow(label: string, vals: Array<number | null>, fmt: (n: number) => string, unit: string, better?: "low" | "high"): CompareRow | null {
+function numericRow(label: string, vals: Array<number | null>, fmt: (n: number) => string, unit: string, better?: "low" | "high", flagged?: boolean[]): CompareRow | null {
   if (vals.every((v) => v == null)) return null;
-  const known = vals.map((v, i) => ({ v, i })).filter((x): x is { v: number; i: number } => x.v != null);
+  // A flagged value is displayed but is not counted: it cannot be the best, the lowest or the highest, and the row says so.
+  const known = vals.map((v, i) => ({ v, i })).filter((x): x is { v: number; i: number } => x.v != null && !flagged?.[x.i]);
+  const flaggedNums = vals.map((v, i) => (v != null && flagged?.[i] ? `#${i + 1}` : null)).filter((x): x is string => x != null);
   let note: string | undefined;
   let best: number[] | undefined;
   if (known.length >= 2) {
@@ -39,6 +43,7 @@ function numericRow(label: string, vals: Array<number | null>, fmt: (n: number) 
       note = `lowest ${lo}; highest ${hi}; spread ${fmt(max - min)}`;
     }
   }
+  if (flaggedNums.length) note = `${note ? note + "; " : ""}${flaggedNums.join(", ")} ${flaggedNums.length === 1 ? "looks" : "look"} like a data error and ${flaggedNums.length === 1 ? "is" : "are"} not counted`;
   return { label, values: vals.map((v) => (v == null ? null : fmt(v))), ...(note ? { note } : {}), ...(best ? { best } : {}) };
 }
 
@@ -53,7 +58,7 @@ function textRow(label: string, vals: Array<string | null | undefined>): Compare
 /** Rows that say how the vehicles differ. States differences only: no ranking, no judgement of safety. Rows with no data at all are left out. */
 export function buildComparison(items: CompareItem[], fromZip?: string | null): CompareRow[] {
   const rows = [
-    numericRow("Price", items.map((i) => i.price ?? null), money, "price", "low"),
+    numericRow("Price", items.map((i) => i.price ?? null), money, "price", "low", items.map((i) => !!i.priceLikelyInaccurate)),
     numericRow("Mileage", items.map((i) => i.mileage ?? null), miles, "mileage", "low"),
     numericRow("Year", items.map((i) => i.year ?? null), (n) => String(Math.round(n)), "year", "high"),
     textRow("Trim", items.map((i) => i.trim)),

@@ -41,11 +41,19 @@
 // `registerTool` implementation this session.
 import assert from "node:assert/strict";
 import test from "node:test";
-// eslint-disable-next-line import/no-relative-packages -- deliberate: see
-// header comment above for why this bypasses the package's public exports.
-// @ts-expect-error -- deep internal import has no .d.ts; verified working
-// at runtime this session (see header comment), TS can't type it.
-import { r as normalizeRawShapeSchema } from "../node_modules/@modelcontextprotocol/server/dist/src-CX2iR2pK.mjs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
+// The SDK's bundler names its files with a hash that changes from release to release (src-CX2iR2pK.mjs in 2.0.0, src-Cqbh3MYc.mjs in 2.3.1), so a fixed path broke on the first upgrade.
+// The file is found by what it contains: the one that exports normalizeRawShapeSchema as `r`. It is not in the package's public `exports` map, so it is read from disk, as before.
+function loadNormalizeRawShapeSchema(): (schema: unknown) => unknown {
+  const dist = join(__dirname, "..", "node_modules", "@modelcontextprotocol", "server", "dist");
+  const file = readdirSync(dist).filter((f) => /^src-.*\.mjs$/.test(f)).find((f) => /normalizeRawShapeSchema as r\b/.test(readFileSync(join(dist, f), "utf8")));
+  if (!file) throw new Error("normalizeRawShapeSchema was not found in the installed @modelcontextprotocol/server: the SDK's internals changed, so this test needs a new way to reach the real registration path");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- deliberate: see the header comment for why this reads an internal file
+  return require(join(dist, file)).r;
+}
+const normalizeRawShapeSchema = loadNormalizeRawShapeSchema();
 import { FindMatchingVehicleInput } from "../lib/find-matching-vehicle-input";
 
 // Exactly what route.ts's `server.registerTool("find_matching_vehicle", {

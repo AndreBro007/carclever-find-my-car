@@ -12,7 +12,7 @@ const MAX_CACHE = 2000;
 export interface NhtsaRating { overall: 1 | 2 | 3 | 4 | 5 }
 type Variant = { desc: string; rating: number | null; recalls: number | null };
 const cache = new Map<string, { t: number; variants: Variant[] }>();
-export function resetNhtsaRatingCacheForTests(): void { cache.clear(); }
+export function resetNhtsaRatingCacheForTests(): void { cache.clear(); inflight.clear(); }
 
 /** Colour tone of the card pill: each star level has its own colour (5 green, 4 light green, 3 yellow, 2 amber, 1 red). */
 export function ratingTone(n: number): "green" | "lime" | "yellow" | "amber" | "red" {
@@ -31,10 +31,23 @@ const parseRating = (v: unknown): number | null => {
   return Number.isFinite(n) && n >= 1 && n <= 5 ? n : null;
 };
 
+// Lookups that are still on their way, by model year, make and model (R4-09, 23 Oct 2026). Only finished lookups were cached, so eight cards of the same model year, asked for at the same
+// moment on a cold server, each fetched the same variant list and the same details: 24 requests for 3 distinct addresses. They now share one lookup. A shared lookup is removed when it
+// settles, so a failure is not remembered and the next request tries again; each car still picks its own drivetrain from the shared result.
+const inflight = new Map<string, Promise<Variant[] | null>>();
+
 async function loadVariants(year: string, make: string, model: string): Promise<Variant[] | null> {
   const key = `${year}|${make}|${model}`.toUpperCase();
   const hit = cache.get(key);
   if (hit && Date.now() - hit.t < TTL_MS) return hit.variants;
+  const pending = inflight.get(key);
+  if (pending) return pending;
+  const p = fetchVariants(key, year, make, model).finally(() => { inflight.delete(key); });
+  inflight.set(key, p);
+  return p;
+}
+
+async function fetchVariants(key: string, year: string, make: string, model: string): Promise<Variant[] | null> {
   const list = await getJson(`${BASE}/modelyear/${encodeURIComponent(year)}/make/${encodeURIComponent(make)}/model/${encodeURIComponent(model)}?format=json`);
   if (list == null) return null; // lookup failed: do not cache
   const found = rows(list).filter((x) => x?.VehicleId != null).slice(0, MAX_VARIANTS);
@@ -65,6 +78,25 @@ function pick(vs: Variant[], get: (v: Variant) => number | null, driveType?: str
   return null;
 }
 
+/**
+ * The star rating for ONE car (R4-02, 23 Oct 2026). The old rule dropped the unrated variants first and then asked whether the rest agreed, so one rated variant stood for the whole model:
+ * a 2025 Toyota Grand Highlander FWD, which NHTSA lists as "Not Rated" (VehicleId 20286), was shown 5 stars borrowed from the AWD (VehicleId 20287). Now the variants that apply to this car
+ * are found first (those whose description names the car's drive type, when any do; otherwise all of them), and a rating is returned only when EVERY one of them has a known rating and
+ * they agree. An unrated applicable variant means unknown, the same as a disagreement always did. Recall counts keep the older rule (pick): "not rated" has no meaning for them.
+ */
+function pickRating(vs: Variant[], driveType?: string | null): number | null {
+  let applicable = vs;
+  if (driveType) {
+    const re = new RegExp(`\\b${driveType === "4WD" ? "(4WD|4X4)" : driveType}\\b`, "i");
+    const matching = vs.filter((v) => re.test(v.desc));
+    if (matching.length > 0) applicable = matching;
+  }
+  if (applicable.length === 0) return null;
+  const ratings = applicable.map((v) => v.rating);
+  if (ratings.some((r) => r == null)) return null;
+  return new Set(ratings).size === 1 ? (ratings[0] as number) : null;
+}
+
 export interface NhtsaModelYearSafety { overall: NhtsaRating["overall"] | null; recallCampaigns: number | null }
 
 /** Rating and recall-campaign count for this model year, from the same two NHTSA calls. Null when the model year is not in NHTSA's list or the lookup failed. */
@@ -73,7 +105,7 @@ export async function lookupModelYearSafety(year: unknown, make: unknown, model:
   if (!/^\d{4}$/.test(y) || !mk || !md) return null;
   const variants = await loadVariants(y, mk, md);
   if (!variants || variants.length === 0) return null;
-  const overall = pick(variants, (v) => v.rating, driveType) as NhtsaRating["overall"] | null;
+  const overall = pickRating(variants, driveType) as NhtsaRating["overall"] | null;
   const recallCampaigns = pick(variants, (v) => v.recalls, driveType);
   return overall == null && recallCampaigns == null ? null : { overall, recallCampaigns };
 }

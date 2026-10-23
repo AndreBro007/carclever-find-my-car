@@ -55,6 +55,7 @@ import { signImageUrl } from "@/lib/image-proxy-sign";
 import { trimMatchesAny, trimContainsAllAny } from "@/lib/trim-match";
 import { resolveRequiredTrims } from "@/lib/trim-resolution";
 import { resultsSummaryLine } from "@/lib/results-summary";
+import { readBodyCapped, argumentLimitProblem, requestTooLargeResponse, invalidParamsResponse, MAX_BATCH_MESSAGES } from "@/lib/request-limits";
 import { electrifiedModelsFor, electrificationTypesOf, knownHybridOnlyFor, knownBevFor, trimWordingRegex, type ElectrifiedType } from "@/lib/electrified-models";
 import { needsWorthAsking } from "@/lib/needs-note";
 import { leftOutNote } from "@/lib/left-out-note";
@@ -1711,6 +1712,8 @@ const handler = createMcpHandler((server) => {
       const coverageGroups = isStrictAxis(input.priorityAxis) ? [] : allModelGroups;
       const coverageKeyOf = (c: VehicleListing) => groupKeyOf(c.vehicle?.model, coverageGroups);
       // A broad electrified search names no model (and may name no make): its decode pool is a little larger (ELECTRIFICATION_BROAD_POOL_SIZE) because the model list cannot narrow it (review F1).
+      // The model round robin (F8) is for the default objective only: for cheapest, newest and lowest mileage the pool stays in objective order, or the cheapest car of each model would
+      // end the decode before the other cheap cars of the leading model were looked at (round 4 review, R4-03: a regression from ed94d2b).
       const broadSearch = allModelGroups.length === 0;
       // Required (T52, SYS-20261021-003 and -012): NHTSA is asked in batches of 8 (cap ELECTRIFICATION_POOL_SIZE) and the search stops as soon as enough cars are
       // confirmed; if a whole batch gets no answer (NHTSA down) it stops at once. Cars NHTSA confirms as a requested type come first; cars it gives no usable answer for
@@ -1720,7 +1723,7 @@ const handler = createMcpHandler((server) => {
         ? await (async () => {
             const requestedTypes = input.electrificationTypes!;
             // Cars of each requested model in turn, so the first batches cover every model; the batches go on until each model has been tried (or enough cars are confirmed).
-            const pool = broadSearch
+            const pool = broadSearch && !isStrictAxis(input.priorityAxis)
               ? interleaveByModel(prioritizeElectrificationCandidates(trimOrderedCandidates, requestedTypes as ElectrifiedType[]), (c) => String(c.vehicle?.model ?? "").toLowerCase().replace(/[^a-z0-9]/g, ""))
               : interleaveByGroup(prioritizeElectrificationCandidates(trimOrderedCandidates, requestedTypes as ElectrifiedType[]), coverageKeyOf, coverageGroups);
             const isConfirmed = (r: NhtsaElectrificationResult | null | undefined) => electrificationStateSatisfies(r?.electrificationState, requestedTypes);
@@ -1756,7 +1759,7 @@ const handler = createMcpHandler((server) => {
         ? await (async () => {
             const requestedTypes = input.electrificationTypes!;
             // Cars of each requested model in turn, so the first batches cover every model; the batches go on until each model has been tried (or enough cars are confirmed).
-            const pool = broadSearch
+            const pool = broadSearch && !isStrictAxis(input.priorityAxis)
               ? interleaveByModel(prioritizeElectrificationCandidates(trimOrderedCandidates, requestedTypes as ElectrifiedType[]), (c) => String(c.vehicle?.model ?? "").toLowerCase().replace(/[^a-z0-9]/g, ""))
               : interleaveByGroup(prioritizeElectrificationCandidates(trimOrderedCandidates, requestedTypes as ElectrifiedType[]), coverageKeyOf, coverageGroups);
             const isConfirmed = (r: NhtsaElectrificationResult | null | undefined) => electrificationStateSatisfies(r?.electrificationState, requestedTypes);
@@ -3014,7 +3017,7 @@ const handler = createMcpHandler((server) => {
         const items: CompareItem[] = usable.map(({ l, card }) => ({
           vin: l.vin,
           year: card.identity.year ?? null, make: card.identity.make ?? null, model: card.identity.model ?? null, trim: card.identity.trim ?? null,
-          price: card.listing.price ?? null, mileage: card.listing.mileage ?? null,
+          price: card.listing.price ?? null, mileage: card.listing.mileage ?? null, priceLikelyInaccurate: card.badges.includes("price-likely-inaccurate"),
           condition: card.condition.inventoryType === "new" || card.condition.inventoryType === "used" ? card.condition.inventoryType : null,
           dealerZip: card.listing.zip ?? null,
           fuel: card.detail.fuelTypeDisplay ?? null, drive: card.powertrain.drivetrain ?? null, engine: card.powertrain.engine ?? null,
@@ -3027,7 +3030,7 @@ const handler = createMcpHandler((server) => {
 
         const carLines = usable.map(({ card }, i) => {
           const id = card.identity, l = card.listing;
-          const priceStr = l.price != null ? `$${l.price.toLocaleString()}` : "price unavailable";
+          const priceStr = l.price != null ? `$${l.price.toLocaleString()}${card.badges.includes("price-likely-inaccurate") ? " ⚠️ price looks like a data error, verify before trusting it" : ""}` : "price unavailable";
           const mileageStr = l.mileage != null ? `${l.mileage.toLocaleString()} mi` : "mileage not in listing (check on Edmunds)";
           const dealerStr = l.dealer ? ` — ${l.dealer}${l.city ? `, ${l.city}` : ""}${l.state ? `, ${l.state}` : ""}` : "";
           const conditionStr = card.condition.inventoryType === "new" ? "New" : card.condition.inventoryType === "used" ? "Used" : null;
@@ -3153,6 +3156,9 @@ const handler = createMcpHandler((server) => {
   // deployment; no manual version-bump step to forget. Falls back to
   // package.json's version for any environment where it's unset (e.g.
   // local dev).
+  // SDK-level guard (R4-01, advisory GHSA-46jr-4wx8-v453): the patched SDK stops validating a tool input that has more than this many array elements and object keys. It is OFF unless set, so upgrading
+  // alone changes nothing (measured: 600,000 elements took 7.1 s and 1.06 GB on 2.3.1 without it, 0.5 s and 298 MB with it). mcp-handler forwards the option to the server but its type does not list it.
+  ...({ maxToolInputElements: 200 } as Record<string, unknown>),
   serverInfo: {
     name: "carclever-find-my-car",
     version: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "0.1.0",
@@ -3166,9 +3172,14 @@ const OLD_LINK_TOOL = "resolve_dealer_url";
 const NEW_LINK_TOOL = "get_edmunds_vehicle_link";
 async function POST(req: Request): Promise<Response> {
   try {
-    const raw = await req.clone().text();
+    // R4-01 (23 Oct 2026): nothing larger than 64 KB is read, and a tool call with an absurd number of values never reaches the SDK's validator (lib/request-limits.ts).
+    const raw = await readBodyCapped(req.clone());
+    if (raw === null) return requestTooLargeResponse();
     if (raw.includes("tools/call")) {
       const body = JSON.parse(raw);
+      if (Array.isArray(body) && body.length > MAX_BATCH_MESSAGES) return invalidParamsResponse(null, `more than ${MAX_BATCH_MESSAGES} messages in one batch`);
+      const tooBig = argumentLimitProblem(body);
+      if (tooBig) return invalidParamsResponse(Array.isArray(body) ? null : (body as { id?: unknown })?.id, tooBig);
       const rebuild = (b: unknown) => new Request(req.url, { method: "POST", headers: req.headers, body: JSON.stringify(b) });
       if (Array.isArray(body)) {
         // batches: repair each call, no notes or retry
