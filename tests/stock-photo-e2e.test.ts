@@ -20,11 +20,11 @@ const CARS: C[] = [
   { vin: V(9), make: "Ford", model: "Maverick", year: 2027, cond: "new", color: "Red", image: "https://content.homenetiol.com/red-with-dealer-text.jpg", price: 30060 }, // a RED photo, but on a host whose photos carry text: never a donor
   { vin: "3N6AD1EJ0TN000001", make: "Nissan", model: "Frontier", year: 2026, cond: "new", color: "Black", image: null, price: 33000 },                  // no photo; its only possible donor is on a host with text
   { vin: "3N6AD1EJ0TN000002", make: "Nissan", model: "Frontier", year: 2026, cond: "new", color: "Black", image: "https://assets.cai-media-management.com/dealer-banner.jpg", price: 33100 },
+  { vin: V(10), make: "Ford", model: "Maverick", year: 2027, cond: "new", color: "White", image: null, price: 30070 },                              // no photo; the white donor is a STUDIO photo (images.dealer.com): it cannot vouch for the colour
   { vin: V(2), make: "Ford", model: "Maverick", year: 2027, cond: "new", color: "White", image: "https://images.dealer.com/white.jpg", price: 30100 },
   { vin: V(3), make: "Ford", model: "Maverick", year: 2027, cond: "new", color: "Gray", image: "https://partners.fastly.carvana.io/gray.jpg", price: 30200 },
   { vin: V(4), make: "Ford", model: "Maverick", year: 2027, cond: "new", color: "Red", image: null, price: 30300 },                         // no photo, no red donor
   { vin: V(5), make: "Ford", model: "Maverick", year: 2027, cond: "used", color: "Black", image: null, price: 28000 },                      // used, no photo
-  { vin: V(6), make: "Ford", model: "Maverick", year: 2027, cond: "new", color: "Blue", image: "https://content.homenetiol.com/own.jpg", price: 30400 }, // has its own photo
   { vin: V(7), make: "Ford", model: "Maverick", year: 2026, cond: "new", color: "Gray", image: "https://partners.fastly.carvana.io/y2026.jpg", price: 29000 }, // other year: never a donor for 2027
   { vin: "3TMLB5JN7TM000001", make: "Toyota", model: "Tacoma", year: 2026, cond: "new", color: "Black", image: null, price: 40000 },        // no photo, no donor at all
 ];
@@ -86,7 +86,7 @@ test("a used car with no photo gets a stock photo labelled 3 (not this car)", op
 });
 test("a car with its own photo keeps it, with no stock label", opts, async () => {
   const cs = cardsOf(await call(13, "find_matching_vehicle", { make: "Ford", model: "Maverick", yearMin: 2027, yearMax: 2027 }));
-  for (const [vin, img] of [[V(2), "https://images.dealer.com/white.jpg"], [V(3), "https://partners.fastly.carvana.io/gray.jpg"], [V(6), "https://content.homenetiol.com/own.jpg"]] as const) {
+  for (const [vin, img] of [[V(2), "https://images.dealer.com/white.jpg"], [V(3), "https://partners.fastly.carvana.io/gray.jpg"], [V(9), "https://content.homenetiol.com/red-with-dealer-text.jpg"]] as const) {
     const c = cs.find((x) => x.identity.vin === vin)!;
     assert.equal(rawOf(c.media.cardImageUrl), img); assert.equal(stockOf(c.media.cardImageUrl), null, "no stock label on a real photo");
   }
@@ -138,4 +138,13 @@ test("a model whose only possible donor carries text gets no stock photo at all 
   const noPhoto = cs.find((c) => c.identity.vin === "3N6AD1EJ0TN000001")!;
   assert.equal(noPhoto.media.cardImageUrl, null);
   assert.equal(rawOf(cs.find((c) => c.identity.vin === "3N6AD1EJ0TN000002")!.media.cardImageUrl), "https://assets.cai-media-management.com/dealer-banner.jpg", "the car's own photo is untouched");
+});
+
+test("a donor recorded in the same colour but on a studio source is labelled 'colour may differ' (the studio photo has its own colour)", opts, async () => {
+  const cs = cardsOf(await call(21, "find_matching_vehicle", { make: "Ford", model: "Maverick", yearMin: 2027, yearMax: 2027 }));
+  const white = cs.find((c) => c.identity.vin === V(10))!;
+  assert.equal(rawOf(white.media.cardImageUrl), "https://images.dealer.com/white.jpg", "the white donor is still preferred");
+  assert.equal(stockOf(white.media.cardImageUrl), "2", "but it cannot claim the colour matches");
+  const gray = cs.find((c) => c.identity.vin === V(1))!;
+  assert.equal(stockOf(gray.media.cardImageUrl), "1", "a Carvana photo is of the actual car, so its colour is believed");
 });

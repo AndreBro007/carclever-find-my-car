@@ -1,7 +1,7 @@
 // Which photos may stand in as a stock photo (23 Oct 2026): only studio and manufacturer sources that measured clean of text. Offline.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { STOCK_PHOTO_SOURCES, isStockPhotoSource, stockPhotoSourcePatterns } from "../lib/stock-photo-sources";
+import { STOCK_PHOTO_SOURCES, isStockPhotoSource, stockPhotoSourcePatterns, STOCK_SOURCES_SHOWING_LISTING_COLOUR, pictureShowsListingColour } from "../lib/stock-photo-sources";
 
 test("every source is an https prefix that ends at a path boundary, so a look-alike host cannot match", () => {
   for (const p of STOCK_PHOTO_SOURCES) { assert.match(p, /^https:\/\/[a-z0-9.-]+\/(.*\/)?$/, p); }
@@ -24,4 +24,11 @@ test("the SQL patterns are the prefixes with a trailing wildcard, special charac
   const pats = stockPhotoSourcePatterns(); assert.equal(pats.length, STOCK_PHOTO_SOURCES.length);
   for (let i = 0; i < pats.length; i++) assert.ok(pats[i].endsWith("%") && !pats[i].slice(0, -1).includes("%"));
   assert.ok(stockPhotoSourcePatterns().every((p) => !p.includes("_") || p.includes("\\_")), "an underscore would be a LIKE wildcard, so it is escaped");
+});
+
+test("only a photo of the actual car can vouch for the listing's colour (a studio service shows its own colour)", () => {
+  assert.ok(pictureShowsListingColour("https://partners.fastly.carvana.io/x.jpg"));
+  for (const u of ["https://imageonthefly.autodatadirect.com/images/?IMG=USD50FOT212B01300.jpg", "https://images.dealer.com/x.jpg", "https://media.rti.toyota.com/x.jpg",
+    "https://vehicle-images.carscommerce.inc/stock-images/chrome/x.webp", "https://autonationoverlays.blob.core.windows.net/cdstock/1/x.jpg", "", null, undefined]) assert.ok(!pictureShowsListingColour(u), String(u));
+  assert.ok(STOCK_SOURCES_SHOWING_LISTING_COLOUR.every((p) => STOCK_PHOTO_SOURCES.includes(p)), "a colour-reliable source must also be an allowed source");
 });

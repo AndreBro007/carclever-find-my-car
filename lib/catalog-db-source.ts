@@ -8,6 +8,7 @@
 import { Pool } from "pg";
 import type { VehicleListing, ListingsQuery, ListingsResponse } from "./listing-types";
 import { buildTrackingUrl, alnumKey, type BodyClass } from "./catalog-db/normalize";
+import { pictureShowsListingColour } from "./stock-photo-sources";
 import { modelFacets, allModelNames, trimFacets, rowByVin, searchRows, stockPhotos, type DbRow, type Queryable } from "./catalog-db/search";
 import { cleanConnectionString } from "./catalog-db/conn";
 
@@ -162,7 +163,8 @@ export async function stockPhotoFor(listing: VehicleListing): Promise<{ imageUrl
     const hit = stockCache.get(key);
     if (hit && Date.now() - hit.at < STOCK_TTL_MS) return hit.photo;
     const rows = await stockPhotos(getPool() as unknown as Queryable, [req]);
-    const photo = rows[0] ? { imageUrl: rows[0].imageUrl, colourMatched: rows[0].colourMatched } : null;
+    // The donor listing may have been recorded in the same colour, but only a photo of the actual car shows that colour (lib/stock-photo-sources.ts).
+    const photo = rows[0] ? { imageUrl: rows[0].imageUrl, colourMatched: rows[0].colourMatched && pictureShowsListingColour(rows[0].imageUrl) } : null;
     if (stockCache.size > 500) stockCache.clear();
     stockCache.set(key, { at: Date.now(), photo });
     return photo;

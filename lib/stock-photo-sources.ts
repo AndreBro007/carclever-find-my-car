@@ -35,3 +35,15 @@ export function isStockPhotoSource(url: string | null | undefined): boolean {
 export function stockPhotoSourcePatterns(): string[] {
   return STOCK_PHOTO_SOURCES.map((p) => p.replace(/[\\%_]/g, (c) => `\\${c}`) + "%");
 }
+
+/**
+ * Sources whose picture shows the colour the listing says (23 Oct 2026). A studio stock service shows ITS colour, not the listing's: on the real data the gray, red and white Mavericks all
+ * got the same BLUE studio photo of a 2027 Maverick from imageonthefly.autodatadirect.com while the label said the colour matched. Only a photo of the actual car can vouch for the colour, so
+ * for every other source the label is "colour may differ" even when the donor listing was recorded in the same colour. Carvana's photos are of the actual car. (images.dealer.com showed a
+ * black Tacoma for a black Tacoma, one case, which is not enough to rely on; add a source here only after checking a sample of its photos against the colours of their listings.)
+ */
+export const STOCK_SOURCES_SHOWING_LISTING_COLOUR: readonly string[] = ["https://partners.fastly.carvana.io/"];
+
+export function pictureShowsListingColour(url: string | null | undefined): boolean {
+  return !!url && STOCK_SOURCES_SHOWING_LISTING_COLOUR.some((p) => url.startsWith(p));
+}
