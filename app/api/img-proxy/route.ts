@@ -14,6 +14,7 @@
 
 import { verifyImageUrlSignature } from "@/lib/image-proxy-sign";
 import { buildStockPhotoSvg, isStockCode } from "@/lib/stock-photo-svg";
+import { sniffImageType, isGenericContentType } from "@/lib/image-sniff";
 
 export const runtime = "nodejs";
 
@@ -53,7 +54,7 @@ export async function GET(req: Request): Promise<Response> {
         ? { "User-Agent": BROWSER_UA, Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8", Referer: `${parsed.origin}/` }
         : { "User-Agent": "CarCleverFindMyCar-ImageProxy/1.0", Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8" },
     });
-  const usable = (r: Response): boolean => r.ok && !!r.body && (r.headers.get("content-type") || "").startsWith("image/");
+  const usable = (r: Response): boolean => r.ok && !!r.body && ((r.headers.get("content-type") || "").startsWith("image/") || isGenericContentType(r.headers.get("content-type")));
   let upstream: Response;
   try {
     upstream = await attempt(false);
@@ -73,8 +74,9 @@ export async function GET(req: Request): Promise<Response> {
     return new Response(`Upstream error (status ${upstream.status})`, { status: 502 });
   }
 
-  const contentType = upstream.headers.get("content-type") || "";
-  if (!contentType.startsWith("image/")) {
+  let contentType = upstream.headers.get("content-type") || "";
+  const generic = isGenericContentType(contentType);
+  if (!contentType.startsWith("image/") && !generic) {
     return new Response(`Upstream did not return an image (status ${upstream.status}, content-type ${contentType.slice(0, 40) || "none"})`, { status: 502 });
   }
 
@@ -105,7 +107,9 @@ export async function GET(req: Request): Promise<Response> {
     const all = new Uint8Array(size);
     let off = 0;
     for (const c of chunks) { all.set(c, off); off += c.byteLength; }
-    const svg = buildStockPhotoSvg(contentType, all, stockParam);
+    const knownType = generic ? sniffImageType(all) : contentType;
+    if (!knownType) return new Response(`Upstream did not return an image (status ${upstream.status}, content-type ${contentType.slice(0, 40) || "none"}, not a picture)`, { status: 502 });
+    const svg = buildStockPhotoSvg(knownType, all, stockParam);
     if (!svg) return new Response("Upstream did not return a plain image", { status: 502 });
     return new Response(svg, {
       status: 200,
@@ -116,8 +120,22 @@ export async function GET(req: Request): Promise<Response> {
   // Stream with a hard byte cap even when content-length is absent/lying.
   const reader = upstream.body.getReader();
   let total = 0;
+  // A response with no useful Content-Type (autodatadirect sends none) is a picture only if its first bytes say so: peek the first chunk, then stream it first.
+  let held: Uint8Array | null = null;
+  if (generic) {
+    try {
+      const first = await reader.read();
+      if (first.done || !first.value) return new Response("Upstream sent no body", { status: 502 });
+      const sniffed = sniffImageType(first.value);
+      if (!sniffed) { reader.cancel(); return new Response(`Upstream did not return an image (status ${upstream.status}, content-type ${contentType.slice(0, 40) || "none"}, not a picture)`, { status: 502 }); }
+      contentType = sniffed; held = first.value;
+    } catch {
+      return new Response("Upstream read failed", { status: 502 });
+    }
+  }
   const stream = new ReadableStream({
     async pull(controller) {
+      if (held) { total += held.byteLength; controller.enqueue(held); held = null; return; }
       const { done, value } = await reader.read();
       if (done) {
         controller.close();
