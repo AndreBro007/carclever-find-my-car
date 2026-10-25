@@ -76,6 +76,10 @@ export async function GET(req: Request): Promise<Response> {
 
   let contentType = upstream.headers.get("content-type") || "";
   const generic = isGenericContentType(contentType);
+  // SVG is never passed on from a host (23 Oct 2026 review): an SVG can carry script, and this proxy serves it from our own site.
+  if (contentType.toLowerCase().startsWith("image/svg")) {
+    return new Response(`Upstream did not return a plain image (status ${upstream.status}, content-type ${contentType.slice(0, 40)})`, { status: 502 });
+  }
   if (!contentType.startsWith("image/") && !generic) {
     return new Response(`Upstream did not return an image (status ${upstream.status}, content-type ${contentType.slice(0, 40) || "none"})`, { status: 502 });
   }
@@ -158,6 +162,8 @@ export async function GET(req: Request): Promise<Response> {
     status: 200,
     headers: {
       "Content-Type": contentType,
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "default-src 'none'; img-src 'self' data:; sandbox",
       "Cache-Control": "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800",
     },
   });
