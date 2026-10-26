@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "carclever": {
+      "url": "https://carclever-db.getcarwise.app/mcp"
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "carclever-buying-assistant",
+  "version": "1.0.0",
+  "description": "CarClever – Buying Assistant by GetCarWise helps US shoppers find the right car and buy with confidence. Search new and used Edmunds dealer listings by location, budget and preferences, including hybrid and electric options. Refine your search naturally in conversation, browse vehicle cards, spot price drops, compare your shortlist and check VIN-linked information from NHTSA. Take the next step with the dealer through Edmunds. Free to use, with no account or API key required. Edmunds affiliate links are clearly disclosed.",
+  "author": {
+    "name": "GetCarWise (Broekman Consulting Pty Ltd)",
+    "email": "info@getcarwise.app"
+  },
+  "homepage": "https://getcarwise.app/carclever-buying-assistant/",
+  "repository": "https://github.com/AndreBro007/carclever-find-my-car",
+  "license": "MIT",
+  "keywords": ["mcp", "cars", "car-buying", "vehicle-search", "vin-check", "edmunds", "nhtsa"],
+  "logo": "public/cc-logo-square.png"
+}
