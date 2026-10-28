@@ -106,11 +106,21 @@ if [ "$SFTP_OK" -eq 1 ]; then
   # curl SFTP URLs are absolute from the server's root; "/~/" means the login's home folder, which is where FTP starts.
   # Run #23 (28 Oct 2026): "/Edmunds/" gave "No such file or directory", so the home-relative path "/~/Edmunds/" is used and the
   # root, the home folder and the Edmunds folder are listed (names only) so the log shows where the files really are.
-  for d in "" "~/" "~/Edmunds/"; do
-    echo "SFTP folder /$d (names only):"; curl -sS -m 40 -u "$CRED" --list-only "sftp://$HOST/$d" 2>&1 | sed 's/^/  /' | head -8
+  # Run #24 (28 Oct 2026): the SFTP root and home showed only "INCREMENTAL", so that folder is listed too (up to 15 names and a line count).
+  for d in "" "~/" "~/Edmunds/" "~/INCREMENTAL/"; do
+    echo "SFTP folder /$d (names only):"
+    out=$(curl -sS -m 40 -u "$CRED" --list-only "sftp://$HOST/$d" 2>&1)
+    printf '%s\n' "$out" | head -15 | sed 's/^/  /'
+    echo "  ($(printf '%s\n' "$out" | wc -l) lines in total)"
   done
 fi
 echo "folder listing over FTP (names only):";  curl -sS -m 40 --ftp-pasv -u "$CRED" --list-only "ftp://$HOST/Edmunds/" 2>&1 | sed 's/^/  /' | head -8
+for d in "" "INCREMENTAL/"; do
+  echo "FTP folder /$d (names only):"
+  out=$(curl -sS -m 40 --ftp-pasv -u "$CRED" --list-only "ftp://$HOST/$d" 2>&1)
+  printf '%s\n' "$out" | head -15 | sed 's/^/  /'
+  echo "  ($(printf '%s\n' "$out" | wc -l) lines in total)"
+done
 EXPECTED=$(curl -sS -m 40 --ftp-pasv -u "$CRED" -I "ftp://$HOST/$FILE" 2>/dev/null | tr -d '\r' | awk 'tolower($1)=="content-length:"{print $2}' | head -1)
 echo "expected size per FTP server: ${EXPECTED:-unknown} bytes"
 
