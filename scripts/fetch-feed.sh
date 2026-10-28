@@ -103,7 +103,12 @@ done <<< "$SCAN"
 [ "$SFTP_OK" -eq 1 ] || echo "  SFTP will be skipped: no server key matches the pin"
 
 if [ "$SFTP_OK" -eq 1 ]; then
-  echo "folder listing over SFTP (names only):"; curl -sS -m 40 -u "$CRED" --list-only "sftp://$HOST/Edmunds/" 2>&1 | sed 's/^/  /' | head -8
+  # curl SFTP URLs are absolute from the server's root; "/~/" means the login's home folder, which is where FTP starts.
+  # Run #23 (28 Oct 2026): "/Edmunds/" gave "No such file or directory", so the home-relative path "/~/Edmunds/" is used and the
+  # root, the home folder and the Edmunds folder are listed (names only) so the log shows where the files really are.
+  for d in "" "~/" "~/Edmunds/"; do
+    echo "SFTP folder /$d (names only):"; curl -sS -m 40 -u "$CRED" --list-only "sftp://$HOST/$d" 2>&1 | sed 's/^/  /' | head -8
+  done
 fi
 echo "folder listing over FTP (names only):";  curl -sS -m 40 --ftp-pasv -u "$CRED" --list-only "ftp://$HOST/Edmunds/" 2>&1 | sed 's/^/  /' | head -8
 EXPECTED=$(curl -sS -m 40 --ftp-pasv -u "$CRED" -I "ftp://$HOST/$FILE" 2>/dev/null | tr -d '\r' | awk 'tolower($1)=="content-length:"{print $2}' | head -1)
@@ -112,7 +117,7 @@ echo "expected size per FTP server: ${EXPECTED:-unknown} bytes"
 rm -f "$OUT"
 echo "route 1: SFTP (encrypted, host key pinned via known_hosts)"
 if [ "$SFTP_OK" -ne 1 ]; then echo "  skipped: no server key matches the pin"
-elif download "SFTP" "sftp://$HOST/$FILE" -u "$CRED" && check "$OUT"; then echo "ACCEPTED: SFTP"; exit 0; fi
+elif download "SFTP" "sftp://$HOST/~/$FILE" -u "$CRED" && check "$OUT"; then echo "ACCEPTED: SFTP"; exit 0; fi
 rm -f "$OUT"
 echo "route 2: plain FTP (not encrypted; the server offers no FTPS)"
 if download "FTP" "ftp://$HOST/$FILE" --ftp-pasv -u "$CRED" && check "$OUT"; then echo "ACCEPTED: plain FTP (expected size ${EXPECTED:-unknown})"; exit 0; fi
