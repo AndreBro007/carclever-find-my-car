@@ -24,7 +24,8 @@ function ensureTable(): Promise<void> {
         day date NOT NULL DEFAULT current_date,
         make text, model text, price_band text, state char(2),
         found integer NOT NULL, shown integer NOT NULL)`)
-      .then(() => undefined);
+      .then(() => undefined)
+      .catch((e) => { tableReady = null; throw e; }); // a failure is not remembered: the next call tries again (T166)
   }
   return tableReady;
 }

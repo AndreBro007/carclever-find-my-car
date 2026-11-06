@@ -86,6 +86,9 @@ export interface NhtsaRequestLedger {
   failures: Record<string, number>;
 }
 const ledgerStore = new AsyncLocalStorage<NhtsaRequestLedger>();
+/** Optional listener told how many decodes failed in a request (used by usage events; counts only). Registering nothing changes nothing. */
+let failureSink: ((total: number) => void) | null = null;
+export function setNhtsaFailureSink(fn: ((total: number) => void) | null): void { failureSink = fn; }
 /**
  * Runs one request with its own ledger and, if any decode failed, writes ONE line to the runtime log with the counts per failure class. Until 22 Oct 2026 a failed decode was silent,
  * so when NHTSA stopped answering the test server (about 11:15 to 12:20 UTC) there was no record of what it had said. The line carries no VIN and no buyer data.
@@ -95,7 +98,10 @@ export async function runWithNhtsaLedger<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await ledgerStore.run(ledger, fn);
   } finally {
-    if (Object.keys(ledger.failures).length > 0) console.warn(`[nhtsa-failures] ${JSON.stringify(ledger.failures)}${ledger.down ? " breaker=open" : ""}`);
+    if (Object.keys(ledger.failures).length > 0) {
+      console.warn(`[nhtsa-failures] ${JSON.stringify(ledger.failures)}${ledger.down ? " breaker=open" : ""}`);
+      if (failureSink) { try { failureSink(Object.values(ledger.failures).reduce((a, b) => a + b, 0)); } catch { /* counting must never affect a search */ } }
+    }
   }
 }
 function markNhtsaDown(): void { const l = ledgerStore.getStore(); if (l) l.down = true; }

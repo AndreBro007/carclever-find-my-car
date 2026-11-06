@@ -23,6 +23,7 @@ import { rowByVin } from "@/lib/catalog-db/search";
 import { getCatalogPool, rowToListing, stockPhotoFor, CATALOG_SERVICE_ERROR } from "@/lib/catalog-db-source";
 import { stockCodeFor } from "@/lib/stock-photo-svg";
 import { logSearchEvent } from "@/lib/search-log";
+import { instrumentTools, runWithUsageContext, noteListenMessages, noteListenOutcome, countListenMessages, noteToolValidationFailure } from "@/lib/usage-events";
 import { verifyAgainstConstraints } from "@/lib/post-verify";
 import { parseIntent } from "@/lib/intent-parser";
 import { applyDiversity } from "@/lib/diversity";
@@ -726,6 +727,7 @@ function buildStandaloneIdentityCard(params: {
 }
 
 const handler = createMcpHandler((server) => {
+  instrumentTools(server); // usage events (Phase C P6): times and records each tool call after the answer; inert unless enabled for this host
   // MCP Apps (SEP-1865) result-card widget — a STATIC resource, registered
   // once. Real per-search data is delivered to it client-side via
   // ui/notifications/tool-result (see lib/results-card.ts); this server-side
@@ -3180,11 +3182,12 @@ const handler = createMcpHandler((server) => {
 // The old name is NOT listed in tools/list, so reviewers and AI clients only ever see the new name.
 const OLD_LINK_TOOL = "resolve_dealer_url";
 const NEW_LINK_TOOL = "get_edmunds_vehicle_link";
-async function POST(req: Request): Promise<Response> {
+async function postInner(req: Request): Promise<Response> {
   try {
     // R4-01 (23 Oct 2026): nothing larger than 64 KB is read, and a tool call with an absurd number of values never reaches the SDK's validator (lib/request-limits.ts).
     const raw = await readBodyCapped(req.clone());
     if (raw === null) return requestTooLargeResponse();
+    noteListenMessages(countListenMessages(raw)); // real subscriptions/listen messages only; counted per day once the answer is known, no payload stored
     if (raw.includes("tools/call")) {
       const body = JSON.parse(raw);
       if (Array.isArray(body) && body.length > MAX_BATCH_MESSAGES) return invalidParamsResponse(null, `more than ${MAX_BATCH_MESSAGES} messages in one batch`);
@@ -3212,6 +3215,7 @@ async function POST(req: Request): Promise<Response> {
         const r = normalizeToolArguments(name, body.params.arguments);
         if (r.changes.length) { body.params.arguments = r.args; console.warn(`[tool-input] ${name}: ${r.changes.join("; ")}`); } // field names only, never values
         const ignored = [...r.ignored];
+        const callStart = Date.now();
         let res = await handler(rebuild(body));
         let text = await res.clone().text();
         if (text.includes("Input validation error")) {
@@ -3229,6 +3233,7 @@ async function POST(req: Request): Promise<Response> {
             }
           }
         }
+        if (text.includes("Input validation error")) noteToolValidationFailure(name, body.params.arguments, Date.now() - callStart); // the SDK refused the input before the tool ran: still recorded (outcome invalid_input)
         if (ignored.length) {
           const headers = new Headers(res.headers); headers.delete("content-length");
           return new Response(addNoteToMcpResponseText(text, ignoredInputsNote(ignored)), { status: res.status, headers });
@@ -3242,4 +3247,6 @@ async function POST(req: Request): Promise<Response> {
   }
   return handler(req);
 }
+// Every POST runs inside a small per-request context (host and caller class) so usage events know where a call came from.
+async function POST(req: Request): Promise<Response> { return runWithUsageContext(req, async () => { const res = await postInner(req); noteListenOutcome(res.status); return res; }); }
 export { handler as GET, POST, handler as DELETE };
