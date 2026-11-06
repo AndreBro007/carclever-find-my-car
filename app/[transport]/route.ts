@@ -3163,6 +3163,12 @@ const handler = createMcpHandler((server) => {
   // SDK-level guard (R4-01, advisory GHSA-46jr-4wx8-v453): the patched SDK stops validating a tool input that has more than this many array elements and object keys. It is OFF unless set, so upgrading
   // alone changes nothing (measured: 600,000 elements took 7.1 s and 1.06 GB on 2.3.1 without it, 0.5 s and 298 MB with it). mcp-handler forwards the option to the server but its type does not list it.
   ...({ maxToolInputElements: 200 } as Record<string, unknown>),
+  // Route B (Phase C P4, André approved 6 Nov 2026, test branch only): this server never sends change notifications, so it must not
+  // advertise them. Clients then have nothing to subscribe to. Revert this block to restore the previous behaviour.
+  capabilities: {
+    tools: { listChanged: false },
+    resources: { listChanged: false },
+  },
   serverInfo: {
     name: "carclever-find-my-car",
     version: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "0.1.0",
