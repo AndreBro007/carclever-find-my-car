@@ -46,7 +46,7 @@ export const FindMatchingVehicleInput = z.object({
   electrificationTypes: z.array(z.enum(["hybrid", "plug_in_hybrid", "electric"])).optional().describe("hybrid (includes mild hybrid), plug_in_hybrid and/or electric. See rule 4."),
   electrificationRequirement: z.enum(["required", "preferred"]).optional().describe("Whether the stated electrification types are required or preferred."),
   // Widened per design doc §2 — all live-verified filterable.
-  drivetrain: z.string().optional().describe("AWD, 4WD, FWD, RWD or a comma-separated set. Cars decoded with a different drivetrain are left out; confirmed cars come first; unconfirmed cars follow, marked."),
+  drivetrain: z.string().optional().describe("AWD, 4WD, FWD, RWD or a comma-separated set. Cars decoded with a different drivetrain are left out; confirmed cars come first; unconfirmed cars follow, marked. AWD and 4WD are searched together; low-range capability is not verified."),
   transmission: z.enum(["Automatic", "Manual"]).optional().describe("Not used as a filter; shown on a result when known."),
   exteriorColor: z.string().optional().describe("Requested exterior colour."),
   interiorColor: z.string().optional().describe("Requested interior colour."),

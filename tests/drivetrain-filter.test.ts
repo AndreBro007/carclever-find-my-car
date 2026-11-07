@@ -46,15 +46,43 @@ test("partition keeps order, puts confirmed and silent cars in separate groups a
   assert.equal(p.excluded, 2);
 });
 
-test("the search-level line says what is and is not confirmed", () => {
+test("the search-level line reports what the VIN data labels, never a mechanical confirmation", () => {
   const w = wantedDriveClasses("AWD")!;
-  assert.match(drivetrainNote("AWD", ["AWD", "4WD"], w, 0)!, /confirmed by the VIN decode on all 2 shown/);
-  assert.match(drivetrainNote("AWD", ["AWD", null, null], w, 3)!, /confirmed on 1 of 3 shown \(listed first\); the others are marked not confirmed.*different drivetrain were left out.*Ask the dealer/);
+  const w4 = wantedDriveClasses("4WD")!;
+  // mixed labels: the approved wording, counts from the shown cars
+  assert.equal(drivetrainNote("4WD", ["4WD", "4WD", "4WD", "4WD", "4WD", "4WD", "AWD", "AWD"], w4, 0), "VIN data labels 6 vehicles as 4WD and 2 as AWD. This search includes both. Low-range capability is not verified; confirm it with the dealer if required.");
+  assert.equal(drivetrainNote("AWD", ["4WD", "4WD", "4WD", "4WD", "4WD", "4WD", "4WD", "AWD"], w, 0), "VIN data labels 7 vehicles as 4WD and 1 as AWD. This search includes both. Low-range capability is not verified; confirm it with the dealer if required.");
+  // one label on all: the same caution, because matching labels do not show low-range capability
+  assert.equal(drivetrainNote("AWD", ["AWD", "AWD"], w, 0), "VIN data labels all 2 vehicles as AWD. This search includes both AWD and 4WD. Low-range capability is not verified; confirm it with the dealer if required.");
+  assert.equal(drivetrainNote("4WD", ["4WD"], w4, 0), "VIN data labels 1 vehicle as 4WD. This search includes both AWD and 4WD. Low-range capability is not verified; confirm it with the dealer if required.");
+  // some cars with no label: counted, marked not confirmed, different-drivetrain cars left out
+  const some = drivetrainNote("AWD", ["AWD", null, null], w, 3)!;
+  assert.equal(some, "VIN data labels 1 of 3 vehicles as AWD. This search includes both AWD and 4WD. 2 have no drivetrain label in the VIN data and are marked not confirmed. Low-range capability is not verified; confirm it with the dealer if required. Cars the VIN decode shows with a different drivetrain were left out.");
+  // none labelled
   const none = drivetrainNote("AWD", [null, ""], w, 0)!;
-  assert.match(none, /could not be confirmed on any of these\./);
+  assert.equal(none, "VIN data gives no drivetrain label for any of the 2 vehicles shown; they are marked not confirmed. This search includes both AWD and 4WD. Low-range capability is not verified; confirm it with the dealer if required.");
   assert.ok(!/VIN decode has no drivetrain/.test(none)); // no claim about why
   assert.ok(!/filtered/.test(none));
   assert.equal(drivetrainNote("AWD", [], w, 0), null);
+  // FWD or RWD requests: the same principle, no low-range sentence
+  const wf = wantedDriveClasses("FWD")!;
+  assert.equal(drivetrainNote("FWD", ["FWD", "FWD", "FWD"], wf, 0), "VIN data labels all 3 vehicles as FWD.");
+  assert.equal(drivetrainNote("FWD,RWD", ["FWD", "RWD", null], wantedDriveClasses("FWD,RWD")!, 0), "VIN data labels 1 vehicle as FWD and 1 as RWD. 1 has no drivetrain label in the VIN data and is marked not confirmed. Ask the dealer to confirm.");
+  assert.ok(!/Low-range/.test(drivetrainNote("FWD", ["FWD"], wf, 0)!));
+  // the old claim is retired everywhere
+  for (const note of [drivetrainNote("AWD", ["AWD", "AWD"], w, 0), drivetrainNote("4WD", ["4WD", "AWD"], w4, 0), drivetrainNote("AWD", [null], w, 0)]) assert.ok(!/confirmed by the VIN decode/.test(note!));
+});
+
+test("the note's counts always equal the cars shown and it never names a label that is not on a shown car", () => {
+  const w = wantedDriveClasses("4WD")!;
+  for (const shown of [["4WD", "AWD", "4WD"], ["AWD", "AWD", "AWD", "AWD"], ["4x4", "All-Wheel Drive", null], ["AWD/All-Wheel Drive", "4WD/4-Wheel Drive/4x4"]]) {
+    const note = drivetrainNote("4WD", shown, w, 0)!;
+    const four = shown.filter((s) => /4WD|4X4|4-WHEEL/i.test(String(s ?? "")) && !/AWD|ALL[- ]?WHEEL/i.test(String(s ?? ""))).length;
+    const awd = shown.filter((s) => /AWD|ALL[- ]?WHEEL/i.test(String(s ?? ""))).length;
+    if (four === 0) assert.ok(!/as 4WD/.test(note), note);
+    if (awd === 0) assert.ok(!/as AWD/.test(note), note);
+    if (four > 0 && awd > 0) assert.ok(note.includes(`${four} vehicle${four === 1 ? "" : "s"} as 4WD and ${awd} as AWD`), note);
+  }
 });
 
 test("accounting never claims a drivetrain filter that did not run", () => {

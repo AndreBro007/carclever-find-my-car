@@ -51,15 +51,51 @@ export function partitionByDrive<T>(items: T[], decodedOf: (t: T) => string | nu
   return { confirmed, unknown, excluded };
 }
 
-/** One search-level line for the reply: how many of the shown cars have the drivetrain confirmed. Null when nothing is shown. */
-export function drivetrainNote(requested: string, shown: Array<string | null | undefined>, wanted: Set<WantedDrive>, excluded: number): string | null {
+/** The drivetrain label a decoded text carries ("AWD", "4WD", "FWD", "RWD", "4x2"), or null when it carries none. This reports what the VIN data says; it does not decide anything. */
+function decodedLabel(s: string | null | undefined): "AWD" | "4WD" | "FWD" | "RWD" | "4x2" | null {
+  const t = String(s ?? "").trim();
+  if (!t) return null;
+  if (/AWD|ALL[- ]?WHEEL/i.test(t)) return "AWD";
+  if (/4WD|4X4|4[- ]?WHEEL|FOUR[- ]?WHEEL/i.test(t)) return "4WD";
+  if (/FWD|FRONT[- ]?WHEEL/i.test(t)) return "FWD";
+  if (/RWD|REAR[- ]?WHEEL/i.test(t)) return "RWD";
+  if (/4X2|4 X 2|2WD|2[- ]?WHEEL/i.test(t)) return "4x2";
+  return null;
+}
+
+/**
+ * One search-level line for the reply. It reports what the VIN data LABELS on the cars that are shown (counts come from those cars), never a mechanical
+ * confirmation: the labels are used loosely (many all-wheel-drive crossovers are labelled 4WD), AWD and 4WD are searched together, and matching labels
+ * do not show low-range capability, so that caution is given even when every car has the same label. Null when nothing is shown. The filtering is not touched here.
+ */
+export function drivetrainNote(_requested: string, shown: Array<string | null | undefined>, wanted: Set<WantedDrive>, excluded: number): string | null {
   const n = shown.length;
   if (n === 0) return null;
-  const confirmed = shown.filter((d) => judgeDrive(d, wanted) === "match").length;
   const left = excluded > 0 ? " Cars the VIN decode shows with a different drivetrain were left out." : "";
-  if (confirmed === n) return `Drivetrain ${requested}: confirmed by the VIN decode on all ${n} shown.${left}`;
-  if (confirmed === 0) return `Drivetrain ${requested} could not be confirmed on any of these.${left} Ask the dealer to confirm the drivetrain.`;
-  return `Drivetrain ${requested}: confirmed on ${confirmed} of ${n} shown (listed first); the others are marked not confirmed.${left} Ask the dealer to confirm.`;
+  const labels = shown.map(decodedLabel);
+  const order = ["4WD", "AWD", "FWD", "RWD", "4x2"] as const;
+  const parts = order.map((l) => ({ l, k: labels.filter((x) => x === l).length })).filter((p) => p.k > 0);
+  const labelled = parts.reduce((a, p) => a + p.k, 0);
+  const unlabelled = n - labelled;
+  const veh = (k: number) => `${k} vehicle${k === 1 ? "" : "s"}`;
+  const awd4 = wanted.has("awd4");
+  const caution = awd4 ? " Low-range capability is not verified; confirm it with the dealer if required." : "";
+  if (labelled === 0) {
+    return `VIN data gives no drivetrain label for ${n === 1 ? "the vehicle" : `any of the ${n} vehicles`} shown; ${n === 1 ? "it is" : "they are"} marked not confirmed.${awd4 ? " This search includes both AWD and 4WD." : ""}${caution}${awd4 ? "" : " Ask the dealer to confirm the drivetrain."}${left}`;
+  }
+  let sentence: string;
+  if (parts.length === 1) {
+    const p = parts[0];
+    sentence = labelled === n ? (n === 1 ? `VIN data labels 1 vehicle as ${p.l}.` : `VIN data labels all ${n} vehicles as ${p.l}.`) : `VIN data labels ${labelled} of ${n} vehicles as ${p.l}.`;
+  } else {
+    const bits = parts.map((p, i) => (i === 0 ? `${veh(p.k)} as ${p.l}` : `${p.k} as ${p.l}`));
+    sentence = `VIN data labels ${bits.length > 2 ? `${bits.slice(0, -1).join(", ")} and ${bits[bits.length - 1]}` : bits.join(" and ")}.`;
+  }
+  const hasBoth = parts.some((p) => p.l === "4WD") && parts.some((p) => p.l === "AWD");
+  const includes = awd4 ? (hasBoth ? " This search includes both." : " This search includes both AWD and 4WD.") : "";
+  const un = unlabelled > 0 ? ` ${unlabelled} ${unlabelled === 1 ? "has" : "have"} no drivetrain label in the VIN data and ${unlabelled === 1 ? "is" : "are"} marked not confirmed.` : "";
+  const ask = !awd4 && unlabelled > 0 ? " Ask the dealer to confirm." : "";
+  return `${sentence}${includes}${un}${caution}${ask}${left}`;
 }
 
 /**
