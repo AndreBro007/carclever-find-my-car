@@ -2569,7 +2569,7 @@ const handler = createMcpHandler((server) => {
           })()
         : "";
       // Summary line (22 Oct 2026): server-calculated, placed after the "Found N" line and before card 1, where the Lite parser ignores it.
-      const summaryBlock = (() => { const line = resultsSummaryLine(cards as never); return line ? line + "\n\n" : ""; })();
+      const summaryBlock = (() => { const line = resultsSummaryLine(cards as never, { totalMatches: totalPhrase ? (total as number) : null }); return line ? line + "\n\n" : ""; })();
 
       const summary =
         serviceFailureMessage

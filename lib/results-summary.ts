@@ -15,7 +15,12 @@ export interface SummaryCard {
 const money = (n: number): string => `$${Math.round(n).toLocaleString("en-US")}`;
 const label = (c: SummaryCard): string => [c.identity.year, c.identity.make, c.identity.model, c.identity.trim].filter((x) => x != null && String(x).trim() !== "").join(" ");
 
-export function resultsSummaryLine(cards: readonly SummaryCard[]): string {
+/**
+ * Group 2, item 5 B4(i) (9 Nov 2026): "Cheapest" is the cheapest of the cars LISTED, not of all matches; on 24 Oct a chat said "those are the only two models that came up" about a search that returns the
+ * 8 best. The line now says "Cheapest of these N", and, only when the caller knows the number of matches and it is larger than the number shown (the caller passes it only when nothing narrowed the list
+ * after the database count), ends with "N of T matches shown."
+ */
+export function resultsSummaryLine(cards: readonly SummaryCard[], opts: { totalMatches?: number | null } = {}): string {
   if (cards.length < 2) return "";
   const counts = new Map<string, number>();
   for (const c of cards) {
@@ -27,7 +32,7 @@ export function resultsSummaryLine(cards: readonly SummaryCard[]): string {
   const priced = cards.filter((c) => c.listing.price != null && !(c.badges ?? []).includes("price-likely-inaccurate"));
   if (priced.length > 0) {
     const cheapest = priced.reduce((a, b) => (b.listing.price! < a.listing.price! ? b : a));
-    parts.push(`Cheapest ${money(cheapest.listing.price!)}: ${label(cheapest)}.`);
+    parts.push(`Cheapest of these ${cards.length} ${money(cheapest.listing.price!)}: ${label(cheapest)}.`);
   }
   const usedWithMiles = cards.filter((c) => c.condition?.inventoryType === "used" && c.listing.mileage != null);
   if (usedWithMiles.length > 0) {
@@ -39,5 +44,7 @@ export function resultsSummaryLine(cards: readonly SummaryCard[]): string {
     const lo = Math.min(...prices), hi = Math.max(...prices);
     if (lo !== hi) parts.push(`Price range ${money(lo)} to ${money(hi)}.`);
   }
+  const total = opts.totalMatches;
+  if (typeof total === "number" && Number.isFinite(total) && total > cards.length) parts.push(`${cards.length} of ${Math.round(total).toLocaleString("en-US")} matches shown.`);
   return `Summary (calculated by the server from the cars listed below; quote it as it is): ${parts.join(" ")}`;
 }
