@@ -128,7 +128,8 @@ test("F2: when the NHTSA service does not answer, the reply says so, and ONE log
   assert.match(t, /NHTSA's VIN service did not answer, so 6 of these could not be confirmed as electric and are marked on each listing; ask the dealer to confirm, or try again shortly\./);
   const lineOf = warned.filter((w) => w.startsWith("[nhtsa-failures]"));
   assert.equal(lineOf.length, 1, "exactly one line per search");
-  assert.equal(lineOf[0], '[nhtsa-failures] {"http_503":6} breaker=open');
+  assert.ok(lineOf[0].startsWith('[nhtsa-failures] {"http_503":6} breaker=open'), "the original text of the line is unchanged");
+  assert.match(lineOf[0], /^\[nhtsa-failures\] \{"http_503":6\} breaker=open caller=(claude|chatgpt|grok|other|unknown) asked=\d+ span_ms=(\d+|na) since_prev=(first|\d+s)$/, "design 3 step A: four new fields at the end");
   assert.ok(!/5YJ/.test(lineOf[0]), "no VIN in the log");
 });
 

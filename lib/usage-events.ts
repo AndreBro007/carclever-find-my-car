@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { after } from "next/server";
 import { getCatalogPool } from "./catalog-db-source";
 import { priceBand } from "./search-log";
-import { setNhtsaFailureSink } from "./nhtsa-client";
+import { setNhtsaFailureSink, setNhtsaCallerProvider } from "./nhtsa-client";
 
 /**
  * Usage events (Phase C P6, design approved by André 6 Nov 2026). One row per tool call in usage_event, plus a daily listen counter and a daily summary.
@@ -168,6 +168,7 @@ export function runWithUsageContext<T>(req: Request, fn: () => Promise<T>): Prom
 // Only find_matching_vehicle tracks NHTSA failures in the existing code; for the other tools the column stays empty (not captured), which is different from 0 (captured, none).
 const callStore = new AsyncLocalStorage<{ failures: number }>();
 setNhtsaFailureSink((n) => { const c = callStore.getStore(); if (c) c.failures += n; });
+setNhtsaCallerProvider(() => store.getStore()?.caller ?? null);
 
 // ---- database ----
 let poolOverride: { query: (sql: string, params?: unknown[]) => Promise<any> } | null = null;

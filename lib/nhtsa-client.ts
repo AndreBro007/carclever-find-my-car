@@ -84,11 +84,43 @@ export interface NhtsaRequestLedger {
   down: boolean;
   /** Why decodes failed in this request, by class (review F2, 22 Oct 2026): http_<status>, timeout, parse, empty, decode_error (the VIN itself did not decode cleanly), error. Counts only, never a VIN. */
   failures: Record<string, number>;
+  /** Group 1 design 3 (9 Nov 2026), diagnostics only: how many decodes were really sent to NHTSA in this request (cache hits are not counted), and when the first started and the last ended. */
+  asked?: number;
+  firstStart?: number;
+  lastEnd?: number;
 }
 const ledgerStore = new AsyncLocalStorage<NhtsaRequestLedger>();
 /** Optional listener told how many decodes failed in a request (used by usage events; counts only). Registering nothing changes nothing. */
 let failureSink: ((total: number) => void) | null = null;
 export function setNhtsaFailureSink(fn: ((total: number) => void) | null): void { failureSink = fn; }
+/** Optional provider of the caller class (claude, chatgpt, grok, other, unknown) for the failure line; registered by usage-events so this file needs no import of it. Registering nothing means "unknown". */
+let callerProvider: (() => string | null) | null = null;
+export function setNhtsaCallerProvider(fn: (() => string | null) | null): void { callerProvider = fn; }
+const CALLER_CLASSES = new Set(["claude", "chatgpt", "grok", "other", "unknown"]);
+function callerForLine(): string {
+  try { const c = callerProvider?.(); return typeof c === "string" && CALLER_CLASSES.has(c) ? c : "unknown"; } catch { return "unknown"; }
+}
+/** Seconds-since-previous-failure needs one number per server instance; nothing else is remembered. */
+let lastFailureLoggedAt: number | null = null;
+export function resetNhtsaDiagnosticsForTests(): void { lastFailureLoggedAt = null; callerProvider = null; }
+
+/**
+ * Group 1 design 3, step B (9 Nov 2026): an HONEST, descriptive identity on the decode request, only when NHTSA_SEND_HEADERS=1 (default off, so nothing changes until it is switched on).
+ * Until now the request carried no User-Agent or Accept at all (a bare fetch). This never imitates a browser: it names this service and its site. Read at call time, so it can be toggled in tests.
+ */
+export const NHTSA_USER_AGENT = "CarClever/1.0 (+https://getcarwise.app)";
+function nhtsaHeaders(): Record<string, string> | null {
+  return process.env.NHTSA_SEND_HEADERS === "1" ? { "User-Agent": NHTSA_USER_AGENT, Accept: "application/json" } : null;
+}
+async function fetchDecode(vin: string, ledger: NhtsaRequestLedger | undefined): Promise<Response> {
+  if (ledger) { ledger.asked = (ledger.asked ?? 0) + 1; if (ledger.firstStart === undefined) ledger.firstStart = Date.now(); }
+  const headers = nhtsaHeaders();
+  try {
+    return await fetch(`${NHTSA_BASE_URL}/${encodeURIComponent(vin)}?format=json`, headers ? { signal: AbortSignal.timeout(NHTSA_TIMEOUT_MS), headers } : { signal: AbortSignal.timeout(NHTSA_TIMEOUT_MS) });
+  } finally {
+    if (ledger) ledger.lastEnd = Date.now();
+  }
+}
 /**
  * Runs one request with its own ledger and, if any decode failed, writes ONE line to the runtime log with the counts per failure class. Until 22 Oct 2026 a failed decode was silent,
  * so when NHTSA stopped answering the test server (about 11:15 to 12:20 UTC) there was no record of what it had said. The line carries no VIN and no buyer data.
@@ -99,7 +131,12 @@ export async function runWithNhtsaLedger<T>(fn: () => Promise<T>): Promise<T> {
     return await ledgerStore.run(ledger, fn);
   } finally {
     if (Object.keys(ledger.failures).length > 0) {
-      console.warn(`[nhtsa-failures] ${JSON.stringify(ledger.failures)}${ledger.down ? " breaker=open" : ""}`);
+      const now = Date.now();
+      const since = lastFailureLoggedAt === null ? "first" : `${Math.max(0, Math.round((now - lastFailureLoggedAt) / 1000))}s`;
+      lastFailureLoggedAt = now;
+      const span = ledger.firstStart !== undefined && ledger.lastEnd !== undefined ? String(Math.max(0, ledger.lastEnd - ledger.firstStart)) : "na";
+      // The text up to and including "breaker=open" is exactly what this line has always said; the four fields after it are new (design 3 step A) and carry no VIN or buyer data.
+      console.warn(`[nhtsa-failures] ${JSON.stringify(ledger.failures)}${ledger.down ? " breaker=open" : ""} caller=${callerForLine()} asked=${ledger.asked ?? 0} span_ms=${span} since_prev=${since}`);
       if (failureSink) { try { failureSink(Object.values(ledger.failures).reduce((a, b) => a + b, 0)); } catch { /* counting must never affect a search */ } }
     }
   }
@@ -275,9 +312,7 @@ export async function decodeNhtsaElectrification(
     const fromCache = r != null;
     if (!r && (opts?.cacheOnly || ledger?.down)) return null;
     if (!r) {
-      const res = await fetch(`${NHTSA_BASE_URL}/${encodeURIComponent(vin)}?format=json`, {
-        signal: AbortSignal.timeout(NHTSA_TIMEOUT_MS),
-      });
+      const res = await fetchDecode(vin, ledger);
       if (!res.ok) { noteFailure(`http_${res.status}`); return null; }
 
       const data = await res.json();
