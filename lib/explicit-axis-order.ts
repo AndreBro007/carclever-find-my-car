@@ -10,6 +10,9 @@ export function isStrictAxis(a: unknown): a is StrictAxis {
 }
 
 const num = (v: unknown, missing: number): number => (typeof v === "number" && Number.isFinite(v) ? v : missing);
+// Group 2, item 2 (9 Nov 2026): the VIN is the last tiebreak, so two cars equal on every earlier key always come in the same order (the input order used to decide, and it is not stable between runs).
+const vinOf = (l: VehicleListing): string => String(l.vin ?? "").trim().toUpperCase();
+const vinCmp = (a: VehicleListing, b: VehicleListing): number => { const x = vinOf(a), y = vinOf(b); return x < y ? -1 : x > y ? 1 : 0; };
 
 function compare(axis: StrictAxis) {
   const price = (l: VehicleListing) => num(l.retailListing?.price, Number.POSITIVE_INFINITY);
@@ -17,9 +20,9 @@ function compare(axis: StrictAxis) {
   const year = (l: VehicleListing) => num(l.vehicle?.year, Number.NEGATIVE_INFINITY);
   // A car with no value for the sorted field goes after every car that has one; ties fall to the next most useful field.
   switch (axis) {
-    case "cheapest": return (a: VehicleListing, b: VehicleListing) => price(a) - price(b) || miles(a) - miles(b) || year(b) - year(a);
-    case "newest": return (a: VehicleListing, b: VehicleListing) => year(b) - year(a) || miles(a) - miles(b) || price(a) - price(b);
-    case "lowest_mileage": return (a: VehicleListing, b: VehicleListing) => miles(a) - miles(b) || price(a) - price(b) || year(b) - year(a);
+    case "cheapest": return (a: VehicleListing, b: VehicleListing) => price(a) - price(b) || miles(a) - miles(b) || year(b) - year(a) || vinCmp(a, b);
+    case "newest": return (a: VehicleListing, b: VehicleListing) => year(b) - year(a) || miles(a) - miles(b) || price(a) - price(b) || vinCmp(a, b);
+    case "lowest_mileage": return (a: VehicleListing, b: VehicleListing) => miles(a) - miles(b) || price(a) - price(b) || year(b) - year(a) || vinCmp(a, b);
   }
 }
 

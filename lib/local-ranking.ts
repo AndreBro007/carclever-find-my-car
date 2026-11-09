@@ -176,6 +176,9 @@ export function applyLocalBestForBudgetOrdering(
     const priceB = b.retailListing?.price ?? Infinity;
     if (priceA !== priceB) return priceA - priceB;
 
+    // Group 2, item 2 (9 Nov 2026): the VIN is the last tiebreak, so cars equal on every key above keep the same order from one run to the next.
+    const vinA = String(a.vin ?? "").trim().toUpperCase(), vinB = String(b.vin ?? "").trim().toUpperCase();
+    if (vinA !== vinB) return vinA < vinB ? -1 : 1;
     return 0;
   });
 }

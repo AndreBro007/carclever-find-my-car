@@ -43,6 +43,7 @@ import { fetchRecallStatus, clipRecallText, type RecallInfo } from "@/lib/nhtsa-
 import { recallApplicabilityLine } from "@/lib/recall-note";
 import { LOCATION_NOT_RECOGNISED_NOTE } from "@/lib/location-note";
 import { buildSeatsSummary, isSeatsNote } from "@/lib/seats-summary";
+import { tieNote } from "@/lib/tie-note";
 import { nhtsaLinkField, nhtsaRecallCheckUrl, recallCheckFootnote, recallCheckLine, addRecallCheckStep, invalidVinMessage } from "@/lib/nhtsa-links";
 import { vinCheckDigitFails } from "@/lib/vin-anatomy";
 import { wantedDriveClasses, partitionByDrive, judgeDrive, drivetrainNote, finalizeByDrive } from "@/lib/drivetrain-filter";
@@ -2269,6 +2270,7 @@ const handler = createMcpHandler((server) => {
       { const hint = broadBodyTypeHint(input); if (hint) dataNotes.push(hint); }
       { const note = unappliedFilterNote(input, cards); if (note) dataNotes.push(note); }
       { const vt = vehicleTypeNote(input); if (vt) dataNotes.push(vt); }
+      { const tn = tieNote(cards as never, input.priorityAxis); if (tn) dataNotes.push(tn); }
       { const dw = wantedDriveClasses(input.drivetrain); if (dw) { const dn = drivetrainNote(String(input.drivetrain), cards.map((c: any) => c.powertrain?.drivetrain), dw, (driveSplit?.excluded ?? 0) + driveLateRemoved); if (dn) dataNotes.push(dn); if (driveAllMismatch) dataNotes.push(`The VIN decode shows a different drivetrain than ${String(input.drivetrain)} for the cars listed here. Ask the dealer before relying on any of them.`); } }
       if (lowestMileageDefaultedToUsed) {
         dataNotes.push(

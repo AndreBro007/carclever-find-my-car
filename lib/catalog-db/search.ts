@@ -141,13 +141,17 @@ export function localSortFor(sort: string | undefined, priceCap?: number | null)
   }
 }
 
+// Group 2, item 2 (9 Nov 2026): none of these orderings had a final tiebreak, so cars tied on every earlier key could come back in a different order from one run to the next (seen once on the
+// three-row, 7-seat search). The VIN, then the feed's own listing id (stable between nightly loads), makes the order the same every time. Measured on the test branch before the change: the same
+// plan and the same time with and without the two extra keys (446 ms against 434 ms, warm, 1.49 million rows).
+const TIE = ", l.vin ASC, l.id ASC";
 function orderFor(sort: string | undefined, hasCeiling = false): string {
   switch ((sort ?? "").toLowerCase()) {
-    case "price.asc": return "l.price ASC NULLS LAST, l.year DESC NULLS LAST";
-    case "price.desc": return "l.price DESC NULLS LAST, l.year DESC NULLS LAST";
-    case "year.desc": return "l.year DESC NULLS LAST, l.price ASC NULLS LAST";
-    case "mileage.asc": case "miles.asc": return "l.odometer ASC NULLS LAST, l.price ASC NULLS LAST";
-    default: return hasCeiling ? "l.year DESC NULLS LAST, l.price DESC NULLS LAST" : "l.year DESC NULLS LAST, l.price ASC NULLS LAST";
+    case "price.asc": return "l.price ASC NULLS LAST, l.year DESC NULLS LAST" + TIE;
+    case "price.desc": return "l.price DESC NULLS LAST, l.year DESC NULLS LAST" + TIE;
+    case "year.desc": return "l.year DESC NULLS LAST, l.price ASC NULLS LAST" + TIE;
+    case "mileage.asc": case "miles.asc": return "l.odometer ASC NULLS LAST, l.price ASC NULLS LAST" + TIE;
+    default: return (hasCeiling ? "l.year DESC NULLS LAST, l.price DESC NULLS LAST" : "l.year DESC NULLS LAST, l.price ASC NULLS LAST") + TIE;
   }
 }
 
