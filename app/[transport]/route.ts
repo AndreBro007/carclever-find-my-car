@@ -42,6 +42,7 @@ import { FindMatchingVehicleInputCatalog } from "@/lib/find-matching-vehicle-inp
 import { fetchRecallStatus, clipRecallText, type RecallInfo } from "@/lib/nhtsa-recalls-client";
 import { recallApplicabilityLine } from "@/lib/recall-note";
 import { LOCATION_NOT_RECOGNISED_NOTE } from "@/lib/location-note";
+import { buildSeatsSummary, isSeatsNote } from "@/lib/seats-summary";
 import { nhtsaLinkField, nhtsaRecallCheckUrl, recallCheckFootnote, recallCheckLine, addRecallCheckStep, invalidVinMessage } from "@/lib/nhtsa-links";
 import { vinCheckDigitFails } from "@/lib/vin-anatomy";
 import { wantedDriveClasses, partitionByDrive, judgeDrive, drivetrainNote, finalizeByDrive } from "@/lib/drivetrain-filter";
@@ -151,40 +152,6 @@ const RESPONSE_ASSEMBLY_RESERVE_MS = 20_000;
 // imported at the top of this file, same reasoning as electrificationStateSatisfies above.
 
 
-/**
- * Seats disclosure — same Trust Class C treatment as CPO/history
- * (SYS-20260815 follow-up). `vehicle.seats` is a real response field, but
- * confirmed absent from the provider's documented Vehicle Filters list (field
- * audit, 2026-08-14) — it can be reported, never queried as a hard filter.
- * `seatsMinPreference` was collected as input since early in the build and
- * did nothing until now — this closes that gap, without ever excluding a
- * result on seat count (a below-preference or unreported seat count is
- * disclosed, not dropped — same "unknown != false" discipline as history/CPO).
- */
-function buildSeatsSummary(
-  listing: VehicleListing,
-  seatsMin: number | undefined,
-): { state: "meets_or_exceeds" | "below_requested" | "reported" | "unknown"; note: string } {
-  const seats = listing.vehicle?.seats;
-  if (seats == null) {
-    return {
-      state: "unknown",
-      note: seatsMin != null
-        ? `Seating capacity not reported by this listing — can't confirm it meets the requested ${seatsMin}+ seats.`
-        : "Seating capacity not reported by this listing.",
-    };
-  }
-  if (seatsMin == null) {
-    return { state: "reported", note: `${seats} seats.` };
-  }
-  if (seats >= seatsMin) {
-    return { state: "meets_or_exceeds", note: `${seats} seats — meets the requested ${seatsMin}+ seat minimum.` };
-  }
-  return {
-    state: "below_requested",
-    note: `${seats} seats — below the requested ${seatsMin}+ seat minimum. Shown anyway since seat count is a soft preference, not a hard filter.`,
-  };
-}
 
 /**
  * History disclosure — Trust Class C. Extended (SYS-20260812-051 audit) to
@@ -2620,8 +2587,11 @@ const handler = createMcpHandler((server) => {
                 // that). Skip the history note here if it's already shown
                 // via historyLine above, so it isn't repeated twice.
                 const confirmedItems = c.intentConfirmations.filter(
-                  (x) => !(c.history.state === "known_issues" && x === c.history.note) && !x.startsWith("Seating capacity not reported"),
+                  (x) => !(c.history.state === "known_issues" && x === c.history.note) && !isSeatsNote(x),
                 );
+                // Group 2, item 4: the seat statement is NHTSA series data, not a confirmation, so it has its own line (unreported seats stay in the footnote, as before).
+                const seatsItem = c.intentConfirmations.find((x) => isSeatsNote(x) && !x.startsWith("Seating capacity not reported"));
+                const seatsLine = seatsItem ? `\n   Seats: ${seatsItem}` : "";
                 const confirmedLine = confirmedItems.length > 0 ? `\n   Confirmed: ${confirmedItems.join(", ")}` : "";
                 const driveWanted = wantedDriveClasses(input.drivetrain);
                 const driveJudged = driveWanted ? judgeDrive(c.powertrain.drivetrain, driveWanted) : null;
@@ -2629,7 +2599,7 @@ const handler = createMcpHandler((server) => {
                 const elecLine = elecUnknown ? `\n   ${electrificationWords(input.electrificationTypes).replace(/^./, (m) => m.toUpperCase())} not confirmed by NHTSA: ask the dealer.` : "";
                 const driveLine = driveJudged === "unknown" ? "\n   Drivetrain not confirmed: ask the dealer." : driveJudged === "mismatch" ? `\n   Drivetrain: the VIN decode shows ${c.powertrain.drivetrain}, not the requested one.` : "";
                 const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
-                return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel}${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${driveLine}${elecLine}${conflictLine}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${linkStr}`;
+                return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel}${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${seatsLine}${driveLine}${elecLine}${conflictLine}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${linkStr}`;
               })
               .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards) + seatUnknownFootnote(cards) + (cards.length ? `\n\nCheck each Edmunds listing, then contact the dealer to confirm availability, price, features and safety equipment.${(cards as Array<{ condition?: { inventoryType?: string } }>).some((c) => c.condition?.inventoryType === "used") ? " For a used car, also ask for its history report (accidents, owners)." : ""}${needsWorthAsking(input.vehicleNeeds).length ? ` Also ask the dealer about: ${needsWorthAsking(input.vehicleNeeds).join(", ")}.` : ""}` : "")
             + (["cheapest", "newest", "lowest_mileage"].includes(String(input.priorityAxis)) && input.yearMin == null && input.mileageMax == null
