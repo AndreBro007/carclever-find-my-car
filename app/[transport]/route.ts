@@ -36,7 +36,7 @@ import { computeMatchScore } from "@/lib/match-score";
 import { resolveLinks } from "@/lib/link-resolution";
 import { sanitizeDealerName } from "@/lib/dealer-name";
 import { applyKnownHybridOverride, formatFuelTypeForDisplay } from "@/lib/fuel-type";
-import { decodeNhtsaElectrification, runWithNhtsaLedger, decodePoolInBatches, ELECTRIFICATION_BATCH_SIZE, ELECTRIFICATION_COMBINED_POOL_SIZE, ELECTRIFICATION_BROAD_POOL_SIZE, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, prioritizeElectrificationCandidates, electrificationStateSatisfies } from "@/lib/nhtsa-client";
+import { decodeNhtsaElectrification, runWithNhtsaLedger, nhtsaNoAnswerCount, decodePoolInBatches, ELECTRIFICATION_BATCH_SIZE, ELECTRIFICATION_COMBINED_POOL_SIZE, ELECTRIFICATION_BROAD_POOL_SIZE, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, prioritizeElectrificationCandidates, electrificationStateSatisfies } from "@/lib/nhtsa-client";
 import { isAnomalousPrice, buildCpoSummary, buildHistorySummary, applyLocalBestForBudgetOrdering } from "@/lib/local-ranking";
 import { FindMatchingVehicleInputCatalog } from "@/lib/find-matching-vehicle-input";
 import { fetchRecallStatus, clipRecallText, type RecallInfo } from "@/lib/nhtsa-recalls-client";
@@ -44,6 +44,7 @@ import { recallApplicabilityLine } from "@/lib/recall-note";
 import { LOCATION_NOT_RECOGNISED_NOTE } from "@/lib/location-note";
 import { buildSeatsSummary, isSeatsNote } from "@/lib/seats-summary";
 import { tieNote } from "@/lib/tie-note";
+import { stockPhotoNote, noAnswerNote, cappedDrivetrainNoMatchNote } from "@/lib/honest-notes";
 import { nhtsaLinkField, nhtsaRecallCheckUrl, recallCheckFootnote, recallCheckLine, addRecallCheckStep, invalidVinMessage } from "@/lib/nhtsa-links";
 import { vinCheckDigitFails } from "@/lib/vin-anatomy";
 import { wantedDriveClasses, partitionByDrive, judgeDrive, drivetrainNote, finalizeByDrive } from "@/lib/drivetrain-filter";
@@ -2271,6 +2272,8 @@ const handler = createMcpHandler((server) => {
       { const note = unappliedFilterNote(input, cards); if (note) dataNotes.push(note); }
       { const vt = vehicleTypeNote(input); if (vt) dataNotes.push(vt); }
       { const tn = tieNote(cards as never, input.priorityAxis); if (tn) dataNotes.push(tn); }
+      { const sn = stockPhotoNote(cards.map((c: any) => c.media?.cardImageUrl)); if (sn) dataNotes.push(sn); }
+      { if (input.drivetrain && !electrificationRequired) { const nn = noAnswerNote(nhtsaNoAnswerCount()); if (nn) dataNotes.push(nn); } }
       { const dw = wantedDriveClasses(input.drivetrain); if (dw) { const dn = drivetrainNote(String(input.drivetrain), cards.map((c: any) => c.powertrain?.drivetrain), dw, (driveSplit?.excluded ?? 0) + driveLateRemoved); if (dn) dataNotes.push(dn); if (driveAllMismatch) dataNotes.push(`The VIN decode shows a different drivetrain than ${String(input.drivetrain)} for the cars listed here. Ask the dealer before relying on any of them.`); } }
       if (lowestMileageDefaultedToUsed) {
         dataNotes.push(
@@ -2469,7 +2472,7 @@ const handler = createMcpHandler((server) => {
       // nothing-attempted message tells the user to widen when the tool
       // silently declined to. Say plainly that the search was cut short
       // (SYS-20260817-003).
-      const noResultsMessage = zipLikelyInvalid
+      const noResultsMessageBase = zipLikelyInvalid
         ? `No vehicles matched these criteria, and a broader check found zero listings of ANY kind near ZIP ${rawZip} — this looks like the ZIP itself may not be resolving to a valid searchable location (for example, some ZIPs are PO-Box-only with no real street addresses nearby) rather than a genuine inventory gap. Double-checking the ZIP, or trying a nearby one, is more likely to help than widening price, year, or model.`
         : widenStoppedEarly
         ? uniqueAttemptedSteps.length > 0
@@ -2482,6 +2485,8 @@ const handler = createMcpHandler((server) => {
               .map((s) => STEP_LABELS[s])
               .join(", ")} — this looks like a genuine inventory gap for this exact combination, not something more widening on those same dimensions would fix. A different location, a broader model list, or (if the budget allows) some price flexibility may help instead.`
           : `No vehicles matched ${[input.used === true ? "used" : input.used === false ? "new" : "", input.make ?? "", input.model ?? "", typeof input.trimRequired === "string" ? input.trimRequired : ""].filter(Boolean).join(" ") || "these criteria"}${input.priceMax != null ? ` at up to $${Number(input.priceMax).toLocaleString("en-US")}` : ""}${rawZip ? ` within ${input.radiusMiles ?? 50} miles of ${rawZip}` : ""}. Nothing was widened or substituted. Listings change often, so try again soon or adjust the search.`;
+      // Group 2, item 5 B2 (9 Nov 2026): a drivetrain check of a limited candidate list that ends with nothing says how many cars were checked, instead of reading like an empty market.
+      const noResultsMessage = noResultsMessageBase + (input.drivetrain && driveSplit && driveSplit.confirmed.length === 0 ? (cappedDrivetrainNoMatchNote(String(input.drivetrain), driveSplit.excluded, driveSplit.unknown.length, isStrictAxis(input.priorityAxis)) ?? "") : "");
 
       // Partial-success disclosure gap (SYS-20260816-049, real bug found live
       // 2026-08-16): a widening step can be genuinely attempted and fail to

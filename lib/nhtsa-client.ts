@@ -141,6 +141,12 @@ export async function runWithNhtsaLedger<T>(fn: () => Promise<T>): Promise<T> {
     }
   }
 }
+/** Group 2, item 5 B3 (9 Nov 2026): how many decodes in THIS request got no answer from NHTSA (timeouts, refusals, unreadable or empty replies). A VIN that NHTSA answered but could not decode cleanly is not counted. */
+export function nhtsaNoAnswerCount(): number {
+  const l = ledgerStore.getStore();
+  if (!l) return 0;
+  return Object.entries(l.failures).reduce((a, [k, v]) => (k === "decode_error" ? a : a + v), 0);
+}
 function markNhtsaDown(): void { const l = ledgerStore.getStore(); if (l) l.down = true; }
 function noteFailure(kind: string): void { const l = ledgerStore.getStore(); if (l) l.failures[kind] = (l.failures[kind] ?? 0) + 1; }
 function failureKindOf(e: unknown): string {
