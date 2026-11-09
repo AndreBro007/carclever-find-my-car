@@ -55,6 +55,18 @@ function textRow(label: string, vals: Array<string | null | undefined>): Compare
   return { label, values: v, ...(note ? { note } : {}) };
 }
 
+/**
+ * Group 2, item 3 (9 Nov 2026): the two NHTSA rows had labels of 33 and 49 characters, and the label column never wraps, so they set its width and pushed the vehicle columns to the right
+ * until the next vehicle was cut off. The labels are now short; the caveat stays visible as "(model yr)" and is written out in the row note (the hover text in the card and the reply text)
+ * and in one line under the text table. No card code is involved (a visible legend line under the card table would be a card change).
+ */
+export const NHTSA_MODEL_YEAR_NOTE = "NHTSA ratings and recall counts are for the model year, not this specific car.";
+const NHTSA_ROW_CAVEAT = "NHTSA data for the model year, not this specific car";
+function withModelYearCaveat(row: CompareRow | null): CompareRow | null {
+  if (!row) return row;
+  return { ...row, note: row.note ? `${row.note}; ${NHTSA_ROW_CAVEAT}` : NHTSA_ROW_CAVEAT };
+}
+
 /** Rows that say how the vehicles differ. States differences only: no ranking, no judgement of safety. Rows with no data at all are left out. */
 export function buildComparison(items: CompareItem[], fromZip?: string | null): CompareRow[] {
   const rows = [
@@ -73,8 +85,8 @@ export function buildComparison(items: CompareItem[], fromZip?: string | null): 
     textRow("Exterior color", items.map((i) => i.exteriorColor)),
     textRow("Interior color", items.map((i) => i.interiorColor)),
     textRow("Dealer", items.map((i) => i.dealer)),
-    numericRow("NHTSA overall rating (model year)", items.map((i) => i.rating ?? null), (n) => `${Math.round(n)} of 5`, "rating"),
-    numericRow("NHTSA recall campaigns (model year, not this car)", items.map((i) => i.recallCampaigns ?? null), (n) => String(Math.round(n)), "count"),
+    withModelYearCaveat(numericRow("NHTSA rating (model yr)", items.map((i) => i.rating ?? null), (n) => `${Math.round(n)} of 5`, "rating")),
+    withModelYearCaveat(numericRow("NHTSA recalls (model yr)", items.map((i) => i.recallCampaigns ?? null), (n) => String(Math.round(n)), "count")),
     fromZip ? numericRow(`Distance from ${fromZip}`, items.map((i) => zipDistanceMiles(fromZip, i.dealerZip)), miles, "distance", "low") : null,
   ];
   return rows.filter((r): r is CompareRow => r != null);
@@ -100,5 +112,6 @@ export function comparisonTable(items: CompareItem[], rows: CompareRow[]): strin
   const sep = `|---|${items.map(() => "---").join("|")}|`;
   const lead = [`| Vehicle | ${items.map((i) => cell(title(i))).join(" | ")} |`, `| VIN | ${items.map((i) => cell(i.vin)).join(" | ")} |`];
   const body = rows.map((r) => `| ${cell(r.label)} | ${r.values.map((v, i) => { const t = cell(v ?? "unknown"); return r.best?.includes(i) ? `**${t}**` : t; }).join(" | ")} |`);
-  return [head, sep, ...lead, ...body].join("\n");
+  const table = [head, sep, ...lead, ...body].join("\n");
+  return rows.some((r) => r.label.startsWith("NHTSA ")) ? `${table}\n\n${NHTSA_MODEL_YEAR_NOTE}` : table;
 }

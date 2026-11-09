@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { buildComparison, comparisonText, comparisonTable, zipDistanceMiles, type CompareItem } from "../lib/compare";
+import { buildComparison, comparisonText, comparisonTable, zipDistanceMiles, NHTSA_MODEL_YEAR_NOTE, type CompareItem } from "../lib/compare";
 
 const a: CompareItem = { vin: "A", year: 2024, make: "Toyota", model: "RAV4", trim: "XLE", price: 31990, mileage: 12300, condition: "used", fuel: "Hybrid", drive: "AWD", engine: "2.5L 4-cyl 219 hp", rating: 5, recallCampaigns: 3, dealerZip: "90210" };
 const b: CompareItem = { vin: "B", year: 2023, make: "Toyota", model: "RAV4", trim: "LE", price: 28500, mileage: 30100, condition: "used", fuel: "Gasoline", drive: "AWD", engine: "2.5L 4-cyl 203 hp", rating: 4, recallCampaigns: 3, dealerZip: "92101" };
@@ -17,7 +17,7 @@ test("price, mileage and year rows state the extremes and the spread, per vehicl
 test("identical values are reported as the same, differing text is listed per vehicle, and no row ranks or judges", () => {
   const rows = buildComparison([a, b]);
   assert.equal(row(rows, "Drive")!.note, "the same on every vehicle"); assert.equal(row(rows, "Trim")!.note, undefined); assert.deepEqual(row(rows, "Fuel")!.values, ["Hybrid", "Gasoline"]);
-  assert.equal(row(rows, "NHTSA recall")!.note, "same count on every vehicle that reports one");
+  assert.equal(row(rows, "NHTSA recall")!.note, "same count on every vehicle that reports one; NHTSA data for the model year, not this specific car");
   const txt = comparisonText(rows); assert.match(txt, /^Differences \(stated, not ranked\):/); assert.ok(!/\b(best|better|worse|winner|safer|recommend)\b/i.test(txt));
 });
 test("unknown data stays unknown: a missing value shows as unknown, a row with no data at all is left out, three vehicles work", () => {
@@ -65,9 +65,31 @@ test("comparisonTable: header, Vehicle and VIN rows, the best value in bold only
   assert.equal(r("Mileage"), "| Mileage | 30,000 mi | **10,000 mi** | unknown |");
   assert.equal(r("Year"), "| Year | 2023 | **2026** | **2026** |", "newest year: the tie is bold");
   assert.match(r("Distance from 90210"), /^\| Distance from 90210 \| \*\*0 mi\*\* \| \d+ mi \| \*\*0 mi\*\* \|$/);
-  assert.ok(!/\*\*/.test(r("Fuel")) && !/\*\*/.test(r("NHTSA overall rating (model year)")) && !/\*\*/.test(r("NHTSA recall campaigns (model year, not this car)")), "fuel, safety rating and recalls are never marked");
+  assert.ok(!/\*\*/.test(r("Fuel")) && !/\*\*/.test(r("NHTSA rating (model yr)")) && !/\*\*/.test(r("NHTSA recalls (model yr)")), "fuel, safety rating and recalls are never marked");
   assert.equal(comparisonTable([x], rows), ""); assert.equal(comparisonTable([x, y], []), "");
   const same = comparisonTable([{ vin: "A".repeat(17), price: 100 }, { vin: "B".repeat(17), price: 100 }], buildComparison([{ vin: "A".repeat(17), price: 100 }, { vin: "B".repeat(17), price: 100 }]));
   assert.ok(!/\*\*/.test(same), "equal values are not marked");
   assert.ok(!/\b(best|better|worse|winner)\b/i.test(comparisonText(rows)), "the Differences block itself still ranks nothing");
+});
+
+test("group 2 item 3: the two NHTSA labels are short, the longest label is 24 characters or less, and the caveat is in both rows' notes, the Differences text and under the table", () => {
+  const rows = buildComparison([a, b], "90210");
+  const rating = row(rows, "NHTSA rating")!, recalls = row(rows, "NHTSA recalls")!;
+  assert.equal(rating.label, "NHTSA rating (model yr)"); assert.equal(recalls.label, "NHTSA recalls (model yr)");
+  assert.ok(rating.label.length <= 24 && recalls.label.length <= 24);
+  assert.ok(Math.max(...rows.map((r) => r.label.length)) <= 24, `longest label ${Math.max(...rows.map((r) => r.label.length))}`);
+  assert.equal(rating.note, "lowest #2; highest #1; spread 1 of 5; NHTSA data for the model year, not this specific car");
+  assert.match(recalls.note!, /NHTSA data for the model year, not this specific car$/);
+  assert.match(comparisonText(rows), /NHTSA rating \(model yr\): #1 5 of 5 · #2 4 of 5 \(lowest #2; highest #1; spread 1 of 5; NHTSA data for the model year, not this specific car\)/);
+  const table = comparisonTable([a, b], rows);
+  assert.ok(table.endsWith(`\n\n${NHTSA_MODEL_YEAR_NOTE}`), "the line under the table");
+  assert.equal(NHTSA_MODEL_YEAR_NOTE, "NHTSA ratings and recall counts are for the model year, not this specific car.");
+});
+test("group 2 item 3: with no NHTSA data there is no caveat row and no footnote; one-sided data still carries the caveat", () => {
+  const bare = [{ vin: "X", price: 1 }, { vin: "Y", price: 2 }];
+  const noNhtsa = buildComparison(bare);
+  assert.ok(!noNhtsa.some((r) => r.label.startsWith("NHTSA")));
+  assert.ok(!comparisonTable(bare, noNhtsa).includes("model year"), "no footnote when no NHTSA row exists");
+  const one = buildComparison([{ vin: "X", rating: 5 }, { vin: "Y", price: 2 }]);
+  assert.equal(row(one, "NHTSA rating")!.note, "NHTSA data for the model year, not this specific car");
 });
