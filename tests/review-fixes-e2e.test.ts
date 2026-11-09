@@ -140,7 +140,7 @@ test("finding 3: a drivetrain shown only by the later read is honoured: opposite
     for (const r of rs) assert.notEqual(String(r.powertrain.drivetrain).toUpperCase(), "FWD", `a front-wheel-drive car was shown: ${r.identity.vin}`);
     const t = textOf(out);
     assert.ok(!/Front-Wheel|FWD/.test(t.split("\n").filter((l: string) => /Drivetrain|Confirmed/.test(l)).join(" ")) , "no line presents a front-wheel-drive car as a match");
-    assert.match(t, /Cars the VIN decode shows with a different drivetrain were left out/);
+    assert.match(t, /\d+ cars? the VIN decode shows with a different drivetrain (was|were) left out/);
     const flags = rs.map((r) => !!r.powertrain.drivetrain);
     assert.deepEqual(flags, [...flags].sort((a, b) => Number(b) - Number(a)), "confirmed cars are listed first");
   } finally { decodeMode = "off"; }

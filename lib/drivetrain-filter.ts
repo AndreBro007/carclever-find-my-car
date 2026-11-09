@@ -71,7 +71,8 @@ function decodedLabel(s: string | null | undefined): "AWD" | "4WD" | "FWD" | "RW
 export function drivetrainNote(_requested: string, shown: Array<string | null | undefined>, wanted: Set<WantedDrive>, excluded: number): string | null {
   const n = shown.length;
   if (n === 0) return null;
-  const left = excluded > 0 ? " Cars the VIN decode shows with a different drivetrain were left out." : "";
+  // Group 2, item 1A (9 Nov 2026): the note already received the number of cars left out and printed only a sentence without it.
+  const left = excluded > 0 ? ` ${excluded} ${excluded === 1 ? "car the VIN decode shows with a different drivetrain was" : "cars the VIN decode shows with a different drivetrain were"} left out.` : "";
   const labels = shown.map(decodedLabel);
   const order = ["4WD", "AWD", "FWD", "RWD", "4x2"] as const;
   const parts = order.map((l) => ({ l, k: labels.filter((x) => x === l).length })).filter((p) => p.k > 0);

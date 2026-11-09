@@ -57,7 +57,7 @@ test("the search-level line reports what the VIN data labels, never a mechanical
   assert.equal(drivetrainNote("4WD", ["4WD"], w4, 0), "VIN data labels 1 vehicle as 4WD. This search includes both AWD and 4WD. Low-range capability is not verified; confirm it with the dealer if required.");
   // some cars with no label: counted, marked not confirmed, different-drivetrain cars left out
   const some = drivetrainNote("AWD", ["AWD", null, null], w, 3)!;
-  assert.equal(some, "VIN data labels 1 of 3 vehicles as AWD. This search includes both AWD and 4WD. 2 have no drivetrain label in the VIN data and are marked not confirmed. Low-range capability is not verified; confirm it with the dealer if required. Cars the VIN decode shows with a different drivetrain were left out.");
+  assert.equal(some, "VIN data labels 1 of 3 vehicles as AWD. This search includes both AWD and 4WD. 2 have no drivetrain label in the VIN data and are marked not confirmed. Low-range capability is not verified; confirm it with the dealer if required. 3 cars the VIN decode shows with a different drivetrain were left out.");
   // none labelled
   const none = drivetrainNote("AWD", [null, ""], w, 0)!;
   assert.equal(none, "VIN data gives no drivetrain label for any of the 2 vehicles shown; they are marked not confirmed. This search includes both AWD and 4WD. Low-range capability is not verified; confirm it with the dealer if required.");
@@ -123,4 +123,16 @@ test("final check: if every car is a known mismatch the list is not emptied, the
   const w = wantedDriveClasses("AWD")!;
   const f = finalizeByDrive([{ d: "FWD" }, { d: "RWD" }], (x) => x.d, w);
   assert.equal(f.cards.length, 2); assert.equal(f.removed, 0); assert.equal(f.allMismatch, true);
+});
+
+test("group 2 item 1A: the note says how many cars the VIN decode showed with a different drivetrain and left out", () => {
+  const w = wantedDriveClasses("AWD")!;
+  const one = drivetrainNote("AWD", ["AWD", "AWD"], w, 1)!;
+  assert.ok(one.endsWith(" 1 car the VIN decode shows with a different drivetrain was left out."), one);
+  const six = drivetrainNote("AWD", ["AWD", "4WD"], w, 6)!;
+  assert.ok(six.endsWith(" 6 cars the VIN decode shows with a different drivetrain were left out."), six);
+  assert.ok(!/left out/.test(drivetrainNote("AWD", ["AWD", "AWD"], w, 0)!), "nothing left out: no sentence");
+  const noLabels = drivetrainNote("AWD", [null, null], w, 4)!;
+  assert.ok(noLabels.endsWith(" 4 cars the VIN decode shows with a different drivetrain were left out."), "the no-label branch carries the count too");
+  assert.ok(!/Cars the VIN decode shows/.test(six), "the old count-free sentence is gone");
 });
