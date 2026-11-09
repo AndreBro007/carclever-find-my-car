@@ -40,6 +40,8 @@ import { decodeNhtsaElectrification, runWithNhtsaLedger, decodePoolInBatches, EL
 import { isAnomalousPrice, buildCpoSummary, buildHistorySummary, applyLocalBestForBudgetOrdering } from "@/lib/local-ranking";
 import { FindMatchingVehicleInputCatalog } from "@/lib/find-matching-vehicle-input";
 import { fetchRecallStatus, clipRecallText, type RecallInfo } from "@/lib/nhtsa-recalls-client";
+import { recallApplicabilityLine } from "@/lib/recall-note";
+import { LOCATION_NOT_RECOGNISED_NOTE } from "@/lib/location-note";
 import { nhtsaLinkField, nhtsaRecallCheckUrl, recallCheckFootnote, recallCheckLine, addRecallCheckStep, invalidVinMessage } from "@/lib/nhtsa-links";
 import { vinCheckDigitFails } from "@/lib/vin-anatomy";
 import { wantedDriveClasses, partitionByDrive, judgeDrive, drivetrainNote, finalizeByDrive } from "@/lib/drivetrain-filter";
@@ -2391,7 +2393,7 @@ const handler = createMcpHandler((server) => {
         );
       }
       if (scopeNote === "nationwide" && rawZip != null) {
-        dataNotes.push("The requested location wasn't recognized, so this search was widened to nationwide.");
+        dataNotes.push(LOCATION_NOT_RECOGNISED_NOTE);
       } else if (scopeNote === "nationwide") {
         dataNotes.push("No location was specified, so this search covers listings nationwide rather than a specific area. Tell me a ZIP code for local results.");
       } else if (scopeNote === "statewide") {
@@ -2735,6 +2737,7 @@ const handler = createMcpHandler((server) => {
                     .map((c) => `${c.campaignNumber ?? "unknown campaign"} — ${c.component ?? "component unspecified"}: ${clipRecallText(c.summary, 240) ?? "no summary available"}${c.remedy ? ` Remedy: ${clipRecallText(c.remedy, 160)}` : ""}`)
                     .join(" | "),
               );
+              { const applies = recallApplicabilityLine(recallYear, recallMakeDisplay, recallModel); if (applies) lines.push(applies); }
               lines.push(`NHTSA source: ${standaloneRecall.nhtsaSourceUrl}`);
             }
             if (nhtsaRecallCheckUrl(rawVin)) lines.push(`Open recalls on this exact VIN: check it with NHTSA's free lookup, ${nhtsaRecallCheckUrl(rawVin)}. ${"NHTSA's lookup covers participating manufacturers and does not show recalls that were already repaired"}.`);
@@ -2938,6 +2941,7 @@ const handler = createMcpHandler((server) => {
                 .map((c) => `${c.campaignNumber ?? "unknown campaign"} — ${c.component ?? "component unspecified"}: ${clipRecallText(c.summary, 240) ?? "no summary available"}${c.remedy ? ` Remedy: ${clipRecallText(c.remedy, 160)}` : ""}`)
                 .join(" | "),
           );
+          { const applies = recallApplicabilityLine(year, make, model); if (applies) lines.push(applies); }
           lines.push(`NHTSA source: ${recall.nhtsaSourceUrl}`);
         }
 
