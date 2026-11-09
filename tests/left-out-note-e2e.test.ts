@@ -65,13 +65,13 @@ const opts = { skip: DB ? false : "TEST_DATABASE_URL not set" };
 
 test("a hybrid search that asked for an electric and a plug-in model names them and what NHTSA shows", opts, async () => {
   const t = textOf(await call(10, { model: "RAV4, Ioniq 5, Santa Fe Plug-in Hybrid", electrificationTypes: ["hybrid"], electrificationRequirement: "required", zip: "75201" }));
-  assert.match(t, /Cars that NHTSA shows as a different type than hybrid were left out: .*Ioniq 5 \(electric\)/);
+  assert.match(t, /\d+ cars? that NHTSA shows as a different type than hybrid (was|were) left out: .*Ioniq 5 \(electric\)/);
   assert.match(t, /Santa Fe Plug-in Hybrid \(plug-in hybrid\)/);
   assert.ok(!/RAV4 Hybrid \(/.test(t.split("\n").find((l) => /were left out/.test(l)) ?? ""), "the hybrid that matched is not named as left out");
 });
 
 test("an electric search that named a plug-in model names it as left out", opts, async () => {
   const t = textOf(await call(11, { model: "Santa Fe Plug-in Hybrid, Ioniq 5", electrificationTypes: ["electric"], electrificationRequirement: "required", zip: "75201" }));
-  assert.match(t, /Cars that NHTSA shows as a different type than electric were left out: Santa Fe Plug-in Hybrid \(plug-in hybrid\)\./);
+  assert.match(t, /\d+ cars? that NHTSA shows as a different type than electric (was|were) left out: Santa Fe Plug-in Hybrid \(plug-in hybrid\)\./);
   assert.ok(!/Ioniq 5 \(/.test(t.split("\n").find((l) => /were left out/.test(l)) ?? ""), "the electric model that matched is not named as left out");
 });

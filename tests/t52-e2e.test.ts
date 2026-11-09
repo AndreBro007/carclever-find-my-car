@@ -115,7 +115,7 @@ test("cars NHTSA shows as another type are left out, and the reply says so", opt
   behave = (v) => (wrong.has(v) ? "gas" : "hybrid");
   const out = await call(13, REQ); const t = textOf(out);
   assert.equal(out.result.structuredContent.results.length, 8);
-  assert.match(t, /Cars that NHTSA shows as a different type than hybrid were left out\./);
+  assert.match(t, /\d+ cars? that NHTSA shows as a different type than hybrid (was|were) left out\./);
   assert.equal(countOf(t, MARK), 0);
 });
 

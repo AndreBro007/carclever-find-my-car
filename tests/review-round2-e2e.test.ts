@@ -86,7 +86,7 @@ test("BA22-01: a car whose first decode failed and whose later decode shows gaso
   const o = await call({ make: "Honda", model: "Pilot", zip: "90210", ...HYB }); const t = textOf(o);
   assert.deepEqual(cards(o).map((c) => c.identity.vin), [PILOT_A], "only the confirmed hybrid is shown");
   assert.ok(cards(o).every((c) => elec(c).every((k: any) => k.status !== "mismatch")), "no card shows an electrification mismatch");
-  assert.match(t, /Cars that NHTSA shows as a different type than hybrid were left out\./);
+  assert.match(t, /\d+ cars? that NHTSA shows as a different type than hybrid (was|were) left out\./);
   assert.match(t, /Only 1 of the results matched your electric or hybrid requirement\./);
 });
 
@@ -215,7 +215,7 @@ test("R2-02: a model whose only car was removed at the later read is not adverti
   plan = (v, nth) => (v === Q_HYB ? "hybrid" : nth === 1 ? "fail" : "gas");
   const o = await call({ make: "Qua", model: "Quill, Quest", condition: "new", priceMax: 50000, ...HYB }); const t = textOf(o);
   assert.deepEqual(cards(o).map((c) => c.identity.model), ["Quill"], "only Quill is shown");
-  assert.match(t, /Cars that NHTSA shows as a different type than hybrid were left out\./);
+  assert.match(t, /\d+ cars? that NHTSA shows as a different type than hybrid (was|were) left out\./);
   assert.ok(!/Also matched but not shown/.test(t), "Quest was rejected as gasoline and is not offered as a match");
   assert.ok(!/Quest \(for example/.test(t), "no example price for the removed model");
 });

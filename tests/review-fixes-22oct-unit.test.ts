@@ -90,11 +90,11 @@ test("knownBevFor: only for a request that includes the electric type; narrowed 
 });
 
 test("left-out note: cars named as another type are said separately from cars NHTSA showed as another type", () => {
-  assert.equal(leftOutNote("hybrid", [{ model: "Ioniq 5", state: "electric" }]), "Cars that NHTSA shows as a different type than hybrid were left out: Ioniq 5 (electric).");
+  assert.equal(leftOutNote("hybrid", [{ model: "Ioniq 5", state: "electric" }]), "1 car that NHTSA shows as a different type than hybrid was left out: Ioniq 5 (electric).");
   assert.equal(leftOutNote("electric", [{ model: "Grand Highlander Hybrid", state: "wording" }]), "Cars whose name shows another type than electric were left out because NHTSA could not check them: Grand Highlander Hybrid.");
   const mixed = leftOutNote("electric", [{ model: "Telluride Hybrid", state: "hybrid" }, { model: "Grand Highlander Hybrid", state: "wording" }]);
-  assert.match(mixed, /^Cars that NHTSA shows as a different type than electric were left out: Telluride Hybrid \(hybrid\)\. Cars whose name shows another type than electric were also left out because NHTSA could not check them: Grand Highlander Hybrid\.$/);
-  assert.equal(leftOutNote("hybrid", [{ model: "Accord", state: "not_electrified" }]), "Cars that NHTSA shows as a different type than hybrid were left out.");
+  assert.match(mixed, /^1 car that NHTSA shows as a different type than electric was left out: Telluride Hybrid \(hybrid\)\. Cars whose name shows another type than electric were also left out because NHTSA could not check them: Grand Highlander Hybrid\.$/);
+  assert.equal(leftOutNote("hybrid", [{ model: "Accord", state: "not_electrified" }]), "1 car that NHTSA shows as a different type than hybrid was left out.");
 });
 
 const none = new Set<string>();

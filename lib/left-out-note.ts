@@ -25,7 +25,11 @@ export function leftOutNote(wantedWords: string, cars: Array<{ model: string; st
     const label = `${model} (${word})`;
     if (!seen.has(label)) { seen.add(label); named.push(label); }
   }
-  const head = `Cars that NHTSA shows as a different type than ${wantedWords} were left out`;
+  // Group 2, item 1B (9 Nov 2026): say HOW MANY cars NHTSA showed as another type (cars named only by their own wording are counted in their own sentence). With no such car the original wording stays.
+  const nShown = cars.filter((c) => c.state !== "wording").length;
+  const head = nShown > 0
+    ? `${nShown} car${nShown === 1 ? "" : "s"} that NHTSA shows as a different type than ${wantedWords} ${nShown === 1 ? "was" : "were"} left out`
+    : `Cars that NHTSA shows as a different type than ${wantedWords} were left out`;
   if (named.length === 0 && byName.size > 0 && cars.every((c) => c.state === "wording")) return nameSentence.replace(" were also left out", " were left out").trim();
   if (named.length === 0) return `${head}.${nameSentence}`;
   const shown = named.slice(0, MAX_NAMED).join(", ");
