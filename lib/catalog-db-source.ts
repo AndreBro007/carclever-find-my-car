@@ -11,6 +11,7 @@ import { buildTrackingUrl, alnumKey, type BodyClass } from "./catalog-db/normali
 import { pictureShowsListingColour } from "./stock-photo-sources";
 import { modelFacets, allModelNames, trimFacets, rowByVin, searchRows, stockPhotos, type DbRow, type Queryable } from "./catalog-db/search";
 import { cleanConnectionString } from "./catalog-db/conn";
+import { noteDbFailure } from "./db-failure";
 
 export function catalogDbConfigured(): boolean {
   return typeof process.env.DATABASE_URL === "string" && process.env.DATABASE_URL.trim() !== "";
@@ -101,10 +102,12 @@ const SERVICE_ERROR = CATALOG_SERVICE_ERROR;
 
 export async function searchCatalogDbListings(q: ListingsQuery): Promise<ListingsResponse> {
   if (!catalogDbConfigured() && !pool) return { data: [], total: 0, source: "catalog_db", error: SERVICE_ERROR };
+  const t0 = Date.now();
   try {
     const res = await searchRows(getPool() as unknown as Queryable, q, modelsFor(q));
     return { data: res.rows.map(rowToListing), total: res.total, source: "catalog_db", localApplied: res.localApplied };
-  } catch {
+  } catch (e) {
+    noteDbFailure("search", e, t0, pool);
     return { data: [], total: 0, source: "catalog_db", error: SERVICE_ERROR };
   }
 }
@@ -114,10 +117,12 @@ export type VinLookup = { status: "found"; listing: VehicleListing } | { status:
 
 export async function lookupCatalogDbVin(vin: string): Promise<VinLookup> {
   if (!catalogDbConfigured() && !pool) return { status: "error" };
+  const t0 = Date.now();
   try {
     const row = await rowByVin(getPool() as unknown as Queryable, vin);
     return row ? { status: "found", listing: rowToListing(row) } : { status: "absent" };
-  } catch {
+  } catch (e) {
+    noteDbFailure("vin", e, t0, pool);
     return { status: "error" };
   }
 }
@@ -129,18 +134,22 @@ export async function getCatalogDbListing(vin: string): Promise<VehicleListing |
 
 export async function catalogDbModelFacets(q: ListingsQuery, limit?: number): Promise<Array<{ value: string; count: number }>> {
   if (!catalogDbConfigured() && !pool) return [];
+  const t0 = Date.now();
   try {
     return await modelFacets(getPool() as unknown as Queryable, q, limit);
-  } catch {
+  } catch (e) {
+    noteDbFailure("model_facets", e, t0, pool);
     return [];
   }
 }
 
 export async function catalogDbTrimFacets(q: ListingsQuery, limit?: number): Promise<Array<{ value: string; count: number }>> {
   if (!catalogDbConfigured() && !pool) return [];
+  const t0 = Date.now();
   try {
     return await trimFacets(getPool() as unknown as Queryable, q, modelsFor(q), limit);
-  } catch {
+  } catch (e) {
+    noteDbFailure("trim_facets", e, t0, pool);
     return [];
   }
 }
@@ -153,6 +162,7 @@ export function resetStockPhotoCacheForTests(): void { stockCache.clear(); }
 
 /** A photo of another listing of the same make, model and year for this car, or null. Never throws: any failure means "no stock photo" and the card keeps its placeholder. STOCK_PHOTOS=off switches it off. */
 export async function stockPhotoFor(listing: VehicleListing): Promise<{ imageUrl: string; colourMatched: boolean } | null> {
+  const t0 = Date.now();
   try {
     if (process.env.STOCK_PHOTOS === "off") return null;
     if (!catalogDbConfigured() && !pool) return null;
@@ -168,7 +178,8 @@ export async function stockPhotoFor(listing: VehicleListing): Promise<{ imageUrl
     if (stockCache.size > 500) stockCache.clear();
     stockCache.set(key, { at: Date.now(), photo });
     return photo;
-  } catch {
+  } catch (e) {
+    noteDbFailure("photo", e, t0, pool);
     return null;
   }
 }
