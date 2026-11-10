@@ -22,6 +22,9 @@ import { seatUnknownFootnote } from "@/lib/seat-note";
 import { rowByVin } from "@/lib/catalog-db/search";
 import { getCatalogPool, rowToListing, stockPhotoFor, CATALOG_SERVICE_ERROR, fetchValueComparables } from "@/lib/catalog-db-source";
 import { rankListingsByValue, valueLineFor, VALUE_POOL_BOUND, type ValueRanking } from "@/lib/best-value";
+import { showMoreEnabled, buildFirstSearchSlate, hintNote, moreText } from "@/lib/show-more/first-search";
+import { buildRequirements } from "@/lib/show-more/requirements";
+import { writeSlate } from "@/lib/show-more/store";
 import { stockCodeFor } from "@/lib/stock-photo-svg";
 import { logSearchEvent } from "@/lib/search-log";
 import { registerS1Spike } from "@/lib/s1-spike";
@@ -2387,6 +2390,31 @@ const handler = createMcpHandler((server) => {
         dataNotes.push(`No specific ZIP or city was given, so this search covers all of ${baseQuery.state} rather than a specific area.`);
       }
 
+      // R4-6 step 3b (André approved the build, 11 Nov 2026): the ONE first-search write behind Show 8 more. Preview builds only until release. Any problem (validator refuses, write fails or
+      // takes over 300 ms, nothing left in reserve) means: no reference, no hint, and the search answers exactly as before.
+      let moreRef: string | null = null;
+      if (showMoreEnabled() && cards.length > 0) {
+        try {
+          const vinOf = (v: unknown) => String(v ?? "").trim().toUpperCase();
+          const shownVins = new Set((cards as Array<{ identity?: { vin?: string } }>).map((c) => vinOf(c.identity?.vin)));
+          const slate = buildFirstSearchSlate({
+            shown: (cards as Array<{ identity?: { vin?: string }; listing?: { price?: number | null }; detail?: { nhtsaOverallRating?: number } }>).map((c) => ({ vin: vinOf(c.identity?.vin), price: c.listing?.price ?? null, rating: c.detail?.nhtsaOverallRating })),
+            reserveVins: spareLean.map((l) => vinOf(l.vin)).filter((v) => !shownVins.has(v) && !stage2RejectedVins.has(v)),
+            excludedVins: [...stage2RejectedVins],
+            driveRequired: !!input.drivetrain, driveConfirmed: driveConfirmedVins,
+            fuelRequired: electrificationRequired, fuelMatched: electrificationResult.matchedVins,
+          });
+          const requirements = slate ? buildRequirements({
+            make: intent.hardConstraints.make, model: intent.hardConstraints.model, trimRequired: input.trimRequired,
+            priceMin: effectiveQuery.priceMin, priceMax: effectiveQuery.priceMax, yearMin: effectiveQuery.yearMin, yearMax: effectiveQuery.yearMax, mileageMax: effectiveQuery.mileageMax,
+            bodyType: input.bodyType, condition: input.condition, drivetrain: input.drivetrain, electrificationTypes: input.electrificationTypes, electrificationRequirement: input.electrificationRequirement,
+            cpo: input.cpo, noAccidents: input.noAccidents, oneOwner: input.oneOwner, doors: input.doors, exteriorColor: input.exteriorColor, interiorColor: input.interiorColor,
+            relaxations: relaxations.map((r) => String(r.step).toLowerCase().replace(/[^a-z_]+/g, "_").slice(0, 24)),
+          }) : null;
+          if (slate && requirements) moreRef = await Promise.race([writeSlate(getCatalogPool() as never, Date.now(), slate, requirements), new Promise<null>((resolve) => setTimeout(() => resolve(null), 300))]);
+        } catch { moreRef = null; }
+        if (moreRef) dataNotes.push(hintNote(moreRef));
+      }
       void logSearchEvent({ make: input.make, model: input.model, priceMax: input.priceMax, state: input.state, found: typeof total === "number" ? total : cards.length, shown: cards.length }).catch(() => undefined);
       const response = {
         meta: {
@@ -2625,7 +2653,8 @@ const handler = createMcpHandler((server) => {
               })
               .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards) + seatUnknownFootnote(cards) + (cards.length ? `\n\nCheck each Edmunds listing, then contact the dealer to confirm availability, price, features and safety equipment.${(cards as Array<{ condition?: { inventoryType?: string } }>).some((c) => c.condition?.inventoryType === "used") ? " For a used car, also ask for its history report (accidents, owners)." : ""}${needsWorthAsking(input.vehicleNeeds).length ? ` Also ask the dealer about: ${needsWorthAsking(input.vehicleNeeds).join(", ")}.` : ""}` : "")
             + (["cheapest", "newest", "lowest_mileage"].includes(String(input.priorityAxis)) && input.yearMin == null && input.mileageMax == null
-              ? "\n\nFor a closer match, tell me a minimum year, a maximum mileage or your budget, and I'll narrow the list." : "");
+              ? "\n\nFor a closer match, tell me a minimum year, a maximum mileage or your budget, and I'll narrow the list." : "")
+        + (moreRef ? moreText(moreRef) : "");
 
       return {
         content: [{ type: "text" as const, text: summary }],
