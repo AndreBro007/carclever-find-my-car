@@ -432,8 +432,8 @@ function buyerCheckTests() {
   );
   check("20. priorityAxis description teaches no lower_risk phrases (the feature is not offered)", !["lower-risk", "low risk", "safer-looking", "cleanest-looking history"].some((ph) => schemaSource.includes(ph)));
   check(
-    "20c. priorityAxis Zod enum is best_for_budget, cheapest, lowest_mileage, newest (lower_risk removed)",
-    /z\.enum\(\["best_for_budget", "cheapest", "lowest_mileage", "newest"\]\)/.test(schemaSource) && !/"lower_risk"/.test(schemaSource),
+    "20c. priorityAxis Zod enum is best_for_budget, best_value, cheapest, lowest_mileage, newest (lower_risk removed; best_value added 10 Nov 2026, R4-5, wording approved by André)",
+    /z\.enum\(\["best_for_budget", "best_value", "cheapest", "lowest_mileage", "newest"\]\)/.test(schemaSource) && !/"lower_risk"/.test(schemaSource),
   );
 }
 

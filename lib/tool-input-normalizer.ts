@@ -11,7 +11,7 @@ const BOOLEAN_FIELDS = new Set(["used", "cpo", "noAccidents", "oneOwner"]);
 const ARRAY_FIELDS = new Set(["vehicleNeeds", "electrificationTypes", "vins"]);
 
 const ENUMS: Record<string, string[]> = {
-  priorityAxis: ["best_for_budget", "cheapest", "lowest_mileage", "newest", "lower_risk"],
+  priorityAxis: ["best_for_budget", "best_value", "cheapest", "lowest_mileage", "newest", "lower_risk"], // best_value added 10 Nov 2026 (R4-5): the input cleaner must know every published value
   priceFlexibility: ["strict", "flexible"],
   transmission: ["Automatic", "Manual"],
   electrificationRequirement: ["required", "preferred"],

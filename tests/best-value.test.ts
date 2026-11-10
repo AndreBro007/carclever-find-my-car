@@ -105,3 +105,14 @@ test("the text for one car: percentage, sample, area, mileage range, limited sam
   assert.match(valueLineFor({ vin: "x", status: "unscored", reason: "too_few_similar" }), /not judged \(fewer than eight similar listings found\)/);
   assert.equal(valueLineFor(undefined), "");
 });
+
+// The input cleaner has its own list of allowed priorityAxis values: found on the first preview run (the value was dropped as "not recognised" and the search ran as best_for_budget).
+import { readFileSync } from "node:fs";
+test("every published priorityAxis value is accepted by the input cleaner and not dropped", () => {
+  const src = readFileSync("lib/find-matching-vehicle-input.ts", "utf8");
+  const published = (src.match(/priorityAxis: z\.enum\(\[([^\]]*)\]\)/) as RegExpMatchArray)[1].split(",").map((x) => x.trim().replace(/"/g, ""));
+  assert.ok(published.includes("best_value"));
+  const norm = readFileSync("lib/tool-input-normalizer.ts", "utf8");
+  const allowed = (norm.match(/priorityAxis: \[([^\]]*)\]/) as RegExpMatchArray)[1].split(",").map((x) => x.trim().replace(/"/g, ""));
+  for (const v of published) assert.ok(allowed.includes(v), `${v} missing from the normalizer list`);
+});
