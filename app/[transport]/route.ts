@@ -780,35 +780,8 @@ const handler = createMcpHandler((server) => {
     }),
   );
 
-  server.registerTool(
-    "find_matching_vehicle",
-    {
-      title: "Find Matching Vehicle",
-      description: CATALOG_FIND_MATCHING_VEHICLE_DESCRIPTION,
-      inputSchema: FindMatchingVehicleInputCatalog,
-      outputSchema: CatalogDbOutputSchema,
-      // Canonical output contract. All live structuredContent construction paths
-      // are compile-time validated against this schema via `satisfies`.
-      annotations: { title: "Find Matching Vehicle", readOnlyHint: true, openWorldHint: true, destructiveHint: false },
-      // (SYS-20260904-002) Restored — find_matching_vehicle is once again a
-      // single, self-sufficient call that renders directly. The mandatory
-      // two-call host-verification flow (SYS-20260903-006 through -013) was
-      // retired: it worked and was verified live, but cost 85-100 seconds
-      // per search, dominated by live search time with no way to reduce it.
-      // Replaced with a fully deterministic, condition-aware link design
-      // (see lib/link-resolution.ts) approved by both Andre and ChatGPT
-      // after reviewing real (not proxy) hit-rate data. Per SEP-1865: hosts
-      // that don't support MCP Apps ignore this field and the tool behaves
-      // exactly as before (text/structuredContent only). Also set the
-      // ChatGPT-specific compatibility alias per OpenAI's own docs
-      // ("ChatGPT also honors _meta['openai/outputTemplate'] as a
-      // compatibility alias") for extra robustness on that host.
-      _meta: {
-        ui: { resourceUri: RESULTS_CARD_RESOURCE_URI },
-        "openai/outputTemplate": RESULTS_CARD_RESOURCE_URI,
-      },
-    },
-    async (rawInput) => runWithNhtsaLedger(async () => {
+  // R4-6 step 1 (André approved the build, 11 Nov 2026): the search body is a NAMED function, moved without any change to its logic, so the Show 8 more tool can run the same code.
+  const runFindMatchingVehicle = async (rawInput: z.infer<typeof FindMatchingVehicleInputCatalog>) => runWithNhtsaLedger(async () => {
       // The published `condition` (new or used; left out means both) becomes the boolean the search code reads: false = new only, true = used only, unset = both.
       // The five inputs the database cannot use are no longer published (SYS-20261021-047), so here they are always unset; the code below that reads them stays as it was.
       const input = {
@@ -2659,7 +2632,37 @@ const handler = createMcpHandler((server) => {
         structuredContent: response,
       };
       });
-    }),
+  });
+
+  server.registerTool(
+    "find_matching_vehicle",
+    {
+      title: "Find Matching Vehicle",
+      description: CATALOG_FIND_MATCHING_VEHICLE_DESCRIPTION,
+      inputSchema: FindMatchingVehicleInputCatalog,
+      outputSchema: CatalogDbOutputSchema,
+      // Canonical output contract. All live structuredContent construction paths
+      // are compile-time validated against this schema via `satisfies`.
+      annotations: { title: "Find Matching Vehicle", readOnlyHint: true, openWorldHint: true, destructiveHint: false },
+      // (SYS-20260904-002) Restored — find_matching_vehicle is once again a
+      // single, self-sufficient call that renders directly. The mandatory
+      // two-call host-verification flow (SYS-20260903-006 through -013) was
+      // retired: it worked and was verified live, but cost 85-100 seconds
+      // per search, dominated by live search time with no way to reduce it.
+      // Replaced with a fully deterministic, condition-aware link design
+      // (see lib/link-resolution.ts) approved by both Andre and ChatGPT
+      // after reviewing real (not proxy) hit-rate data. Per SEP-1865: hosts
+      // that don't support MCP Apps ignore this field and the tool behaves
+      // exactly as before (text/structuredContent only). Also set the
+      // ChatGPT-specific compatibility alias per OpenAI's own docs
+      // ("ChatGPT also honors _meta['openai/outputTemplate'] as a
+      // compatibility alias") for extra robustness on that host.
+      _meta: {
+        ui: { resourceUri: RESULTS_CARD_RESOURCE_URI },
+        "openai/outputTemplate": RESULTS_CARD_RESOURCE_URI,
+      },
+    },
+    (rawInput) => runFindMatchingVehicle(rawInput),
   );
 
 
