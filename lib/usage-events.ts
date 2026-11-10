@@ -3,6 +3,7 @@ import { after } from "next/server";
 import { getCatalogPool } from "./catalog-db-source";
 import { priceBand } from "./search-log";
 import { setNhtsaFailureSink, setNhtsaCallerProvider } from "./nhtsa-client";
+import { maybeLogHeaderNames } from "./header-name-spike";
 
 /**
  * Usage events (Phase C P6, design approved by André 6 Nov 2026). One row per tool call in usage_event, plus a daily listen counter and a daily summary.
@@ -162,6 +163,7 @@ const store = new AsyncLocalStorage<UsageContext>();
 export function runWithUsageContext<T>(req: Request, fn: () => Promise<T>): Promise<T> {
   const h = req.headers;
   const ctx: UsageContext = { env: envFromHost(h.get("x-forwarded-host") ?? h.get("host")), caller: callerClass(h.get("user-agent")), listenMessages: 0 };
+  maybeLogHeaderNames(h, ctx.caller); // R4-1 spike: preview builds only, header NAMES only; removed before release 4 goes live
   return store.run(ctx, fn);
 }
 // NHTSA decode failures are counted per tool CALL (not per request), so two tools in one batch, even running at the same time, each get only their own count.
