@@ -19,7 +19,7 @@ export interface AppliedFilters {
 const money = (n: number): string => `$${n.toLocaleString("en-US")}`;
 const text = (v: unknown): string => (Array.isArray(v) ? v.map(String).join(", ") : typeof v === "string" ? v.trim() : "");
 const TYPE_WORDS: Record<string, string> = { hybrid: "hybrid", plug_in_hybrid: "plug-in hybrid", electric: "electric" };
-const AXIS_WORDS: Record<string, string> = { best_for_budget: "best for budget", cheapest: "cheapest", lowest_mileage: "lowest mileage", newest: "newest", lower_risk: "lower risk" };
+const AXIS_WORDS: Record<string, string> = { best_for_budget: "best for budget", best_value: "best value", cheapest: "cheapest", lowest_mileage: "lowest mileage", newest: "newest", lower_risk: "lower risk" };
 
 export function appliedFiltersLine(f: AppliedFilters): string {
   const parts: string[] = [];

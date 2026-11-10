@@ -20,7 +20,8 @@ import { widenSearchIfThin, type StepName } from "@/lib/loosening-ladder";
 import { isConfirmedOutsideRadius } from "@/lib/geo-verification";
 import { seatUnknownFootnote } from "@/lib/seat-note";
 import { rowByVin } from "@/lib/catalog-db/search";
-import { getCatalogPool, rowToListing, stockPhotoFor, CATALOG_SERVICE_ERROR } from "@/lib/catalog-db-source";
+import { getCatalogPool, rowToListing, stockPhotoFor, CATALOG_SERVICE_ERROR, fetchValueComparables } from "@/lib/catalog-db-source";
+import { rankListingsByValue, valueLineFor, VALUE_POOL_BOUND, type ValueRanking } from "@/lib/best-value";
 import { stockCodeFor } from "@/lib/stock-photo-svg";
 import { logSearchEvent } from "@/lib/search-log";
 import { registerS1Spike } from "@/lib/s1-spike";
@@ -1230,6 +1231,22 @@ const handler = createMcpHandler((server) => {
       const zipKnown = rawZip == null || !(zipFormatValid && zipNotAllSameDigit) || zipcodes.lookup(rawZip) != null;
       const zipIsValid = zipFormatValid && zipNotAllSameDigit && zipKnown;
 
+      // R4-5 best value (André, SYS-20261110-022): the comparison is local, so a location is needed. Without a valid ZIP the reply asks for one; no nationwide value search is run.
+      // Dormant until "best_value" is added to the published input (a separate approval): until then the enum rejects the value before this point.
+      const isValueAxis = (input.priorityAxis as string | undefined) === "best_value";
+      if (isValueAxis && !(rawZip != null && zipIsValid)) {
+        return {
+          content: [{ type: "text" as const, text: "Best value compares each car's asking price with similar listings near the buyer, so it needs a location. Please give a ZIP code (for example: best value used Honda CR-V near 90210) and I will run it." }],
+          structuredContent: {
+            meta: {
+              totalCandidatesConsidered: 0, totalMatches: 0, resultsShown: 0, corpusSizeApprox: getCorpusCountForDescription(), relaxations: [], dataNotes: [],
+              scopeNote: "nationwide", serviceError: null, interpretationNotes: ["Best value needs a ZIP code: no search was run."], qualifierAccounting: [],
+            },
+            results: [],
+          } satisfies FindMatchingVehicleOutput,
+        };
+      }
+
       const baseQuery: ListingsQuery = {
         make: intent.hardConstraints.make,
         model: intent.hardConstraints.model,
@@ -1254,8 +1271,8 @@ const handler = createMcpHandler((server) => {
         state: input.state,
         // accidentCount/ownerCount NOT sent as query filters — history is null
         // in 53% of real listings, so hard-filtering would violate "unknown != false".
-        sort: resolveSort(input.priorityAxis, intent.hardConstraints.priceMax),
-        limit: CANDIDATE_POOL_SIZE,
+        sort: isValueAxis ? "distance.asc" : resolveSort(input.priorityAxis, intent.hardConstraints.priceMax), // R4-5: best value reads the NEAREST local cars
+        limit: isValueAxis ? VALUE_POOL_BOUND : CANDIDATE_POOL_SIZE,
       };
       baseQuery.electrified = (await withElectrifiedFilter(baseQuery)).electrified; // before the trim lookup, so it sees the variant models too
       baseQuery.trimIn = (await withResolvedTrim(baseQuery)).trimIn;
@@ -1793,6 +1810,18 @@ const handler = createMcpHandler((server) => {
         electrificationResult.matchedVins != null &&
         electrificationResult.matchedVins.size === 0;
 
+      // R4-5 best value: every local candidate that passed the filters is scored against similar listings (see lib/best-value.ts). A failed read of the comparables never becomes
+      // "no similar cars": the search falls back to the default ranking and says so.
+      let valueRanking: (ValueRanking & { widenedFetch: boolean }) | null = null;
+      let valueFailed = false;
+      if (isValueAxis) {
+        try {
+          valueRanking = await rankListingsByValue(electrificationFilteredCandidates, Math.min(effectiveQuery.radius ?? input.radiusMiles ?? 50, 1000), (g, r) => fetchValueComparables(String(rawZip), g, r));
+        } catch { valueFailed = true; }
+      }
+      const valueOrdered: VehicleListing[] | null = valueRanking
+        ? (() => { const by = new Map(electrificationFilteredCandidates.map((l) => [String(l.vin ?? "").trim().toUpperCase(), l] as const)); return valueRanking!.order.map((v) => by.get(v)).filter((l): l is VehicleListing => !!l); })()
+        : null;
       const diversified = applyDiversity(
         // EXPERIMENT (preview only): local best_for_budget ordering, applied
         // only for that axis (or unset, its default) — cheapest/
@@ -1807,7 +1836,9 @@ const handler = createMcpHandler((server) => {
         // break that documented exactness. electrificationRequirement:
         // "preferred" currently only affects ordering under best_for_budget
         // (default).
-        input.priorityAxis === "best_for_budget" || input.priorityAxis == null
+        valueOrdered
+          ? valueOrdered
+          : input.priorityAxis === "best_for_budget" || input.priorityAxis == null || valueFailed
           ? applyConfigurationVarietyPass(
               applyLocalBestForBudgetOrdering(electrificationFilteredCandidates, intent.semantic.trimPreference, electrificationMatchOf, input.priceMax, trimOpts.electrified),
             )
@@ -1816,7 +1847,7 @@ const handler = createMcpHandler((server) => {
       );
       // Cheapest, newest and lowest mileage are explicit objectives: strictly the best cars in that order, no per-model variety cap
       // (the open best-for-budget search keeps its variety rule above). With a drivetrain request each group is ordered on its own.
-      const strictBase = isStrictAxis(input.priorityAxis)
+      const strictBase = valueOrdered ? valueOrdered.slice(0, targetCount * 2) : isStrictAxis(input.priorityAxis)
         ? (driveSplit && driveSplit.confirmed.length > 0 && driveUnknownCapped.length > 0
             ? [...strictAxisOrder(driveSplit.confirmed, input.priorityAxis, targetCount * 2), ...strictAxisOrder(driveUnknownCapped, input.priorityAxis, targetCount * 2)].slice(0, targetCount * 2)
             : strictAxisOrder(electrificationFilteredCandidates, input.priorityAxis, targetCount * 2))
@@ -2219,14 +2250,14 @@ const handler = createMcpHandler((server) => {
       // calling LLM had to manually re-verify and narrow the ceiling itself
       // because our own "cheapest"/"newest" results weren't actually ordered
       // that way by the time they reached it.
-      if (input.priorityAxis === "cheapest" || input.priorityAxis === "lowest_mileage" || input.priorityAxis === "newest") {
-        // Leave cards in their already-correct fetched order — do not re-sort.
+      if (input.priorityAxis === "cheapest" || input.priorityAxis === "lowest_mileage" || input.priorityAxis === "newest" || valueRanking) {
+        // Leave cards in their already-correct fetched order — do not re-sort (best value: the value order is the answer).
       } else {
         cards.sort((a, b) => b.ranking.matchScore - a.ranking.matchScore);
       }
       // Database app, default ordering only: among equally good matches (same match score) the nearest dealer comes first. The distance comes
       // from the first-pass rows (the refetched copy has none). The priority axes above keep their own order.
-      if (input.priorityAxis !== "cheapest" && input.priorityAxis !== "lowest_mileage" && input.priorityAxis !== "newest") {
+      if (input.priorityAxis !== "cheapest" && input.priorityAxis !== "lowest_mileage" && input.priorityAxis !== "newest" && !valueRanking) {
         const miles = new Map<string, number>();
         for (const l of [...leanShortlist, ...spareLean]) { const d = (l as any).catalog?.distanceMiles; if (typeof d === "number") miles.set(l.vin, d); }
         const sorted = sortByScoreThenDistance(cards, miles);
@@ -2278,6 +2309,11 @@ const handler = createMcpHandler((server) => {
       { const note = unappliedFilterNote(input, cards); if (note) dataNotes.push(note); }
       { const vt = vehicleTypeNote(input); if (vt) dataNotes.push(vt); }
       { const tn = tieNote(cards as never, input.priorityAxis); if (tn) dataNotes.push(tn); }
+      if (valueRanking) {
+        dataNotes.push("Ranked by best value: each car's asking price compared with similar listings in the latest catalogue update (same model, year and trim, similar mileage; new and used kept apart). Each number below states the percentage, how many similar listings and the area used. This says nothing about reliability, condition or guaranteed savings, and prices can differ across areas when the comparison area is widened.");
+        if ((rawResult?.data?.length ?? 0) >= VALUE_POOL_BOUND) dataNotes.push(`Scored the nearest ${VALUE_POOL_BOUND} cars that matched; there may be more.`);
+      }
+      if (valueFailed) dataNotes.push("Best value could not be judged just now (the comparison data was unavailable), so this list uses the default best-for-budget ranking.");
       { const sn = stockPhotoNote(cards.map((c: any) => c.media?.cardImageUrl)); if (sn) dataNotes.push(sn); }
       { if (input.drivetrain && !electrificationRequired) { const nn = noAnswerNote(nhtsaNoAnswerCount()); if (nn) dataNotes.push(nn); } }
       { const dw = wantedDriveClasses(input.drivetrain); if (dw) { const dn = drivetrainNote(String(input.drivetrain), cards.map((c: any) => c.powertrain?.drivetrain), dw, (driveSplit?.excluded ?? 0) + driveLateRemoved); if (dn) dataNotes.push(dn); if (driveAllMismatch) dataNotes.push(`The VIN decode shows a different drivetrain than ${String(input.drivetrain)} for the cars listed here. Ask the dealer before relying on any of them.`); } }
@@ -2612,7 +2648,7 @@ const handler = createMcpHandler((server) => {
                 const elecLine = elecUnknown ? `\n   ${electrificationWords(input.electrificationTypes).replace(/^./, (m) => m.toUpperCase())} not confirmed by NHTSA: ask the dealer.` : "";
                 const driveLine = driveJudged === "unknown" ? "\n   Drivetrain not confirmed: ask the dealer." : driveJudged === "mismatch" ? `\n   Drivetrain: the VIN decode shows ${c.powertrain.drivetrain}, not the requested one.` : "";
                 const conflictLine = c.dataConflicts.length > 0 ? `\n   ⚠️ ${c.dataConflicts.join(" ")}` : "";
-                return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel}${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${historyLine}${confirmedLine}${seatsLine}${driveLine}${elecLine}${conflictLine}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${linkStr}`;
+                return `${i + 1}. ${formatVehicleTitle(id)}${id.vin ? ` — VIN ${id.vin}` : ""} — ${priceStr}, ${mileageStr}${conditionStr ? `, ${conditionStr}` : ""}${dealerStr}\n   ${r.matchScoreLabel}${c.badges.includes("vin-verified") ? " · VIN-verified" : ""}${valueRanking ? `\n   ${valueLineFor(valueRanking.scores.get(String((id as { vin?: unknown }).vin ?? "").trim().toUpperCase()))}` : ""}${historyLine}${confirmedLine}${seatsLine}${driveLine}${elecLine}${conflictLine}${nhtsaTextLines(c)}${freshnessTextLine(c)}\n   Link: ${linkStr}`;
               })
               .join("\n\n") + nhtsaTextFootnote(cards) + recallCheckFootnote(cards) + closingExitLine(cards) + seatUnknownFootnote(cards) + (cards.length ? `\n\nCheck each Edmunds listing, then contact the dealer to confirm availability, price, features and safety equipment.${(cards as Array<{ condition?: { inventoryType?: string } }>).some((c) => c.condition?.inventoryType === "used") ? " For a used car, also ask for its history report (accidents, owners)." : ""}${needsWorthAsking(input.vehicleNeeds).length ? ` Also ask the dealer about: ${needsWorthAsking(input.vehicleNeeds).join(", ")}.` : ""}` : "")
             + (["cheapest", "newest", "lowest_mileage"].includes(String(input.priorityAxis)) && input.yearMin == null && input.mileageMax == null

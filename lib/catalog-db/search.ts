@@ -21,7 +21,7 @@ export interface DbRow {
 export interface DbSearchResult { rows: DbRow[]; total: number | null; localApplied: boolean }
 
 const DEFAULT_LIMIT = 300;
-const MAX_LIMIT = 300;
+const MAX_LIMIT = 600; // R4-5: best value scores the nearest 600 local cars; every other search still asks for 300 (CANDIDATE_POOL_SIZE in route.ts)
 const TOTAL_CAP = 10_000;
 export const DEFAULT_RADIUS_MILES = 50;
 export const MAX_RADIUS = 1000;
@@ -136,6 +136,7 @@ export function localSortFor(sort: string | undefined, priceCap?: number | null)
     case "price.asc": return "(x.odometer IS NULL) ASC, x.price ASC NULLS LAST, ";
     case "mileage.asc": case "miles.asc": return "x.odometer ASC NULLS LAST, ";
     case "year.desc": return "x.year DESC NULLS LAST, ";
+    case "distance.asc": return ""; // R4-5 best value: nearest first (the caller adds x.distance ASC)
     default: return priceCap != null && Number.isFinite(priceCap) && priceCap > 0 ? `(x.price >= ${Math.floor(priceCap * 0.75)}) DESC, x.year DESC NULLS LAST, x.odometer ASC NULLS LAST, ` : ""; // with a ceiling, cars in the top quarter of the budget enter the candidate pool first, newest and lowest mileage first, so cheap nearby cars cannot crowd them out (everything is already inside the asked radius)
   }
 }
@@ -293,4 +294,37 @@ export async function stockPhotos(db: Queryable, reqs: StockPhotoRequest[]): Pro
     [reqs.map((x) => x.vin), reqs.map((x) => x.makeKey), reqs.map((x) => x.modelKey), reqs.map((x) => x.year), reqs.map((x) => x.color), reqs.map((x) => x.trim), stockPhotoSourcePatterns()],
   );
   return (r.rows as Array<{ vin: string; image_url: string; colour_ok: boolean }>).map((x) => ({ vin: x.vin, imageUrl: x.image_url, colourMatched: !!x.colour_ok }));
+}
+
+// ---- R4-5 best value: the comparable listings for a set of (make, model, year, trim, condition) groups ----
+export interface ValueGroupKey { makeKey: string; modelKey: string; year: number; trim: string; used: boolean }
+export interface ValueComparableRow { vin: string; makeKey: string; modelKey: string; year: number; trim: string; used: boolean; price: number; miles: number | null; distance: number }
+export const VALUE_COMPARABLE_ROW_CAP = 30_000;
+/**
+ * Same make, model, year, trim and condition as the groups asked for, anywhere inside maxRadiusMiles of the ZIP (null = nationwide), one row per VIN, with the distance in miles.
+ * The shopper's price ceiling is deliberately NOT applied (it limits the cars returned, never the benchmark). Mileage rules are applied by the caller.
+ * Measured on the test database (10 Nov 2026): at most about 10,700 rows for the widest case, about 5 s for twelve such fetches in one statement.
+ */
+export async function valueComparables(db: Queryable, zip: string, groups: ValueGroupKey[], maxRadiusMiles: number | null): Promise<ValueComparableRow[]> {
+  if (groups.length === 0) return [];
+  const origin = /^\d{5}$/.test(zip) ? zipcodes.lookup(zip) : undefined;
+  if (!origin) return [];
+  const p = new Params();
+  const mk = p.add(groups.map((g) => g.makeKey)), md = p.add(groups.map((g) => g.modelKey)), yr = p.add(groups.map((g) => g.year)), tr = p.add(groups.map((g) => g.trim)), cd = p.add(groups.map((g) => (g.used ? "u" : "n")));
+  const dist = haversine(p, origin.latitude, origin.longitude);
+  const where = ["l.price >= 1000", "l.lat IS NOT NULL", "l.lon IS NOT NULL"];
+  if (maxRadiusMiles != null && maxRadiusMiles > 0) {
+    const r = Math.min(maxRadiusMiles, MAX_RADIUS), dLat = r / 69, dLon = r / (69 * Math.max(Math.cos((origin.latitude * Math.PI) / 180), 0.2));
+    where.push(`l.lat BETWEEN ${p.add(origin.latitude - dLat)} AND ${p.add(origin.latitude + dLat)}`, `l.lon BETWEEN ${p.add(origin.longitude - dLon)} AND ${p.add(origin.longitude + dLon)}`);
+  }
+  const within = maxRadiusMiles != null && maxRadiusMiles > 0 ? `WHERE x.distance <= ${p.add(Math.min(maxRadiusMiles, MAX_RADIUS))}` : "";
+  const sql = `SELECT x.* FROM (SELECT DISTINCT ON (l.vin) l.vin, l.make_key, l.model_key, l.year, l.trim, l.condition, l.price, l.odometer, ${dist} AS distance ` +
+    `FROM listing l JOIN unnest(${mk}::text[], ${md}::text[], ${yr}::int[], ${tr}::text[], ${cd}::text[]) AS g(mk, md, yr, tr, cd) ` +
+    `ON l.make_key = g.mk AND l.model_key = g.md AND l.year = g.yr AND l.trim = g.tr AND l.condition = g.cd ` +
+    `WHERE ${where.join(" AND ")} ORDER BY l.vin, l.id) x ${within} LIMIT ${VALUE_COMPARABLE_ROW_CAP}`;
+  const res = await db.query(sql, p.values);
+  return res.rows.map((r) => ({
+    vin: String(r.vin).trim().toUpperCase(), makeKey: String(r.make_key), modelKey: String(r.model_key), year: Number(r.year), trim: String(r.trim), used: r.condition === "u",
+    price: Number(r.price), miles: r.odometer == null ? null : Number(r.odometer), distance: Number(r.distance),
+  }));
 }

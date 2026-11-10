@@ -9,7 +9,7 @@ import { Pool } from "pg";
 import type { VehicleListing, ListingsQuery, ListingsResponse } from "./listing-types";
 import { buildTrackingUrl, alnumKey, type BodyClass } from "./catalog-db/normalize";
 import { pictureShowsListingColour } from "./stock-photo-sources";
-import { modelFacets, allModelNames, trimFacets, rowByVin, searchRows, stockPhotos, type DbRow, type Queryable } from "./catalog-db/search";
+import { modelFacets, allModelNames, trimFacets, rowByVin, searchRows, stockPhotos, valueComparables, type DbRow, type Queryable, type ValueGroupKey } from "./catalog-db/search";
 import { cleanConnectionString } from "./catalog-db/conn";
 import { noteDbFailure } from "./db-failure";
 import { addStageMs } from "./stage-timer";
@@ -190,4 +190,9 @@ export async function stockPhotoFor(listing: VehicleListing): Promise<{ imageUrl
     noteDbFailure("photo", e, t0, pool);
     return null;
   }
+}
+
+/** R4-5 best value: comparable listings for the given groups. A failed read THROWS (the caller falls back to the default ranking and says so); it is never turned into "no comparables". */
+export async function fetchValueComparables(zip: string, groups: ValueGroupKey[], maxRadiusMiles: number | null) {
+  return valueComparables(getPool() as unknown as Queryable, zip, groups, maxRadiusMiles);
 }
