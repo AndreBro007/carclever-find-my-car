@@ -68,6 +68,7 @@ import { buildIntentConfirmations, detectDataConflicts, buildQualifierAccounting
 import { RESULTS_CARD_RESOURCE_URI, RESULTS_CARD_LEGACY_RESOURCE_URIS, buildResultsCardHtml, getAppOrigin } from "@/lib/results-card";
 import { signImageUrl } from "@/lib/image-proxy-sign";
 import { trimMatchesAny, trimContainsAllAny } from "@/lib/trim-match";
+import { bodyStyleMatches } from "@/lib/stage2-rules";
 import { resolveRequiredTrims } from "@/lib/trim-resolution";
 import { resultsSummaryLine } from "@/lib/results-summary";
 import { readBodyCapped, requestLimitProblem, requestTooLargeResponse, invalidParamsResponse, MAX_BATCH_MESSAGES } from "@/lib/request-limits";
@@ -1598,26 +1599,7 @@ const handler = createMcpHandler((server) => {
       // extended here. Mismatched candidates surfaced this way still get
       // their honest per-result "NOT the requested X" disclosure
       // (qualifier-accounting.ts) rather than looking like a plain match.
-      const bodyStyleMatchFilter = (c: VehicleListing) => {
-        const target = droppedBodyStyle!.toLowerCase();
-        // Runtime-safety fix (fix/provider-string-runtime-safety,
-        // SYS-20260828): String()-coerced before .toLowerCase() — plain
-        // optional chaining (`c.vehicle?.bodyStyle?.toLowerCase()`) only
-        // guards against null/undefined, not against a present-but-wrong-
-        // type value; a live production crash confirmed the provider can
-        // return a non-string value for a sibling field (vehicle.trim,
-        // observed as the number 1958) despite its declared string type,
-        // and vehicle.bodyStyle/vehicle.type carry the exact same
-        // unreliable-typing risk from the same provider. Coercing to a
-        // literal string here can only ever produce a value that fails
-        // to equal `target` (an unusual coerced string is extremely
-        // unlikely to accidentally match a real body-style name) — never
-        // silently invents a match, just avoids crashing on one.
-        const reportedStyle = c.vehicle?.bodyStyle != null ? String(c.vehicle.bodyStyle).toLowerCase() : null;
-        const reportedType = c.vehicle?.type != null ? String(c.vehicle.type).toLowerCase() : null;
-        if (reportedStyle == null && reportedType == null) return true;
-        return reportedStyle === target || reportedType === target;
-      };
+      const bodyStyleMatchFilter = (c: VehicleListing) => bodyStyleMatches(droppedBodyStyle!, c); // the rule itself lives in lib/stage2-rules.ts (shared with Show 8 more)
       const bodyStyleFilteredCandidates = droppedBodyStyle
         ? (() => {
             const filtered = verifiedCandidates.filter(bodyStyleMatchFilter);
@@ -2409,7 +2391,7 @@ const handler = createMcpHandler((server) => {
             priceMin: effectiveQuery.priceMin, priceMax: effectiveQuery.priceMax, yearMin: effectiveQuery.yearMin, yearMax: effectiveQuery.yearMax, mileageMax: effectiveQuery.mileageMax,
             bodyType: input.bodyType, condition: input.condition, drivetrain: input.drivetrain, electrificationTypes: input.electrificationTypes, electrificationRequirement: input.electrificationRequirement,
             cpo: input.cpo, noAccidents: input.noAccidents, oneOwner: input.oneOwner, doors: input.doors, exteriorColor: input.exteriorColor, interiorColor: input.interiorColor,
-            relaxations: relaxations.map((r) => String(r.step).toLowerCase().replace(/[^a-z_]+/g, "_").slice(0, 24)),
+            relaxations: [...relaxations.map((r) => String(r.step).toLowerCase().replace(/[^a-z_]+/g, "_").slice(0, 24)), ...(trimClose ? ["trim_close"] : [])],
           }) : null;
           if (slate && requirements) moreRef = await Promise.race([writeSlate(getCatalogPool() as never, Date.now(), slate, requirements), new Promise<null>((resolve) => setTimeout(() => resolve(null), 300))]);
         } catch { moreRef = null; }
