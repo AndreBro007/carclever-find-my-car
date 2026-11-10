@@ -4,6 +4,7 @@ import { getCatalogPool } from "./catalog-db-source";
 import { priceBand } from "./search-log";
 import { setNhtsaFailureSink, setNhtsaCallerProvider } from "./nhtsa-client";
 import { maybeLogHeaderNames, maybeLogClientHeader } from "./header-name-spike";
+import { newStageTotals, runWithStageTotals, sanitizeStageMs, STAGE_KEYS, type StageTotals } from "./stage-timer";
 import { setSharedIdPlatformProvider } from "./shared-id-context";
 
 /**
@@ -32,6 +33,21 @@ export function callerClass(userAgent?: string | null): CallerClass {
   if (ua.includes("openai") || ua.includes("chatgpt")) return "chatgpt";
   if (ua.includes("grok")) return "grok";
   return "other";
+}
+
+/**
+ * R4-1 (10 Nov 2026, André approved Option A): the Claude surface, from the value of the ONE header x-anthropic-client, through a FIXED list built from the values actually seen
+ * (the header spike on 10 Nov saw "ClaudeAI" and "Cowork"). Anything else, a missing header, or any caller other than Claude is "unknown". The raw header value is never stored.
+ * "claude_ai" means Claude chat (web, and possibly the desktop chat: not separated by this header as far as seen); "cowork" is Cowork.
+ */
+export const SURFACES = ["claude_ai", "cowork", "unknown"] as const;
+export type Surface = (typeof SURFACES)[number];
+export function surfaceOf(headerValue: string | null | undefined, caller: CallerClass): Surface {
+  if (caller !== "claude") return "unknown";
+  const v = String(headerValue ?? "").trim().toLowerCase();
+  if (v === "claudeai") return "claude_ai";
+  if (v === "cowork") return "cowork";
+  return "unknown";
 }
 
 const HOST_ENV: Record<string, UsageEnv> = {
@@ -121,6 +137,8 @@ export function sanitizeUsageEvent(e: UsageEvent): UsageEvent | null {
       make_given: a.make_given === true, model_given: a.model_given === true, filter_count: int(a.filter_count, 100) ?? 0,
     } : undefined,
     intent_label: e.intent_label && INTENT_LABELS.includes(e.intent_label) ? e.intent_label : null,
+    surface: (SURFACES as readonly string[]).includes(String(e.surface)) ? (e.surface as Surface) : "unknown",
+    stage_ms: sanitizeStageMs(e.stage_ms),
     link_code: e.link_code && /^[a-z0-9]{1,64}$/.test(e.link_code) ? e.link_code : null,
     duration_ms: int(e.duration_ms, 3_600_000), nhtsa_failures: int(e.nhtsa_failures, 100000),
   };
@@ -159,11 +177,12 @@ export function linkOutcome(r: ToolResult): string {
 }
 
 // ---- per-request context ----
-interface UsageContext { env: UsageEnv; caller: CallerClass; listenMessages: number }
+interface UsageContext { env: UsageEnv; caller: CallerClass; surface: Surface; listenMessages: number }
 const store = new AsyncLocalStorage<UsageContext>();
 export function runWithUsageContext<T>(req: Request, fn: () => Promise<T>): Promise<T> {
   const h = req.headers;
-  const ctx: UsageContext = { env: envFromHost(h.get("x-forwarded-host") ?? h.get("host")), caller: callerClass(h.get("user-agent")), listenMessages: 0 };
+  const ctx: UsageContext = { env: envFromHost(h.get("x-forwarded-host") ?? h.get("host")), caller: callerClass(h.get("user-agent")), surface: "unknown", listenMessages: 0 };
+  ctx.surface = surfaceOf(h.get("x-anthropic-client"), ctx.caller);
   maybeLogHeaderNames(h, ctx.caller); // R4-1 spike: preview builds only, header NAMES only; removed before release 4 goes live
   maybeLogClientHeader(h, ctx.caller); // R4-1 spike step 2: the value of x-anthropic-client only, safe pattern, preview builds only; removed before release 4 goes live
   return store.run(ctx, fn);
@@ -208,17 +227,34 @@ export function ensureUsageTables(): Promise<void> {
 export interface UsageEvent {
   tool: UsageTool; outcome: string; env: UsageEnv; caller_class: CallerClass;
   found?: number | null; shown?: number | null; attrs?: UsageAttributes; intent_label?: string | null; link_code?: string | null; duration_ms?: number | null; nhtsa_failures?: number | null;
+  surface?: Surface; stage_ms?: StageTotals | null;
+}
+/** Optional columns added later by additive SQL (R4-1 surface, R4-3 stage_ms). The writer uses a column only when it exists, so a missing column can never break a write.
+ * The answer is kept for five minutes per server instance, so a column added later is picked up; a failed lookup means "none" and is not kept. */
+export const OPTIONAL_USAGE_COLUMNS = ["surface", "stage_ms"] as const;
+const OPTIONAL_COLUMNS_TTL_MS = 5 * 60 * 1000;
+let optionalColumns: { at: number; present: Set<string> } | null = null;
+export function _resetOptionalColumnsForTests(): void { optionalColumns = null; }
+async function presentOptionalColumns(): Promise<Set<string>> {
+  if (optionalColumns && Date.now() - optionalColumns.at < OPTIONAL_COLUMNS_TTL_MS) return optionalColumns.present;
+  try {
+    const r = await pool().query(`SELECT column_name FROM information_schema.columns WHERE table_name = 'usage_event' AND column_name = ANY($1)`, [[...OPTIONAL_USAGE_COLUMNS]]);
+    const present = new Set<string>((r?.rows ?? []).map((x: { column_name: unknown }) => String(x.column_name)).filter((c: string) => (OPTIONAL_USAGE_COLUMNS as readonly string[]).includes(c)));
+    optionalColumns = { at: Date.now(), present };
+    return present;
+  } catch { return new Set<string>(); }
 }
 export async function insertUsageEvent(raw: UsageEvent): Promise<void> {
   const e = sanitizeUsageEvent(raw); if (!e) return;
   await ensureUsageTables();
   const a = e.attrs;
-  await pool().query(
-    `INSERT INTO usage_event (tool, outcome, env, caller_class, found, shown, body_style, price_band, condition, make_given, model_given, filter_count, intent_label, label_version, link_code, duration_ms, nhtsa_failures)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
-    [e.tool, e.outcome, e.env, e.caller_class, e.found ?? null, e.shown ?? null, a?.body_style ?? null, a?.price_band ?? null, a?.condition ?? null, a?.make_given ?? null, a?.model_given ?? null, a?.filter_count ?? null,
-     e.intent_label ?? null, e.intent_label ? USAGE_LABEL_VERSION : null, e.link_code ?? null, e.duration_ms ?? null, e.nhtsa_failures ?? null],
-  );
+  const cols = ["tool", "outcome", "env", "caller_class", "found", "shown", "body_style", "price_band", "condition", "make_given", "model_given", "filter_count", "intent_label", "label_version", "link_code", "duration_ms", "nhtsa_failures"];
+  const vals: unknown[] = [e.tool, e.outcome, e.env, e.caller_class, e.found ?? null, e.shown ?? null, a?.body_style ?? null, a?.price_band ?? null, a?.condition ?? null, a?.make_given ?? null, a?.model_given ?? null, a?.filter_count ?? null,
+    e.intent_label ?? null, e.intent_label ? USAGE_LABEL_VERSION : null, e.link_code ?? null, e.duration_ms ?? null, e.nhtsa_failures ?? null];
+  const optional = await presentOptionalColumns();
+  if (optional.has("surface")) { cols.push("surface"); vals.push(e.surface ?? "unknown"); }
+  if (optional.has("stage_ms")) { cols.push("stage_ms"); vals.push(e.stage_ms ? JSON.stringify(e.stage_ms) : null); }
+  await pool().query(`INSERT INTO usage_event (${cols.join(", ")}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(",")})`, vals);
 }
 export async function bumpUsageCounter(env: UsageEnv, kind: string, n = 1): Promise<void> {
   await ensureUsageTables();
@@ -272,13 +308,13 @@ export function noteListenOutcome(status: number): void {
   scheduleUsageTask("listen counter", () => bumpUsageCounter(ctx.env, kind, 1));
 }
 
-function record(tool: UsageTool, outcome: string, args: unknown, extra: { found?: number | null; shown?: number | null }, ms: number, nhtsaFailures: number | null = null, rejected = false): void {
+function record(tool: UsageTool, outcome: string, args: unknown, extra: { found?: number | null; shown?: number | null }, ms: number, nhtsaFailures: number | null = null, rejected = false, stages: StageTotals | null = null): void {
   const ctx = store.getStore(); if (!ctx || !usageEnabled(ctx.env)) return;
   const input = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
   const ev: UsageEvent = {
     tool, outcome, env: ctx.env, caller_class: ctx.caller, found: extra.found ?? null, shown: extra.shown ?? null,
     attrs: tool === "search" && !rejected ? usageAttributes(input) : undefined, intent_label: tool === "search" && !rejected ? intentLabel(input as IntentInputs) : null,
-    duration_ms: Math.max(0, Math.round(ms)), nhtsa_failures: nhtsaFailures,
+    duration_ms: Math.max(0, Math.round(ms)), nhtsa_failures: nhtsaFailures, surface: ctx.surface, stage_ms: stages,
   };
   scheduleUsageTask("event", () => insertUsageEvent(ev));
 }
@@ -296,14 +332,14 @@ export function instrumentTools(server: { registerTool: (...a: any[]) => any }):
     const tool = TOOL_BY_NAME[name];
     if (!tool || typeof cb !== "function") return original(name, config, cb);
     const wrapped = async (...cbArgs: any[]) => {
-      const t0 = Date.now(); const call = { failures: 0 };
+      const t0 = Date.now(); const call = { failures: 0 }; const stages = newStageTotals();
       const nhtsa = () => (tool === "search" ? call.failures : null);
       let result: ToolResult;
-      try { result = await callStore.run(call, () => cb(...cbArgs)); }
-      catch (e) { try { record(tool, "error", cbArgs[0], {}, Date.now() - t0, nhtsa()); } catch { /* never alter the failure */ } throw e; }
+      try { result = await runWithStageTotals(stages, () => callStore.run(call, () => cb(...cbArgs))); }
+      catch (e) { try { record(tool, "error", cbArgs[0], {}, Date.now() - t0, nhtsa(), false, stages); } catch { /* never alter the failure */ } throw e; }
       try {
-        if (tool === "search") { const s = searchOutcome(result); record(tool, s.outcome, cbArgs[0], s, Date.now() - t0, nhtsa()); }
-        else record(tool, tool === "check" ? checkOutcome(result) : tool === "compare" ? compareOutcome(result) : linkOutcome(result), cbArgs[0], {}, Date.now() - t0);
+        if (tool === "search") { const s = searchOutcome(result); record(tool, s.outcome, cbArgs[0], s, Date.now() - t0, nhtsa(), false, stages); }
+        else record(tool, tool === "check" ? checkOutcome(result) : tool === "compare" ? compareOutcome(result) : linkOutcome(result), cbArgs[0], {}, Date.now() - t0, null, false, stages);
       } catch { /* logging must never change the answer */ }
       return result;
     };

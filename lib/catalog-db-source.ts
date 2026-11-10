@@ -12,6 +12,7 @@ import { pictureShowsListingColour } from "./stock-photo-sources";
 import { modelFacets, allModelNames, trimFacets, rowByVin, searchRows, stockPhotos, type DbRow, type Queryable } from "./catalog-db/search";
 import { cleanConnectionString } from "./catalog-db/conn";
 import { noteDbFailure } from "./db-failure";
+import { addStageMs } from "./stage-timer";
 
 export function catalogDbConfigured(): boolean {
   return typeof process.env.DATABASE_URL === "string" && process.env.DATABASE_URL.trim() !== "";
@@ -24,6 +25,13 @@ function getPool(): Pool {
     // connection through PgBouncer can reject.)
     pool = new Pool({ connectionString: cleanConnectionString(process.env.DATABASE_URL), max: 3, idleTimeoutMillis: 10_000, connectionTimeoutMillis: 6_000, query_timeout: 8_000 });
     pool.on("error", () => { /* an idle client dropped; the next query reconnects */ });
+    // R4-3: time every query (stage "db"). The result and any error pass through untouched.
+    const rawQuery = pool.query.bind(pool) as (...a: any[]) => any;
+    (pool as any).query = (...a: any[]) => {
+      const t0 = Date.now(); const r = rawQuery(...a);
+      if (r && typeof r.then === "function") return r.finally(() => addStageMs("db", Date.now() - t0));
+      return r;
+    };
   }
   return pool;
 }

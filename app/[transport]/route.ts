@@ -37,7 +37,10 @@ import { resolveLinks } from "@/lib/link-resolution";
 import { sanitizeDealerName } from "@/lib/dealer-name";
 import { applyKnownHybridOverride, formatFuelTypeForDisplay } from "@/lib/fuel-type";
 import { decodeNhtsaElectrification, runWithNhtsaLedger, nhtsaNoAnswerCount, decodePoolInBatches, ELECTRIFICATION_BATCH_SIZE, ELECTRIFICATION_COMBINED_POOL_SIZE, ELECTRIFICATION_BROAD_POOL_SIZE, nhtsaIndicatesElectrified, type NhtsaElectrificationResult, prioritizeElectrificationCandidates, electrificationStateSatisfies } from "@/lib/nhtsa-client";
-import { isAnomalousPrice, buildCpoSummary, buildHistorySummary, applyLocalBestForBudgetOrdering } from "@/lib/local-ranking";
+import { isAnomalousPrice, buildCpoSummary, buildHistorySummary, applyLocalBestForBudgetOrdering as applyLocalBestForBudgetOrderingUntimed } from "@/lib/local-ranking";
+import { timeStage, timeStageSync } from "@/lib/stage-timer";
+// R4-3 stage timing (rank): same function, same arguments, same result; only the time is added up.
+const applyLocalBestForBudgetOrdering = ((...a: Parameters<typeof applyLocalBestForBudgetOrderingUntimed>) => timeStageSync("rank", () => applyLocalBestForBudgetOrderingUntimed(...a))) as typeof applyLocalBestForBudgetOrderingUntimed;
 import { FindMatchingVehicleInputCatalog } from "@/lib/find-matching-vehicle-input";
 import { fetchRecallStatus, clipRecallText, type RecallInfo } from "@/lib/nhtsa-recalls-client";
 import { recallApplicabilityLine } from "@/lib/recall-note";
@@ -289,7 +292,11 @@ async function cardImageUrlFor(listing: VehicleListing): Promise<string | null> 
   return base ? `${base}&stock=${stockCodeFor(listing.retailListing?.used, stock.colourMatched)}` : null;
 }
 
-async function buildResultCard(
+// R4-3 stage timing (assemble): every card is built through this wrapper; the work itself is unchanged.
+function buildResultCard(...args: Parameters<typeof buildResultCardUntimed>): ReturnType<typeof buildResultCardUntimed> {
+  return timeStage("assemble", () => buildResultCardUntimed(...args));
+}
+async function buildResultCardUntimed(
   listing: VehicleListing,
   intent: ReturnType<typeof parseIntent>,
   intentInput: CardIntentInput,

@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { addStageMs } from "./stage-timer";
 /**
  * NHTSA vPIC client — free, no-key, government VIN decode.
  *
@@ -114,11 +115,13 @@ function nhtsaHeaders(): Record<string, string> | null {
 }
 async function fetchDecode(vin: string, ledger: NhtsaRequestLedger | undefined): Promise<Response> {
   if (ledger) { ledger.asked = (ledger.asked ?? 0) + 1; if (ledger.firstStart === undefined) ledger.firstStart = Date.now(); }
+  const stageStart = Date.now(); // R4-3 stage timing (nhtsa); numbers only
   const headers = nhtsaHeaders();
   try {
     return await fetch(`${NHTSA_BASE_URL}/${encodeURIComponent(vin)}?format=json`, headers ? { signal: AbortSignal.timeout(NHTSA_TIMEOUT_MS), headers } : { signal: AbortSignal.timeout(NHTSA_TIMEOUT_MS) });
   } finally {
     if (ledger) ledger.lastEnd = Date.now();
+    addStageMs("nhtsa", Date.now() - stageStart);
   }
 }
 /**
