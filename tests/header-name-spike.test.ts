@@ -29,3 +29,25 @@ test("it never throws, even for a broken headers object", () => {
   process.env.VERCEL_ENV = "preview";
   assert.doesNotThrow(() => maybeLogHeaderNames({ forEach() { throw new Error("boom"); } } as never, "claude"));
 });
+
+// ---- step 2 (André approved Option A, 10 Nov 2026): the VALUE of x-anthropic-client only, safe pattern, preview builds only ----
+import { clientHeaderLine, maybeLogClientHeader } from "../lib/header-name-spike";
+test("step 2: a safe value of x-anthropic-client is logged; an unsafe or long one is NOT (only its length and kinds of character)", () => {
+  assert.equal(clientHeaderLine("claude-ai.web-1", "claude"), "[hdr-client] caller=claude x-anthropic-client=claude-ai.web-1");
+  const long = clientHeaderLine("a".repeat(41), "claude"); assert.ok(!long.includes("aaaa") && long.includes("not logged: length 41, letters"), long);
+  const odd = clientHeaderLine("user@example.com/abc", "claude"); assert.ok(!odd.includes("example") && !odd.includes("@") && odd.includes("not logged"), odd);
+  assert.ok(clientHeaderLine("", "claude").includes("not logged: length 0, empty"));
+});
+test("step 2: only preview builds, only that one header, once per distinct value, never another header's value", () => {
+  for (const env of ["production", undefined]) { _resetHeaderSpikeForTests(); lines.length = 0; if (env === undefined) delete process.env.VERCEL_ENV; else process.env.VERCEL_ENV = env; maybeLogClientHeader(hdrs({ "x-anthropic-client": "claude-ai" }), "claude"); assert.equal(lines.length, 0); }
+  process.env.VERCEL_ENV = "preview"; _resetHeaderSpikeForTests(); lines.length = 0;
+  const h = hdrs({ "x-anthropic-client": "claude-ai", "x-openai-session": "SESSION-SECRET-9", "x-openai-subject": "SUBJECT-SECRET-7", "user-agent": "Claude-User" });
+  maybeLogClientHeader(h, "claude"); maybeLogClientHeader(h, "claude"); assert.equal(lines.length, 1);
+  maybeLogClientHeader(hdrs({ "x-anthropic-client": "claude-desktop" }), "claude"); assert.equal(lines.length, 2);
+  maybeLogClientHeader(hdrs({ "x-openai-session": "SESSION-SECRET-9" }), "chatgpt"); assert.equal(lines.length, 2, "no x-anthropic-client: nothing logged");
+  for (const l of lines) for (const secret of ["SESSION-SECRET-9", "SUBJECT-SECRET-7", "Claude-User"]) assert.ok(!l.includes(secret), `leaked ${secret}`);
+});
+test("step 2: it never throws", () => {
+  process.env.VERCEL_ENV = "preview";
+  assert.doesNotThrow(() => maybeLogClientHeader({ get() { throw new Error("boom"); } } as never, "claude"));
+});

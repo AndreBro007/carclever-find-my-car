@@ -3,7 +3,7 @@ import { after } from "next/server";
 import { getCatalogPool } from "./catalog-db-source";
 import { priceBand } from "./search-log";
 import { setNhtsaFailureSink, setNhtsaCallerProvider } from "./nhtsa-client";
-import { maybeLogHeaderNames } from "./header-name-spike";
+import { maybeLogHeaderNames, maybeLogClientHeader } from "./header-name-spike";
 import { setSharedIdPlatformProvider } from "./shared-id-context";
 
 /**
@@ -165,6 +165,7 @@ export function runWithUsageContext<T>(req: Request, fn: () => Promise<T>): Prom
   const h = req.headers;
   const ctx: UsageContext = { env: envFromHost(h.get("x-forwarded-host") ?? h.get("host")), caller: callerClass(h.get("user-agent")), listenMessages: 0 };
   maybeLogHeaderNames(h, ctx.caller); // R4-1 spike: preview builds only, header NAMES only; removed before release 4 goes live
+  maybeLogClientHeader(h, ctx.caller); // R4-1 spike step 2: the value of x-anthropic-client only, safe pattern, preview builds only; removed before release 4 goes live
   return store.run(ctx, fn);
 }
 // NHTSA decode failures are counted per tool CALL (not per request), so two tools in one batch, even running at the same time, each get only their own count.
