@@ -23,6 +23,7 @@ import { rowByVin } from "@/lib/catalog-db/search";
 import { getCatalogPool, rowToListing, stockPhotoFor, CATALOG_SERVICE_ERROR } from "@/lib/catalog-db-source";
 import { stockCodeFor } from "@/lib/stock-photo-svg";
 import { logSearchEvent } from "@/lib/search-log";
+import { registerS1Spike } from "@/lib/s1-spike";
 import { instrumentTools, runWithUsageContext, noteListenMessages, noteListenOutcome, countListenMessages, noteToolValidationFailure } from "@/lib/usage-events";
 import { verifyAgainstConstraints } from "@/lib/post-verify";
 import { parseIntent } from "@/lib/intent-parser";
@@ -703,6 +704,7 @@ function buildStandaloneIdentityCard(params: {
 
 const handler = createMcpHandler((server) => {
   instrumentTools(server); // usage events (Phase C P6): times and records each tool call after the answer; inert unless enabled for this host
+  registerS1Spike(server); // R4-6 spike S1: preview builds only, throwaway, removed before release 4 goes live
   // MCP Apps (SEP-1865) result-card widget — a STATIC resource, registered
   // once. Real per-search data is delivered to it client-side via
   // ui/notifications/tool-result (see lib/results-card.ts); this server-side
