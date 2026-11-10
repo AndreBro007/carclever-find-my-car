@@ -4,6 +4,7 @@ import { getCatalogPool } from "./catalog-db-source";
 import { priceBand } from "./search-log";
 import { setNhtsaFailureSink, setNhtsaCallerProvider } from "./nhtsa-client";
 import { maybeLogHeaderNames } from "./header-name-spike";
+import { setSharedIdPlatformProvider } from "./shared-id-context";
 
 /**
  * Usage events (Phase C P6, design approved by André 6 Nov 2026). One row per tool call in usage_event, plus a daily listen counter and a daily summary.
@@ -171,6 +172,7 @@ export function runWithUsageContext<T>(req: Request, fn: () => Promise<T>): Prom
 const callStore = new AsyncLocalStorage<{ failures: number }>();
 setNhtsaFailureSink((n) => { const c = callStore.getStore(); if (c) c.failures += n; });
 setNhtsaCallerProvider(() => store.getStore()?.caller ?? null);
+setSharedIdPlatformProvider(() => store.getStore()?.caller ?? null); // R4-2: Impact Shared ID names the platform
 
 // ---- database ----
 let poolOverride: { query: (sql: string, params?: unknown[]) => Promise<any> } | null = null;

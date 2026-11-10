@@ -174,9 +174,9 @@ export function buildEdmundsCategoryUrl(
 /**
  * Wraps an Edmunds URL with an affiliate tracking deep-link.
  */
-export function wrapWithAffiliateNetwork(rawUrl: string): string {
+export function wrapWithAffiliateNetwork(rawUrl: string, tag: string = MCP_SHARED_ID): string {
   const encoded = encodeURIComponent(rawUrl);
-  return withSharedId(`${AFFILIATE_BASE_LINK}?u=${encoded}`);
+  return withSharedId(`${AFFILIATE_BASE_LINK}?u=${encoded}`, tag);
 }
 
 /**

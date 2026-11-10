@@ -58,6 +58,7 @@
  * vendor at request time.
  */
 import { buildEdmundsUrl, buildEdmundsCategoryUrl, wrapWithAffiliateNetwork, withSharedId } from "./edmunds-cj";
+import { sharedIdTag } from "./shared-id-context";
 import type { VehicleListing } from "./listing-types";
 
 export interface LinkResolution {
@@ -115,7 +116,7 @@ export function resolveLinks(listing: VehicleListing): LinkResolution {
     // attempt at all for this branch — see module doc for why.
     const rawClose = buildEdmundsCategoryUrl({ make, model, year, trim }, { used, cpo });
     if (rawClose) {
-      affiliateUrl = wrapWithAffiliateNetwork(rawClose);
+      affiliateUrl = wrapWithAffiliateNetwork(rawClose, sharedIdTag("check"));
       checkAvailSource = "close";
     }
   } else {
@@ -125,7 +126,7 @@ export function resolveLinks(listing: VehicleListing): LinkResolution {
     // View similar sitting right next to it.
     const rawEdmunds = buildEdmundsUrl({ vin, make, model, year });
     if (rawEdmunds) {
-      affiliateUrl = wrapWithAffiliateNetwork(rawEdmunds);
+      affiliateUrl = wrapWithAffiliateNetwork(rawEdmunds, sharedIdTag("check"));
       checkAvailSource = "exact";
     }
   }
@@ -138,7 +139,7 @@ export function resolveLinks(listing: VehicleListing): LinkResolution {
     try {
       const u = new URL(catalogUrl);
       if (u.protocol === "https:" && u.host === "edmunds.sjv.io") {
-        affiliateUrl = withSharedId(catalogUrl); // the feed's own item link, plus the MCP Shared ID (nothing else changed)
+        affiliateUrl = withSharedId(catalogUrl, sharedIdTag("check")); // the feed's own item link, plus the MCP Shared ID (nothing else changed)
         checkAvailSource = "exact";
       }
     } catch {
@@ -154,7 +155,7 @@ export function resolveLinks(listing: VehicleListing): LinkResolution {
   const rawFallback = treatAsNewOrCarvana
     ? buildEdmundsCategoryUrl({ make, model }, { used, cpo })
     : buildEdmundsCategoryUrl({ make, model, year, trim }, { used, cpo });
-  const affiliateFallbackUrl = rawFallback ? wrapWithAffiliateNetwork(rawFallback) : null;
+  const affiliateFallbackUrl = rawFallback ? wrapWithAffiliateNetwork(rawFallback, sharedIdTag("similar")) : null;
 
   const dealerUrlRaw = listing.retailListing?.vdp;
   const dealerListingUrl = looksObviouslyBroken(dealerUrlRaw) ? null : dealerUrlRaw ?? null;
