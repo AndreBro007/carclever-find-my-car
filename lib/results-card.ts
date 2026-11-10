@@ -409,7 +409,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     return "Best matches for your search";
   }
 
-  function cardHtml(c){
+  function cardHtml(c, idx){
     var id = c.identity || {};
     var listing = c.listing || {};
     var media = c.media || {};
@@ -533,8 +533,9 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
     // Inline SVG placeholder (see window.__ccPhotoFallback above) instead
     // of plain grey text when no photo is present or a photo URL fails to
     // load after render.
+    // R4 first-card picture test (10 Nov 2026): the FIRST card loads its picture at once (eager); the others stay lazy. Host frames showed a blank first picture with lazy loading.
     var photoInner = photo
-      ? '<img class="cc-photo" src="' + esc(photo) + '" alt="' + (primaryUrl ? "" : esc(title)) + '" loading="lazy" onerror="window.__ccPhotoFallback(this)"/>'
+      ? '<img class="cc-photo" src="' + esc(photo) + '" alt="' + (primaryUrl ? "" : esc(title)) + '" loading="' + (idx === 0 ? "eager" : "lazy") + '" onerror="window.__ccPhotoFallback(this)"/>'
       : '<div class="cc-photo cc-photo-fallback">' + PHOTO_FALLBACK_SVG + "<span>Photo unavailable</span></div>";
     // Clickable image/title (feature/clickable-image-title): both navigate
     // to the SAME already-resolved primaryUrl used by the single-button
