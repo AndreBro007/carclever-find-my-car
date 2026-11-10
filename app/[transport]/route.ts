@@ -2310,7 +2310,7 @@ const handler = createMcpHandler((server) => {
       { const vt = vehicleTypeNote(input); if (vt) dataNotes.push(vt); }
       { const tn = tieNote(cards as never, input.priorityAxis); if (tn) dataNotes.push(tn); }
       if (valueRanking) {
-        dataNotes.push("Ranked by best value: each car's asking price compared with similar listings in the latest catalogue update (same model, year and trim, similar mileage; new and used kept apart). Each number below states the percentage, how many similar listings and the area used. This says nothing about reliability, condition or guaranteed savings, and prices can differ across areas when the comparison area is widened.");
+        dataNotes.push("Ranked by best value: each car's asking price compared with similar listings in the latest catalogue update (same model, year and trim, similar mileage; new and used kept apart). Cars judged against listings inside the search area come first, then cars judged on a wider area. Each number below states the percentage, how many similar listings and the area used. This says nothing about reliability, condition or guaranteed savings, and prices can differ across areas when the comparison area is widened.");
         if ((rawResult?.data?.length ?? 0) >= VALUE_POOL_BOUND) dataNotes.push(`Scored the nearest ${VALUE_POOL_BOUND} cars that matched; there may be more.`);
       }
       if (valueFailed) dataNotes.push("Best value could not be judged just now (the comparison data was unavailable), so this list uses the default best-for-budget ranking.");

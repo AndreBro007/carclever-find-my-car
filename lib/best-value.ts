@@ -12,6 +12,7 @@
  * (the mileage steps restart at each area). The area used is always stated.
  * At least EIGHT usable comparables (after the Deal Score outlier rule) are needed; 8 to 14 are flagged as a limited sample. A car priced more than 40 percent below typical is
  * NOT ranked (shown after the ranked cars, marked as unusually low). Cars that cannot be judged come last. Ties: lower mileage, newer, lower price, then the VIN.
+ * Order among the ranked cars (André, 10 Nov 2026, SYS-20261110-026): cars judged INSIDE the search area come first, then the cars judged on a wider comparison area; value decides inside each group.
  */
 import type { VehicleListing } from "./listing-types";
 import { alnumKey } from "./catalog-db/normalize";
@@ -43,6 +44,8 @@ export interface ValueScore {
   limitedSample?: boolean;
   /** Miles from the search origin that bounded the comparison, or null for nationwide. */
   areaMiles?: number | null;
+  /** True when the comparison stayed inside the search's own area (the first step of the ladder). */
+  local?: boolean;
   mileageBand?: number | null;
   reason?: ValueUnscoredReason;
 }
@@ -103,7 +106,7 @@ export function scoreSubject(s: ValueSubject, index: ComparableIndex, searchRadi
         const value = (typical - (s.price as number)) / typical;
         return {
           vin: s.vin, status: value > VALUE_SUSPECT_FRACTION ? "unusually_low" : "ranked", value, typical, sample: usable.length,
-          limitedSample: usable.length < VALUE_GOOD_SAMPLE, areaMiles: area, mileageBand: band,
+          limitedSample: usable.length < VALUE_GOOD_SAMPLE, areaMiles: area, local: area === areaLadder(searchRadiusMiles)[0], mileageBand: band,
         };
       }
     }
@@ -113,7 +116,7 @@ export function scoreSubject(s: ValueSubject, index: ComparableIndex, searchRadi
 
 export interface ValueRanking { order: string[]; scores: Map<string, ValueScore> }
 
-/** Order: ranked cars (value high to low), then the unusually low ones, then the cars that could not be judged (nearest first). Stable and identical on every run (VIN last). */
+/** Order: ranked cars judged inside the search area (value high to low), then ranked cars judged on a wider area (value high to low), then the unusually low ones, then the cars that could not be judged (nearest first). Stable and identical on every run (VIN last). */
 export function orderByValue(subjects: ValueSubject[], scores: Map<string, ValueScore>): string[] {
   const subj = new Map(subjects.map((s) => [s.vin, s]));
   const milesOf = (s: ValueSubject): number => (s.miles == null ? 0 : s.miles);
@@ -122,7 +125,8 @@ export function orderByValue(subjects: ValueSubject[], scores: Map<string, Value
     return vb - va || milesOf(a) - milesOf(b) || (b.year ?? 0) - (a.year ?? 0) || (a.price ?? 0) - (b.price ?? 0) || a.vin.localeCompare(b.vin);
   };
   const pick = (st: ValueScore["status"]) => subjects.filter((s) => scores.get(s.vin)?.status === st);
-  const ranked = pick("ranked").sort(byValue);
+  const tier = (v: string): number => (scores.get(v)?.local ? 0 : 1);
+  const ranked = pick("ranked").sort((a, b) => tier(a.vin) - tier(b.vin) || byValue(a, b));
   const low = pick("unusually_low").sort(byValue);
   const unscored = pick("unscored").sort((a, b) => (a.distance ?? 1e9) - (b.distance ?? 1e9) || a.vin.localeCompare(b.vin));
   return [...ranked, ...low, ...unscored].map((s) => s.vin).filter((v) => subj.has(v));

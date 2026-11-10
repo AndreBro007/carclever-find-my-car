@@ -116,3 +116,15 @@ test("every published priorityAxis value is accepted by the input cleaner and no
   const allowed = (norm.match(/priorityAxis: \[([^\]]*)\]/) as RegExpMatchArray)[1].split(",").map((x) => x.trim().replace(/"/g, ""));
   for (const v of published) assert.ok(allowed.includes(v), `${v} missing from the normalizer list`);
 });
+
+test("order among ranked cars: judged inside the search area first, then wider areas; value decides inside each group (André 10 Nov, SYS-20261110-026)", () => {
+  const subjects = [subj({ vin: "W1" }), subj({ vin: "L1" }), subj({ vin: "W2" }), subj({ vin: "L2" }), subj({ vin: "LOW" })];
+  const sc = (local: boolean, value: number, status: ValueScore["status"] = "ranked"): ValueScore => ({ vin: "", status, value, local });
+  const scores = new Map<string, ValueScore>([["W1", sc(false, 0.3)], ["L1", sc(true, 0.05)], ["W2", sc(false, 0.2)], ["L2", sc(true, 0.1)], ["LOW", sc(false, 0.5, "unusually_low")]]);
+  assert.deepEqual(orderByValue(subjects, scores), ["L2", "L1", "W1", "W2", "LOW"], "local cars first (even with a smaller value), then wider; unusually low after all ranked");
+});
+test("scoreSubject marks a car local only when the comparison stayed inside the search area", () => {
+  assert.equal(scoreSubject(subj(), indexComparables(comps(8, { distance: 20 })), 50).local, true);
+  assert.equal(scoreSubject(subj(), indexComparables([...comps(3, { distance: 20 }), ...comps(6, { distance: 150 })]), 50).local, false);
+  assert.equal(scoreSubject(subj(), indexComparables(comps(8, { distance: 120 })), 150).local, true, "a 150-mile search is local up to 150 miles");
+});
