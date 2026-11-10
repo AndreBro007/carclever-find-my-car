@@ -121,7 +121,8 @@ test("fixed-choice values: empty ones dropped quietly, wrong case fixed, invente
   const fixed = normalizeToolArguments("find_matching_vehicle", { priorityAxis: "Best for budget", electrificationTypes: ["Plug-in hybrid", "EV"], electrificationRequirement: "Preferred" });
   assert.deepEqual(fixed.args, { priorityAxis: "best_for_budget", electrificationTypes: ["plug_in_hybrid", "electric"], electrificationRequirement: "preferred" });
   assert.deepEqual(fixed.ignored, []);
-  const invented = normalizeToolArguments("find_matching_vehicle", { priorityAxis: "best_value", transmission: "Any", radiusMiles: "Any", electrificationRequirement: "required" });
+  // best_value became a real value on 10 Nov 2026 (R4-5), so the invented-value example is another word.
+  const invented = normalizeToolArguments("find_matching_vehicle", { priorityAxis: "most_popular", transmission: "Any", radiusMiles: "Any", electrificationRequirement: "required" });
   assert.deepEqual(invented.args, {});
   assert.ok(["priorityAxis", "transmission", "radiusMiles", "electrificationRequirement"].every((f) => invented.ignored.some((x) => x.startsWith(f))));
 });
