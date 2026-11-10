@@ -171,31 +171,6 @@ export function recallKey(make: string | null | undefined, model: string | null 
   return `${make.trim().toUpperCase()}|${model.trim().toUpperCase()}|${year}`;
 }
 
-/**
- * Fetch recall status for a shortlist of vehicles, deduplicated by
- * make/model/year. Returns a Map keyed by the same recallKey() so callers
- * can look up each listing's result (or `null` when make/model/year was
- * incomplete for that listing).
- */
-export async function fetchRecallStatusForShortlist(
-  vehicles: Array<{ make: string | null | undefined; model: string | null | undefined; year: number | null | undefined }>,
-): Promise<Map<string, RecallInfo>> {
-  const uniqueKeys = new Map<string, { make: string; model: string; year: number }>();
-  for (const v of vehicles) {
-    const key = recallKey(v.make, v.model, v.year);
-    if (key && !uniqueKeys.has(key)) {
-      uniqueKeys.set(key, { make: v.make as string, model: v.model as string, year: v.year as number });
-    }
-  }
-
-  const entries = Array.from(uniqueKeys.entries());
-  const results = await Promise.all(entries.map(([, v]) => fetchRecallStatus(v.make, v.model, v.year)));
-
-  const map = new Map<string, RecallInfo>();
-  entries.forEach(([key], i) => map.set(key, results[i]));
-  return map;
-}
-
 /** Real NHTSA summaries run to several hundred characters (often long lists of models); keep the reply readable. Cuts at a word boundary. */
 export function clipRecallText(s: string | null | undefined, max = 240): string | null {
   if (s == null) return null;
