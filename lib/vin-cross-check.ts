@@ -25,13 +25,27 @@ export interface VerificationResult {
   vinIntegrityNote?: string;
 }
 
-function makesAgree(listed: string | undefined, decoded: string | null): boolean | null {
+export function makesAgree(listed: string | undefined, decoded: string | null): boolean | null {
   if (!decoded || !listed) return null;
   const a = String(listed).trim().toLowerCase();
   const b = String(decoded).trim().toLowerCase();
   // Tolerant of formatting variance (e.g. "Mercedes-Benz" vs "Mercedes Benz").
   const norm = (s: string) => s.replace(/[^a-z0-9]/g, "");
   return norm(a) === norm(b);
+}
+
+/**
+ * R4-9 (10 Nov 2026): attributes the NHTSA decode confirmed (make, model, trim) move from "unknown" to "verified" so the lists agree with the reply text. The status, the conflicts and the integrity note are NOT touched:
+ * this never creates or removes a conflict, never overrides an attribute that conflicts, and never changes the score.
+ */
+export function confirmFromDecode(v: VerificationResult, confirmed: readonly string[]): VerificationResult {
+  if (confirmed.length === 0) return v;
+  const usable = confirmed.filter((a) => !v.conflictingAttributes.includes(a));
+  return {
+    ...v,
+    verifiedAttributes: [...v.verifiedAttributes, ...usable.filter((a) => !v.verifiedAttributes.includes(a))],
+    unknownAttributes: v.unknownAttributes.filter((a) => !usable.includes(a)),
+  };
 }
 
 export function crossCheckVin(listing: VehicleListing): VerificationResult {

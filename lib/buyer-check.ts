@@ -55,6 +55,17 @@ export interface BuyerCheck {
  *    enough either way, or something material still needs confirming
  *    before this can be called promising).
  */
+/**
+ * R4-9 (10 Nov 2026): the identity sentence is built from the attributes that were REALLY verified (it used to be a fixed "year and make" even when make was unknown and model and trim were the verified ones).
+ */
+const IDENTITY_ORDER = ["year", "make", "model", "trim"];
+export function identityGoodSign(verifiedAttributes: readonly string[]): string {
+  const list = IDENTITY_ORDER.filter((a) => verifiedAttributes.includes(a));
+  if (list.length === 0) return "VIN identity confirmed.";
+  const joined = list.length === 1 ? list[0] : `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`;
+  return `VIN identity confirmed — the reported ${joined} ${list.length === 1 ? "matches" : "match"} what the VIN data shows.`;
+}
+
 export function buildBuyerCheck(
   card: {
     verification: VerificationResult;
@@ -73,7 +84,7 @@ export function buildBuyerCheck(
   // Identity verification (lib/vin-cross-check.ts — derived offline from
   // VIN anatomy: model year, manufacturer, transcription validity).
   if (card.verification.identityVerificationStatus === "verified_match") {
-    goodSigns.push("VIN identity confirmed — the reported year and make match what's encoded in the VIN itself.");
+    goodSigns.push(identityGoodSign(card.verification.verifiedAttributes));
   } else if (card.verification.identityVerificationStatus === "failed") {
     const conflicting = card.verification.conflictingAttributes.join(", ") || "one or more reported attributes";
     concerns.push(

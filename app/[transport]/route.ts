@@ -27,7 +27,7 @@ import { instrumentTools, runWithUsageContext, noteListenMessages, noteListenOut
 import { verifyAgainstConstraints } from "@/lib/post-verify";
 import { parseIntent } from "@/lib/intent-parser";
 import { applyDiversity } from "@/lib/diversity";
-import { crossCheckVin } from "@/lib/vin-cross-check";
+import { crossCheckVin, makesAgree, confirmFromDecode } from "@/lib/vin-cross-check";
 import { classifyRiskTier, explainRiskTier } from "@/lib/risk-tier";
 import { buildBuyerCheck, type BuyerCheck } from "@/lib/buyer-check";
 import { applyConfigurationVarietyPass } from "@/lib/configuration-variety";
@@ -300,15 +300,12 @@ async function buildResultCard(
   // Database mode: fill blank drivetrain/transmission/engine/cylinders/seats from the NHTSA decode already made for this car (never overrides the listing).
   listing = withNhtsaSpecs(listing, nhtsa);
   let verification = crossCheckVin(listing); // now local/synchronous — no API call
-  // Database mode: when the NHTSA decode confirms the model (and trim), the verified list says so, matching the reply text.
-  if (nhtsa?.model && listing.vehicle?.model && modelsAgree(listing.vehicle.model, nhtsa.model, listing.vehicle?.make)) {
-    const trimOk = !!(listing.vehicle?.trim && (nhtsa.trimOptions ?? []).some((x: string) => x.trim().toLowerCase() === String(listing.vehicle?.trim).trim().toLowerCase()));
-    const confirmed = ["model", ...(trimOk ? ["trim"] : [])];
-    verification = {
-      ...verification,
-      verifiedAttributes: [...verification.verifiedAttributes, ...confirmed.filter((a) => !verification.verifiedAttributes.includes(a))],
-      unknownAttributes: verification.unknownAttributes.filter((a) => !confirmed.includes(a)),
-    };
+  // Database mode (R4-9): what the NHTSA decode confirms (make, model, trim) moves from unknown to verified, so the lists match the reply text; status, conflicts and score are untouched.
+  {
+    const makeOk = !!(nhtsa?.make && listing.vehicle?.make && makesAgree(listing.vehicle.make, nhtsa.make) === true);
+    const modelOk = !!(nhtsa?.model && listing.vehicle?.model && modelsAgree(listing.vehicle.model, nhtsa.model, listing.vehicle?.make));
+    const trimOk = modelOk && !!(listing.vehicle?.trim && (nhtsa?.trimOptions ?? []).some((x: string) => x.trim().toLowerCase() === String(listing.vehicle?.trim).trim().toLowerCase()));
+    verification = confirmFromDecode(verification, [...(makeOk ? ["make"] : []), ...(modelOk ? ["model"] : []), ...(trimOk ? ["trim"] : [])]);
   }
   const { matchScore, matchScoreLabel, breakdown } = computeMatchScore(listing, intent, verification, intentInput);
 
@@ -2805,13 +2802,12 @@ const handler = createMcpHandler((server) => {
           // produced — same evidence, no second computation, matching the
           // existing find_matching_vehicle direct-VIN pattern exactly.
           const buyerCheck = addRecallCheckStep(shapeBuyerCheckForCatalog(buildBuyerCheck(card, recall)), card);
-          // Database mode: model and trim confirmed by the NHTSA VIN decode are no longer listed as unknown, so text and structured data agree.
+          // Database mode (R4-9): make, model and trim confirmed by the NHTSA VIN decode are no longer listed as unknown, so text and structured data agree.
+          const decodeMakeOk = !!(nhtsaResult?.make && listing.vehicle?.make && makesAgree(listing.vehicle.make, nhtsaResult.make) === true);
           const decodeModelOk = !!(nhtsaResult?.model && listing.vehicle?.model && modelsAgree(listing.vehicle.model, nhtsaResult.model, listing.vehicle?.make));
           const decodeTrimOk = !!(decodeModelOk && listing.vehicle?.trim && (nhtsaResult?.trimOptions ?? []).some((t) => t.trim().toLowerCase() === String(listing.vehicle?.trim).trim().toLowerCase()));
-          const stillUnknown = ((card as any).verification?.unknownAttributes ?? []).filter((a: string) => !((a === "model" && decodeModelOk) || (a === "trim" && decodeTrimOk)));
-          const confirmedByDecode = [...(decodeModelOk ? ["model"] : []), ...(decodeTrimOk ? ["trim"] : [])];
-          const verifiedNow = [...new Set([...(((card as any).verification?.verifiedAttributes ?? []) as string[]), ...confirmedByDecode])];
-          const cardWithBuyerCheck = { ...card, buyerCheck, verification: { ...(card as any).verification, unknownAttributes: stillUnknown, verifiedAttributes: verifiedNow } };
+          const mergedVerification = confirmFromDecode((card as any).verification, [...(decodeMakeOk ? ["make"] : []), ...(decodeModelOk ? ["model"] : []), ...(decodeTrimOk ? ["trim"] : [])]);
+          const cardWithBuyerCheck = { ...card, buyerCheck, verification: mergedVerification };
           const checkVehicleResults = shapeCardsForSource([cardWithBuyerCheck]);
 
           const outcomeLabel: Record<BuyerCheck["outcome"], string> = {
