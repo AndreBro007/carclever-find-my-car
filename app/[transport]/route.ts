@@ -933,7 +933,7 @@ const handler = createMcpHandler((server) => {
                 dataNotes: notListedLinks ? [`VIN ${rawVin} is not listed. Similar vehicles on Edmunds: ${(notListedLinks.match(/https?:\/\/\S+/) ?? [""])[0]}`] : [],
                 scopeNote: "vin_lookup",
                 serviceError: null,
-                interpretationNotes: [`Exact VIN lookup for ${rawVin} found no matching live listing.`],
+                interpretationNotes: [`Exact VIN lookup for ${rawVin} found no matching listing in the latest catalogue update.`],
                 qualifierAccounting: [],
               },
               results: [],
@@ -1412,7 +1412,7 @@ const handler = createMcpHandler((server) => {
               if (c.corrected) {
                 relaxations.push({
                   step: "model_name_correction",
-                  detail: `"${c.requested}" isn't a recognized model name in current inventory — corrected to "${c.corrected}".${impliedTypes.size > 0 ? ` Kept ${electrificationWords([...impliedTypes])} as a requirement.` : ""}`,
+                  detail: `"${c.requested}" isn't a recognized model name in the latest catalogue update — corrected to "${c.corrected}".${impliedTypes.size > 0 ? ` Kept ${electrificationWords([...impliedTypes])} as a requirement.` : ""}`,
                 });
               }
             }
@@ -2704,7 +2704,7 @@ const handler = createMcpHandler((server) => {
                 : `VIN ${rawVin} — decode unavailable, identity below is unconfirmed.`,
             );
             if (inventoryLookupFailed) lines.push(`${CATALOG_SERVICE_ERROR} I could not check whether this VIN is listed, so nothing here says anything about our inventory. Please try again in a moment.`);
-            else lines.push("No listing found for this VIN in current inventory — this is an honest \"not currently listed here\" result, not a claim the vehicle doesn't exist.");
+            else lines.push("No listing found for this VIN in the latest catalogue update — this is an honest \"not listed here\" result, not a claim the vehicle doesn't exist.");
             lines.push(standaloneRecall ? standaloneRecall.label : "Recalls: Data unavailable"); // the labels already start with "Recalls:"
             if (standaloneRecall && standaloneRecall.campaigns.length > 0) {
               lines.push(
@@ -3057,7 +3057,7 @@ const handler = createMcpHandler((server) => {
     "get_edmunds_vehicle_link",
     {
       title: "Get Edmunds Link for a Vehicle",
-      description: "Resolves a usable link for viewing or purchasing a specific vehicle, given its VIN, make, model, and year. Returns the Edmunds VIN-specific link to the vehicle's current listing; otherwise a similar-vehicles link for the same make and model. Never returns the dealer's own listing URL.",
+      description: "Resolves a usable link for viewing or purchasing a specific vehicle, given its VIN, make, model, and year. Returns the Edmunds VIN-specific link to the vehicle's listing in the latest catalogue update; otherwise a similar-vehicles link for the same make and model. Never returns the dealer's own listing URL.",
       inputSchema: {
         vin: z.string().describe("The vehicle's 17-character VIN."),
         make: z.string().describe("Vehicle manufacturer, e.g. Toyota."),

@@ -26,7 +26,7 @@ function electrificationRefine(data: { electrificationRequirement?: unknown; ele
 }
 
 export const FindMatchingVehicleInput = z.object({
-  vin: z.string().optional().describe("Exact 17-character VIN for one current listing. Other criteria are evaluated against that listing; no similar-vehicle substitute is returned."),
+  vin: z.string().optional().describe("Exact 17-character VIN for one listing in the latest catalogue update. Other criteria are evaluated against that listing; no similar-vehicle substitute is returned."),
   priceMax: z.number().optional().describe("Maximum price in USD."),
   priceMin: z.number().optional().describe("Minimum price in USD."),
   priceFlexibility: z.enum(["strict", "flexible"]).optional().describe("Whether an approximate price ceiling may be treated as flexible; omitted ceilings remain strict."),
@@ -110,7 +110,7 @@ export const FindMatchingVehicleInput = z.object({
 const { used: _used, vehicleType: _vehicleType, priceFlexibility: _priceFlexibility, transmission: _transmission, cylinders: _cylinders, ...SHARED_FIELDS } = FindMatchingVehicleInput.shape;
 export const FindMatchingVehicleInputCatalog = z.object({
   ...SHARED_FIELDS,
-  vin: z.string().optional().describe("Exact 17-character VIN for one current listing. Other criteria are evaluated against that listing; if the VIN is not listed, a link to similar vehicles on Edmunds is returned, but no different vehicle is substituted."),
+  vin: z.string().optional().describe("Exact 17-character VIN for one listing in the latest catalogue update. Other criteria are evaluated against that listing; if the VIN is not listed, a link to similar vehicles on Edmunds is returned, but no different vehicle is substituted."),
   exteriorColor: z.string().optional().describe("Requested exterior colour (for example white, black, gray, blue), matched against the dealer's colour name. If fewer than 3 cars match, colour only influences ranking."),
   interiorColor: z.string().optional().describe("Requested interior colour, matched against the dealer's colour name. If fewer than 3 cars match, colour only influences ranking."),
   cpo: z.boolean().optional().describe("Request for certified pre-owned status. Reported as unconfirmed; the buyer confirms with the dealer."),

@@ -129,7 +129,7 @@ test("T60: a hybrid-named model corrected to its base model keeps the hybrid req
   const out = (await call(15, { make: "Honda", model: "Accord Hybrid" })) as Out; const t = textOf(out);
   const cars = out.result.structuredContent.results.map((r) => `${r.identity.model}|${r.identity.trim}`);
   assert.deepEqual(cars, ["Accord|Sport Hybrid", "Accord|Sport Hybrid", "Accord|Sport Hybrid"]);
-  assert.match(t, /isn't a recognized model name in current inventory/);
+  assert.match(t, /isn't a recognized model name in the latest catalogue update/);
   assert.match(t, /Kept hybrid as a requirement\./);
   assert.match(t, /Only 3 of the results matched your electric or hybrid requirement\./);
 });
