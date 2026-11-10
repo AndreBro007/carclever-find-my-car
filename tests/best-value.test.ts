@@ -128,3 +128,17 @@ test("scoreSubject marks a car local only when the comparison stayed inside the 
   assert.equal(scoreSubject(subj(), indexComparables([...comps(3, { distance: 20 }), ...comps(6, { distance: 150 })]), 50).local, false);
   assert.equal(scoreSubject(subj(), indexComparables(comps(8, { distance: 120 })), 150).local, true, "a 150-mile search is local up to 150 miles");
 });
+
+test("the wide fetch is skipped when enough cars are already judged inside the search area (same shown result, much less work)", async () => {
+  const mk = (vin: string, trim: string) => ({ vin, vehicle: { year: 2022, make: "Honda", model: "CR-V", trim }, retailListing: { price: 20000, miles: 50000, used: true }, catalog: { distanceMiles: 3 } }) as never;
+  const local = comps(8, { trim: "EX", distance: 10 });
+  const calls: Array<number | null> = [];
+  const fetcher = async (_g: unknown, r: number | null) => { calls.push(r); return local; };
+  // 3 cars judged locally (EX), 1 short (LX): with localEnough 3 the wide fetch is skipped; with 4 it runs
+  const cars = [mk("A", "EX"), mk("B", "EX"), mk("C", "EX"), mk("D", "LX")];
+  const skipped = await rankListingsByValue(cars, 50, fetcher as never, 3);
+  assert.deepEqual(calls, [50]); assert.equal(skipped.widenedFetch, false); assert.equal(skipped.scores.get("D")?.reason, "too_few_similar");
+  calls.length = 0;
+  const widened = await rankListingsByValue(cars, 50, fetcher as never, 4);
+  assert.deepEqual(calls, [50, null]); assert.equal(widened.widenedFetch, true);
+});

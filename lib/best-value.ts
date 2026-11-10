@@ -25,6 +25,7 @@ export const VALUE_AREA_STEPS_MILES = [100, 200, 500] as const; // after the sea
 export const VALUE_MIN_USED_MILES = 1000;
 export const VALUE_PRICE_FLOOR = 1000; // same floor as the anomalous-price rule
 export const VALUE_POOL_BOUND = 600; // the nearest 600 local candidates are scored
+export const VALUE_LOCAL_ENOUGH = 16; // the shortlist the search takes (8 shown x 2): with this many cars judged inside the search area, wider comparisons can never change what is shown (local-first order)
 
 export interface ValueSubject {
   vin: string; makeKey: string; modelKey: string; year: number | null; trim: string | null; used: boolean | null;
@@ -160,15 +161,18 @@ export function groupsNeeded(subjects: ValueSubject[]): Array<{ makeKey: string;
 export type ComparablesFetch = (groups: ReturnType<typeof groupsNeeded>, maxRadiusMiles: number | null) => Promise<Comparable[]>;
 
 /**
- * Two steps at most: comparables inside the search area first (small); only for groups where some car lacks eight similar cars there, one more fetch without an area limit,
+ * Two steps at most: comparables inside the search area first (small); only when fewer than 16 cars are judged inside the area, and only for groups where some car lacks eight similar cars there, one more fetch without an area limit,
  * then the same scoring over everything fetched (the area steps are applied in memory by distance).
  */
-export async function rankListingsByValue(listings: VehicleListing[], searchRadiusMiles: number, fetchComparables: ComparablesFetch): Promise<ValueRanking & { widenedFetch: boolean }> {
+export async function rankListingsByValue(listings: VehicleListing[], searchRadiusMiles: number, fetchComparables: ComparablesFetch, localEnough: number = VALUE_LOCAL_ENOUGH): Promise<ValueRanking & { widenedFetch: boolean }> {
   const subjects = listings.map(subjectOf);
   const first = await fetchComparables(groupsNeeded(subjects), areaLadder(searchRadiusMiles)[0]);
   let ranking = rankByValue(subjects, first, searchRadiusMiles);
   const short = subjects.filter((s) => ranking.scores.get(s.vin)?.reason === "too_few_similar");
   if (short.length === 0) return { ...ranking, widenedFetch: false };
+  // Local-first order (SYS-20261110-026): once enough cars are judged INSIDE the search area, a wider comparison cannot change what is shown, so the (large) wide fetch is skipped.
+  const localRanked = [...ranking.scores.values()].filter((sc) => sc.status === "ranked" && sc.local).length;
+  if (localRanked >= localEnough) return { ...ranking, widenedFetch: false };
   const wide = await fetchComparables(groupsNeeded(short), null);
   const byKey = new Map<string, Comparable>();
   for (const c of [...first, ...wide]) byKey.set(`${c.vin}`, c);
