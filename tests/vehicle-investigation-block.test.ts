@@ -18,6 +18,7 @@ test("listed car: readiness line, still unknown, 7 questions, the Edmunds availa
   assert.match(b, /- Whether it's still available: confirm with the dealer before you visit\./);
   assert.match(b, /1\) Is this exact car \(VIN 2HKRS4H24SH442431\) available right now, and at which store can I see it\?/); assert.match(b, /7\) Can I book a test drive, and can you hold the car until then\?/);
   assert.match(b, /Edmunds: Check availability opens this car on Edmunds\. The dealer can confirm it's still for sale\./);
+  assert.equal((b.match(/Share these two links with the buyer:\nHelpful reading: .*\nReplacing a car\?/g) ?? []).length, 1, "the label comes right before the two links");
   assert.equal((b.match(/Helpful reading:/g) ?? []).length, 1); assert.match(b, /Helpful reading: Edmunds used-car buying guide: https:\/\/edmunds\.sjv\.io\//);
   assert.equal((b.match(/Replacing a car\?/g) ?? []).length, 1);
 });

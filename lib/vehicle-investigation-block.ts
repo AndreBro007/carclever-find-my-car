@@ -38,6 +38,7 @@ export function investigationBlock(i: InvestigationInput): string[] {
   a.dealerQuestions.forEach((q, k) => L.push(`${k + 1}) ${q}`));
   if (a.continuation.kind !== "none") L.push(`Edmunds: ${a.continuation.note}`);
   const reading = readingLinkFor({ vehicle: i.vehicle, used: i.used, now: i.now });
+  L.push("Share these two links with the buyer:"); // ChatGPT dropped both links without this label (host test, 11 Nov 2026); André approved the line
   L.push(`Helpful reading: ${reading.text}: ${reading.url}${reading.note ? ` (${reading.note})` : ""}`);
   const t = tradeInLink();
   L.push(`${t.text}: ${t.url}`);
