@@ -26,9 +26,10 @@ test("a car that now breaks a hard limit is excluded as limit_break: price, year
 });
 test("verified evidence against the search (condition, body style, required trim) is a contradicted filter; missing evidence never excludes", async () => {
   assert.deepEqual(await evaluateReserveCar(entry, req, deps(car({ retailListing: { used: false } }))), { kind: "exclude", reason: "contradicted_filter" });
-  assert.deepEqual(await evaluateReserveCar(entry, { ...req, bodyType: "Sedan" }, deps(car())), { kind: "exclude", reason: "contradicted_filter" });
-  assert.equal((await evaluateReserveCar(entry, { ...req, bodyType: "SUV" }, deps(car()))).kind, "pass");
-  assert.equal((await evaluateReserveCar(entry, { ...req, bodyType: "Sedan" }, deps(car({ vehicle: { bodyStyle: null, type: null } })))).kind, "pass", "no body style reported: unknown is never a mismatch");
+  assert.deepEqual(await evaluateReserveCar(entry, { ...req, droppedBodyStyle: "Sedan" }, deps(car())), { kind: "exclude", reason: "contradicted_filter" });
+  assert.equal((await evaluateReserveCar(entry, { ...req, droppedBodyStyle: "SUV" }, deps(car()))).kind, "pass");
+  assert.equal((await evaluateReserveCar(entry, { ...req, bodyType: "Truck" }, deps(car()))).kind, "pass", "the plain body type was applied by the database at the first search: it is NOT re-checked against the raw word (found on the first truck search: every car was wrongly left out)");
+  assert.equal((await evaluateReserveCar(entry, { ...req, droppedBodyStyle: "Sedan" }, deps(car({ vehicle: { bodyStyle: null, type: null } })))).kind, "pass", "no body style reported: unknown is never a mismatch");
   assert.deepEqual(await evaluateReserveCar(entry, { ...req, trimRequired: ["Sport"] }, deps(car())), { kind: "exclude", reason: "contradicted_filter" });
   assert.equal((await evaluateReserveCar(entry, { ...req, trimRequired: ["EX-L"] }, deps(car()))).kind, "pass");
   assert.equal((await evaluateReserveCar(entry, { ...req, condition: undefined }, deps(car({ retailListing: { used: null } })))).kind, "pass");

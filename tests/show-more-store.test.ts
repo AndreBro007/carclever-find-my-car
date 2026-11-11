@@ -99,3 +99,9 @@ test("the row cap removes the oldest first", async () => {
   for (let i = 0; i < 10_000; i++) rows.set(`seed${i}`, { expires: 1e15, version: 1, first: 8, body: "{}", created: i });
   await writeSlate(db, 1, mkSlate(), {}); assert.equal(rows.size, 10_000); assert.equal(rows.has("seed0"), false); assert.equal(rows.has("seed9999"), true);
 });
+
+test("the dropped body style is stored only when the search had to drop its body filter", () => {
+  assert.equal(buildRequirements({ bodyType: "Truck" })!.droppedBodyStyle, undefined);
+  assert.equal(buildRequirements({ bodyType: "Sedan", droppedBodyStyle: "Sedan" })!.droppedBodyStyle, "Sedan");
+  assert.equal(buildRequirements({ droppedBodyStyle: "<b>" }), null);
+});

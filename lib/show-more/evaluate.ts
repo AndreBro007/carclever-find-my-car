@@ -34,7 +34,7 @@ export async function evaluateReserveCar(entry: ReserveEntry, req: Requirements,
   if (verifyAgainstConstraints(l, constraintsQuery(req)).length > 0) return { kind: "exclude", reason: "limit_break" };
   const used = l.retailListing?.used;
   if (req.condition && typeof used === "boolean" && (req.condition === "used") !== used) return { kind: "exclude", reason: "contradicted_filter" };
-  if (req.bodyType && !bodyStyleMatches(req.bodyType, l)) return { kind: "exclude", reason: "contradicted_filter" };
+  if (req.droppedBodyStyle && !bodyStyleMatches(req.droppedBodyStyle, l)) return { kind: "exclude", reason: "contradicted_filter" };
   if (req.trimRequired?.length) {
     const required = req.trimRequired.join(", ");
     const opts = { electrified: (req.electrificationTypes?.length ?? 0) > 0 };

@@ -17,6 +17,8 @@ export interface Requirements {
   trimRequired?: string[];
   priceMin?: number; priceMax?: number; yearMin?: number; yearMax?: number; mileageMax?: number;
   bodyType?: string;
+  /** Set ONLY when the search had to drop its body-style filter (then every car is re-checked against this value at the detail stage). Normally the database filter already applied the body type. */
+  droppedBodyStyle?: string;
   condition?: "new" | "used";
   drivetrain?: Drivetrain[];
   electrificationTypes?: Electrification[];
@@ -57,7 +59,7 @@ export function colourKeys(text: unknown): ColourKey[] | undefined | "bad" {
 
 export interface RequirementsSource {
   make?: unknown; model?: unknown; trimRequired?: unknown; priceMin?: unknown; priceMax?: unknown; yearMin?: unknown; yearMax?: unknown; mileageMax?: unknown;
-  bodyType?: unknown; condition?: unknown; drivetrain?: unknown; electrificationTypes?: unknown; electrificationRequirement?: unknown;
+  bodyType?: unknown; droppedBodyStyle?: unknown; condition?: unknown; drivetrain?: unknown; electrificationTypes?: unknown; electrificationRequirement?: unknown;
   cpo?: unknown; noAccidents?: unknown; oneOwner?: unknown; doors?: unknown; exteriorColor?: unknown; interiorColor?: unknown; relaxations?: unknown;
 }
 
@@ -70,6 +72,7 @@ export function buildRequirements(src: RequirementsSource): Requirements | null 
     const v = int((src as Record<string, unknown>)[k], lo, hi); if (v === "bad") return null; if (v !== undefined) (r as Record<string, unknown>)[k] = v;
   }
   if (src.bodyType != null && src.bodyType !== "") { const b = names(src.bodyType, 1); if (b === "bad") return null; if (b) r.bodyType = b[0]; }
+  if (src.droppedBodyStyle != null && src.droppedBodyStyle !== "") { const d = names(src.droppedBodyStyle, 1); if (d === "bad") return null; if (d) r.droppedBodyStyle = d[0]; }
   if (src.condition != null) { if (src.condition !== "new" && src.condition !== "used") return null; r.condition = src.condition; }
   if (src.drivetrain != null && src.drivetrain !== "") {
     const words = String(src.drivetrain).toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);

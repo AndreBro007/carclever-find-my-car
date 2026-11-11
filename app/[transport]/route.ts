@@ -2468,7 +2468,7 @@ const handler = createMcpHandler((server) => {
             fuelRequired: electrificationRequired, fuelMatched: electrificationResult.matchedVins,
           });
           const requirements = slate ? buildRequirements({
-            make: intent.hardConstraints.make, model: intent.hardConstraints.model, trimRequired: input.trimRequired,
+            make: intent.hardConstraints.make, model: intent.hardConstraints.model, trimRequired: intent.trimRequired, droppedBodyStyle,
             priceMin: effectiveQuery.priceMin, priceMax: effectiveQuery.priceMax, yearMin: effectiveQuery.yearMin, yearMax: effectiveQuery.yearMax, mileageMax: effectiveQuery.mileageMax,
             bodyType: input.bodyType, condition: input.condition, drivetrain: input.drivetrain, electrificationTypes: input.electrificationTypes, electrificationRequirement: input.electrificationRequirement,
             cpo: input.cpo, noAccidents: input.noAccidents, oneOwner: input.oneOwner, doors: input.doors, exteriorColor: input.exteriorColor, interiorColor: input.interiorColor,
