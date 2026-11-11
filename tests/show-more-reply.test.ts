@@ -62,7 +62,7 @@ test("CONFIRM AT BUILD (design section 7): the colour disclosure is IDENTICAL wh
 test("the new tool's own output is the search's results and meta plus a continuation (null when the list is unknown)", () => {
   const meta = { totalCandidatesConsidered: 0, totalMatches: null, resultsShown: 0, corpusSizeApprox: "1.4 million", relaxations: [], dataNotes: [], scopeNote: "local", serviceError: null, interpretationNotes: [], qualifierAccounting: [] };
   assert.equal(ShowMoreOutputSchema.safeParse({ meta, results: [], continuation: null }).success, true);
-  const cont = { reference: "abcdefghjkmn", shown: 12, added: 4, leftOut: { contradicted_filter: 0, outside_radius: 0, removed: 1, limit_break: 0 }, leftOutTotal: 1, pending: 0, couldNotCheck: 0, canAdd: 3, cap: 16, state: "more_available" };
+  const cont = { reference: "abcdefghjkmn", shown: 12, added: 4, addedNow: 4, leftOut: { contradicted_filter: 0, outside_radius: 0, removed: 1, limit_break: 0 }, leftOutTotal: 1, pending: 0, couldNotCheck: 0, canAdd: 3, cap: 16, state: "more_available" };
   assert.equal(ShowMoreOutputSchema.safeParse({ meta, results: [], continuation: cont }).success, true);
   assert.equal(ShowMoreOutputSchema.safeParse({ meta, results: [], continuation: { ...cont, state: "weird" } }).success, false);
   assert.ok(SHOW_MORE_DESCRIPTION.length < 600 && /never make one up/.test(SHOW_MORE_DESCRIPTION));

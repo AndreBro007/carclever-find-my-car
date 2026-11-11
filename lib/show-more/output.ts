@@ -6,6 +6,8 @@ export const ShowMoreContinuationSchema = z.object({
   reference: z.string(),
   shown: z.number(),
   added: z.number(),
+  /** Cars added by THIS call (0 when the same total is asked again). `added` counts since the first reply. */
+  addedNow: z.number(),
   leftOut: z.object({ contradicted_filter: z.number(), outside_radius: z.number(), removed: z.number(), limit_break: z.number() }),
   leftOutTotal: z.number(),
   pending: z.number(),

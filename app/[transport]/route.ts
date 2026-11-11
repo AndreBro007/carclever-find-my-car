@@ -736,10 +736,11 @@ async function runShowMore(args: { reference: string; total: number }) {
     },
   };
   // Grow the list: one committed list per reference (compare-and-swap); a lost race re-reads, at most twice more.
+  let addedNow = 0;
   for (let attempt = 0; attempt < 3 && slate.slots.length < total && slate.reserve.length > 0; attempt++) {
     const grown = await expandSlate(slate, total, (e) => evaluateReserveCar(e, requirements, deps));
     if (!grown.changed) break;
-    if (await commitSlate(db, Date.now(), ref, slate.version, grown.slate, requirements)) { slate = grown.slate; break; }
+    if (await commitSlate(db, Date.now(), ref, slate.version, grown.slate, requirements)) { slate = grown.slate; addedNow = grown.addedNow; break; }
     const again = await readSlate(db, Date.now(), ref);
     if (again.status !== "ok") break;
     slate = again.slate;
@@ -768,7 +769,7 @@ async function runShowMore(args: { reference: string; total: number }) {
   const response = {
     meta: { ...emptyMeta(dataNotes), totalCandidatesConsidered: slate.slots.length + slate.reserve.length + slate.excluded.length + slate.couldNotCheck.length, resultsShown: cards.length, qualifierAccounting: buildQualifierAccounting(ctx.intentInput) },
     results: shapeCardsForSource(cards),
-    continuation: { reference: ref, shown: counts.shown, added: counts.added, leftOut: counts.leftOut, leftOutTotal: counts.leftOutTotal, pending: counts.pending, couldNotCheck: counts.couldNotCheck, canAdd: counts.canAdd, cap: SLATE_CAP, state: counts.state },
+    continuation: { reference: ref, shown: counts.shown, added: counts.added, addedNow, leftOut: counts.leftOut, leftOutTotal: counts.leftOutTotal, pending: counts.pending, couldNotCheck: counts.couldNotCheck, canAdd: counts.canAdd, cap: SLATE_CAP, state: counts.state },
   } satisfies ShowMoreOutput;
   return { content: [{ type: "text" as const, text }], structuredContent: response };
 }

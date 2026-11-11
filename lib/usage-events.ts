@@ -179,7 +179,7 @@ export function moreOutcome(r: ToolResult): { outcome: string; found: number | n
   if (!r || r.isError) return { outcome: "error", found: null, shown: null };
   const c = r.structuredContent?.continuation;
   if (c && typeof c === "object") {
-    const added = int(c.added) ?? 0, shown = int(c.shown, 100000);
+    const added = int(c.addedNow) ?? 0, shown = int(c.shown, 100000); // cars added by THIS call (not since the first reply)
     const outcome = (int(c.pending) ?? 0) > 0 ? "pending" : added > 0 ? "added" : "unchanged";
     return { outcome, found: added, shown };
   }

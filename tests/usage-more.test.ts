@@ -3,11 +3,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { moreOutcome, sanitizeUsageEvent, OUTCOMES, type UsageEvent } from "../lib/usage-events";
 
-const cont = (o: Record<string, unknown> = {}) => ({ structuredContent: { continuation: { reference: "abcdefghjkmn", shown: 12, added: 4, pending: 0, couldNotCheck: 0, ...o } }, content: [{ type: "text", text: "Showing 12 cars from your search (reference abcdefghjkmn)." }] });
+const cont = (o: Record<string, unknown> = {}) => ({ structuredContent: { continuation: { reference: "abcdefghjkmn", shown: 12, added: 4, addedNow: 4, pending: 0, couldNotCheck: 0, ...o } }, content: [{ type: "text", text: "Showing 12 cars from your search (reference abcdefghjkmn)." }] });
 
 test("the outcome is one fixed word and two counts: added, unchanged, pending", () => {
   assert.deepEqual(moreOutcome(cont()), { outcome: "added", found: 4, shown: 12 });
-  assert.deepEqual(moreOutcome(cont({ added: 0 })), { outcome: "unchanged", found: 0, shown: 12 });
+  assert.deepEqual(moreOutcome(cont({ addedNow: 0 })), { outcome: "unchanged", found: 0, shown: 12 }, "the same total asked again: nothing added by this call although 4 were added since the first reply");
   assert.deepEqual(moreOutcome(cont({ pending: 2 })), { outcome: "pending", found: 4, shown: 12 });
 });
 test("no list: unknown, expired and unreadable are told apart; an error is an error", () => {
