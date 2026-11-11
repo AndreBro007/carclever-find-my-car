@@ -40,12 +40,13 @@
 
 // 2026-10-22: v3 -> v4. The widget gained a comparison view (a side-by-side table, shown when a tool result carries `comparison` rows: compare_vehicles). Hosts cache the widget by this exact
 // URI (see the v2 and v3 notes above), so a content change needs a new URI to show up.
-export const RESULTS_CARD_RESOURCE_URI = "ui://carclever-find-my-car/results-card-v4";
+// 2026-11-11 (R4-7, André approved the design): v4 -> v5. The card shows up to 16 cars, has a footer line that offers both ways to see more, an extra line with colour and body style, a compare legend and an identity-only header; hosts cache the widget by this exact URI, so a content change needs a new URI.
+export const RESULTS_CARD_RESOURCE_URI = "ui://carclever-find-my-car/results-card-v5";
 
 // 2026-10-22 (André agreed in chat): the URIs of EARLIER widget versions that the server still ANSWERS, with the CURRENT widget. Tool lists and widget caches on the hosts are what point at a URI;
 // a host that still names v3 (the live address served v3 until this release, and the three platform apps were listed with it) would otherwise get "Resource not found" and lose the cards, while
 // the text reply would still work. The cache-busting reason for the version bump is unchanged: the tools now name v4, so a host that re-reads the tool list fetches v4.
-export const RESULTS_CARD_LEGACY_RESOURCE_URIS: readonly string[] = ["ui://carclever-find-my-car/results-card-v3"];
+export const RESULTS_CARD_LEGACY_RESOURCE_URIS: readonly string[] = ["ui://carclever-find-my-car/results-card-v4", "ui://carclever-find-my-car/results-card-v3"];
 
 // Set to the real deployed origin. Used both for the CSP resourceDomains
 // declaration and for building proxied photo URLs client-side.
@@ -227,6 +228,8 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 .cc-price{font-size:20px;line-height:1;font-weight:800;letter-spacing:-.03em;color:var(--cc-text);display:flex;justify-content:space-between;align-items:baseline}
 .cc-mileage{font-size:16px;font-weight:700}
 .cc-facts{font-size:10.5px;color:var(--cc-muted);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc-extra{font-size:10.5px;color:var(--cc-muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc-legend{font-size:10.5px;color:var(--cc-muted);padding:6px 14px 0}
 .cc-dealer-row{display:flex;align-items:baseline;justify-content:space-between;gap:6px;margin-top:3px;min-width:0}
 .cc-dealer{font-size:10px;color:var(--cc-link);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:capitalize;min-width:0}
 .cc-carfax-link{all:unset;cursor:pointer;font-size:9.5px;font-weight:700;color:var(--cc-link);text-decoration:underline;white-space:nowrap;flex-shrink:0}
@@ -393,6 +396,40 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
   function openLink(url){
     if (!url) return;
     sendRequest("ui/open-link", { url: url }).catch(function(){ /* host declined or failed; nothing else to do */ });
+  }
+
+  // R4-7: the "more cars are ready" test: the search reply carries one marked entry in meta.dataNotes; a show-more reply says how many more can be added.
+  function moreReady(sc){
+    var meta = sc && sc.meta; var notes = (meta && meta.dataNotes) || [];
+    for (var i = 0; i < notes.length; i++) { if (typeof notes[i] === "string" && notes[i].indexOf("[more]") === 0) return true; }
+    var c = sc && sc.continuation;
+    return !!(c && typeof c.canAdd === "number" && c.canAdd > 0);
+  }
+  // R4-7 (d): an identity-only reply (a VIN lookup that found no listing, or a make/model/year identity): meta.totalMatches is 0 with a result present.
+  function identityOnly(sc, results){
+    var m = sc && sc.meta;
+    return !!(m && m.scopeNote === "vin_lookup" && m.totalMatches === 0 && results.length > 0);
+  }
+  function identityHeaderText(meta, results){
+    if (meta && meta.serviceError) return "Catalogue check unavailable";
+    var vin = results[0] && results[0].identity && results[0].identity.vin;
+    return String(vin || "").length === 17 ? "VIN not in the checked catalogue" : "Identity only, no listing checked";
+  }
+  // R4-7 (c): one compact extra line under the place line: exterior colour, interior colour, body style; anything not held is left out.
+  function extraLineHtml(c){
+    var dot = " " + String.fromCharCode(183) + " ";
+    var parts = [];
+    var ext = c.detail && c.detail.exteriorColor; var inn = c.detail && c.detail.interiorColor; var bs = c.body && c.body.bodyStyle;
+    function held(v){ return v != null && String(v).trim() !== "" && String(v).trim().toLowerCase() !== "unknown"; }
+    if (held(ext)) parts.push(String(ext).trim());
+    if (held(inn)) parts.push(String(inn).trim() + " interior");
+    if (held(bs)) parts.push(String(bs).trim());
+    return parts.length ? '<div class="cc-extra">' + esc(parts.join(dot)) + "</div>" : "";
+  }
+  // R4-7 (b): the legend under the compare table (only when the table has a safety or recall row).
+  function legendHtml(rows){
+    var has = (rows || []).some(function(r){ var l = String((r && r.label) || "").toLowerCase(); return l.indexOf("safety") !== -1 || l.indexOf("recall") !== -1; });
+    return has ? '<div class="cc-legend">' + esc("Safety rating and recall campaigns are for the model year, not this specific car.") + "</div>" : "";
   }
 
   function scaleHeaderText(meta){
@@ -607,9 +644,9 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
           // fallback when the visual channel is missing (André's call,
           // Aug 19: photo already tells the color story better than text
           // when present).
-          if (!photo && exteriorColor) extras.push(esc(exteriorColor));
+          // R4-7 (c): the exterior colour now always shows, on the extra line below (extraLineHtml), with or without a photo.
           var extrasStr = extras.length ? " \\u00b7 " + extras.join(" \\u00b7 ") : "";
-          return '<div class="cc-facts">' + (location ? esc(location) : "") + extrasStr + "</div>";
+          return '<div class="cc-facts">' + (location ? esc(location) : "") + extrasStr + "</div>" + extraLineHtml(c);
         })() +
         (listing.dealer || carfaxUrl || nhtsaUrl
           ? '<div class="cc-dealer-row">' +
@@ -660,7 +697,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
         '<div class="cc-header-center">' + esc("Stated, not ranked") + "</div>" +
         '<div class="cc-header-right"><img class="cc-header-logo" src="' + APP_ORIGIN + '/cc-logo-round.png" alt="CarClever" width="22" height="22"/><span class="cc-brand">CarClever</span></div>' +
       "</header>" +
-      '<div class="cmp-wrap"><table class="cmp"><thead>' + head + "</thead><tbody>" + body + "</tbody></table></div>" +
+      '<div class="cmp-wrap"><table class="cmp"><thead>' + head + "</thead><tbody>" + body + "</tbody></table></div>" + legendHtml(rows) +
       '<footer class="cc-footer"><span>' + esc("Bold green: lowest price, lowest mileage, newest year, shortest distance.") + "</span>" +
         '<span class="cc-footer-right">' + (hasAffiliate ? "Edmunds affiliate links" : "Current dealer listings") + "</span></footer>" +
       "</section>";
@@ -679,13 +716,13 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
       root.innerHTML = meta && meta.scopeNote === "vin_invalid" ? '<div class="cc-loading">Invalid VIN. Check the characters and try again.</div>' : (meta && meta.serviceError ? '<div class="cc-loading">The vehicle search did not complete. Please try again in a moment.</div>' : '<div class="cc-loading">No matching vehicles to show.</div>');
       return;
     }
-    var visible = results.slice(0, 8);
+    var visible = results.slice(0, 16); // R4-7 (e): up to 16 (Show 8 more lists up to 16); the header still says "Top N of M shown" if a reply ever carries more
     var hasAffiliate = visible.some(function(c){ return c.links && (c.links.affiliateUrl || c.links.affiliateFallbackUrl); });
     var html = '<section class="cc-shell">' +
       '<header class="cc-header">' +
-        '<div class="cc-header-left"><div class="cc-scale">' + esc(scaleHeaderText(meta)) + "</div></div>" +
+        '<div class="cc-header-left"><div class="cc-scale">' + esc(identityOnly(structuredContent, results) ? identityHeaderText(meta, results) : scaleHeaderText(meta)) + "</div></div>" +
         '<div class="cc-header-center">' + esc(
-          results.length > visible.length
+          identityOnly(structuredContent, results) ? "Identity only" : results.length > visible.length
             ? "Top " + visible.length + " of " + results.length + " shown"
             : visible.length + (visible.length === 1 ? " match shown" : " shown")
         ) + "</div>" +
@@ -705,7 +742,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
       // only ever reflected the first visible card) is redundant. Footer
       // is back to two items: swipe hint + affiliate disclosure.
       '<footer class="cc-footer">' +
-        "<span>Swipe \\u2192</span>" + (hasAffiliate ? \'<span class="cc-footer-more">More: View similar \\u2197</span>\' : "") +
+        "<span>Swipe \\u2192</span>" + (hasAffiliate ? \'<span class="cc-footer-more">\' + (moreReady(structuredContent) ? "View similar \\u2197 or ask for more here" : "More: View similar \\u2197") + \'</span>\' : "") +
         '<span class="cc-footer-right">' + (hasAffiliate ? "Edmunds affiliate links" : "Current dealer listings") + "</span>" +
       "</footer>" +
       "</section>";

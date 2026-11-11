@@ -655,7 +655,7 @@ test("D6. MCP metadata contract: domain absent, single widgetDomain, prefersBord
 
   // Confirm the constant itself resolves to the expected URI (results-card.ts)
   const resultsCardSource = fs.readFileSync("lib/results-card.ts", "utf8");
-  assert.ok(resultsCardSource.includes('"ui://carclever-find-my-car/results-card-v4"'), "RESULTS_CARD_RESOURCE_URI must resolve to ui://carclever-find-my-car/results-card-v4");
+  assert.ok(resultsCardSource.includes('"ui://carclever-find-my-car/results-card-v5"'), "RESULTS_CARD_RESOURCE_URI must resolve to ui://carclever-find-my-car/results-card-v4");
 });
 
 // ============================================================================
@@ -815,11 +815,11 @@ async function renderCardWithResults(resultCount: number) {
   return window.document;
 }
 
-test("D8a. Widget header discloses the cap when results.length (12) exceeds the display slice (8): 'Top 8 of 12 shown', not the tautological 'Top 8 shown'", async () => {
-  const doc = await renderCardWithResults(12);
+test("D8a. Widget header discloses the cap when results.length (20) exceeds the display slice (16, R4-7): 'Top 16 of 20 shown', not the tautological 'Top 16 shown'", async () => {
+  const doc = await renderCardWithResults(20);
   const header = doc.querySelector(".cc-header-center");
   assert.ok(header, "cc-header-center element must exist");
-  assert.equal(header?.textContent, "Top 8 of 12 shown", `expected 'Top 8 of 12 shown', got '${header?.textContent}'`);
+  assert.equal(header?.textContent, "Top 16 of 20 shown", `expected 'Top 16 of 20 shown', got '${header?.textContent}'`);
 });
 
 test("D8b. Widget header does NOT claim a cap when results.length (8) does not exceed the display slice (8)", async () => {
@@ -834,10 +834,10 @@ test("D8c. Widget header uses singular phrasing for exactly one result", async (
   assert.equal(header?.textContent, "1 match shown", `expected '1 match shown', got '${header?.textContent}'`);
 });
 
-test("D8d. Carousel renders at most 8 cards (display cap raised from 5 for the database app) even when more results are present", async () => {
-  const doc = await renderCardWithResults(12);
+test("D8d. Carousel renders at most 16 cards (display cap raised from 8 for Show 8 more, R4-7) even when more results are present", async () => {
+  const doc = await renderCardWithResults(20);
   const cards = doc.querySelectorAll("#cc-carousel > article");
-  assert.equal(cards.length, 8, `expected exactly 8 rendered cards (display cap), got ${cards.length}`);
+  assert.equal(cards.length, 16, `expected exactly 16 rendered cards (display cap), got ${cards.length}`);
 });
 
 // ============================================================================

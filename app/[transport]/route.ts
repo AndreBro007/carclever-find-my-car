@@ -2868,7 +2868,7 @@ const handler = createMcpHandler((server) => {
               structuredContent: {
                 meta: {
                   totalCandidatesConsidered: 0,
-                  totalMatches: standaloneVinResults.length,
+                  totalMatches: 0, // R4-7 (d): an identity-only result is not a match in the catalogue
                   resultsShown: standaloneVinResults.length,
                   corpusSizeApprox: getCorpusCountForDescription(),
                   relaxations: [],
@@ -3068,7 +3068,7 @@ const handler = createMcpHandler((server) => {
           structuredContent: {
             meta: {
               totalCandidatesConsidered: 0,
-              totalMatches: noVinResults.length,
+              totalMatches: 0, // R4-7 (d): an identity-only result is not a match in the catalogue
               resultsShown: noVinResults.length,
               corpusSizeApprox: getCorpusCountForDescription(),
               relaxations: [],

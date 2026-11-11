@@ -30,7 +30,7 @@ async function mount(structuredContent: unknown) {
   return { doc: w.document, sent, w };
 }
 
-test("the widget resource is version 4", () => { assert.equal(RESULTS_CARD_RESOURCE_URI, "ui://carclever-find-my-car/results-card-v4"); });
+test("the widget resource is version 5 (R4-7)", () => { assert.equal(RESULTS_CARD_RESOURCE_URI, "ui://carclever-find-my-car/results-card-v5"); });
 
 test("comparison result: a table with one column per vehicle, one row per difference, the best cells marked, unknown shown, no carousel", async () => {
   const { doc } = await mount({ results: [car(1), car(2)], comparison: rows, meta: { corpusSizeApprox: "1.4 million", totalMatches: 2 } });

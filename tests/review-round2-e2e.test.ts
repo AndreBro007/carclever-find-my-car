@@ -321,7 +321,7 @@ test("compare_vehicles, search and VIN check declare the widget (so Claude loads
   const widgetOf = (t: any) => ({ ui: t._meta?.ui?.resourceUri, openai: t._meta?.["openai/outputTemplate"] });
   for (const n of ["find_matching_vehicle", "check_vehicle", "compare_vehicles"]) assert.ok(widgetOf(by(n)).ui && widgetOf(by(n)).openai, `${n} declares the widget`);
   assert.equal(widgetOf(by("compare_vehicles")).ui, widgetOf(by("find_matching_vehicle")).ui, "the same widget resource");
-  assert.equal(widgetOf(by("find_matching_vehicle")).ui, "ui://carclever-find-my-car/results-card-v4");
+  assert.equal(widgetOf(by("find_matching_vehicle")).ui, "ui://carclever-find-my-car/results-card-v5");
   assert.deepEqual(widgetOf(by("get_edmunds_vehicle_link")), { ui: undefined, openai: undefined }, "the link tool has no widget, as before");
   assert.equal(by("compare_vehicles").annotations.readOnlyHint, true);
   // Tool choice after a search (André's real-user flow, 22 Oct): "compare 1 and 2" must lead to compare_vehicles, not two check_vehicle calls.
