@@ -23,6 +23,11 @@ test("status line: counts from the arrays, left-out reasons in words, three end 
   const done = (await expandSlate(mk(8, 1), 9, async (e) => ({ kind: "pass", slot: slot(e.vin) }))).slate;
   assert.equal(statusText(slateCounts(done, 9), 9), "9 cars shown · 1 added. No more verified matches in this list.");
 });
+test("a request for fewer than the list holds still tells the buyer how many more are ready", async () => {
+  const full = (await expandSlate(mk(8, 8), 16, async (e) => ({ kind: "pass", slot: slot(e.vin) }))).slate;
+  assert.equal(statusText(slateCounts(full, 12), 12), "12 cars shown · 4 added. Ask for up to 4 more.");
+  assert.equal(statusText(slateCounts(full, 16), 16), "16 cars shown · 8 added. No more verified matches in this list.");
+});
 test("left-out phrase uses each reason's own words and skips zero counts", () => {
   const c = slateCounts({ ...mk(8, 0), excluded: [{ vin: "a", reason: "limit_break" }, { vin: "b", reason: "limit_break" }, { vin: "c", reason: "outside_radius" }] });
   assert.equal(leftOutPhrase(c), "1 outside the search area, 2 now outside your limits");

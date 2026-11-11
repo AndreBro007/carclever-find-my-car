@@ -85,3 +85,10 @@ test("the three end states are kept apart; counts come from the arrays", async (
 test("expiry is decided by the stored time, never by the row being gone", () => {
   assert.equal(isExpired(1000, 999), false); assert.equal(isExpired(1000, 1000), true); assert.equal(isExpired(1000, 5000), true);
 });
+
+test("cars already in the list but not asked for this time count as available (show 12 on a list that holds 16)", async () => {
+  const full = (await expandSlate(newSlate(eight, spares(8)), 16, passAll)).slate;
+  const c = slateCounts(full, 12);
+  assert.equal(c.shown, 12); assert.equal(c.canAdd, 4); assert.equal(c.state, "more_available");
+  assert.equal(slateCounts(full, 16).state, "none_left");
+});

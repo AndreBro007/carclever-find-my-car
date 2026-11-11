@@ -106,7 +106,8 @@ export function slateCounts(slate: Slate, shownTotal: number = slate.slots.lengt
   const pending = slate.reserve.filter((r) => r.pending).length;
   const fresh = slate.reserve.length - pending;
   const shown = Math.min(shownTotal, slate.slots.length);
-  const canAdd = Math.min(SLATE_CAP - slate.slots.length, slate.reserve.length);
-  const state: ContinuationState = fresh > 0 ? "more_available" : pending > 0 ? "pending_retry" : slate.couldNotCheck.length > 0 ? "only_could_not_check" : "none_left";
+  const alreadyThere = slate.slots.length - shown; // cars already in the list but not asked for this time (another request grew it, or fewer were asked for)
+  const canAdd = alreadyThere + Math.min(SLATE_CAP - slate.slots.length, slate.reserve.length);
+  const state: ContinuationState = alreadyThere > 0 || fresh > 0 ? "more_available" : pending > 0 ? "pending_retry" : slate.couldNotCheck.length > 0 ? "only_could_not_check" : "none_left";
   return { shown, added: Math.max(0, shown - slate.firstShown), leftOut, leftOutTotal: slate.excluded.length, pending, couldNotCheck: slate.couldNotCheck.length, reserveLeft: slate.reserve.length, canAdd, state };
 }
