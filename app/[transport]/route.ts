@@ -3008,7 +3008,7 @@ const handler = createMcpHandler((server) => {
           // Vehicle investigation (release 4): the "Before you contact the dealer" block, appended at the end; nothing above it changes (the recall list above is the one addition inside the reply).
           lines.push(...investigationBlock({
             status: "listed", vin: listing.vin, title: formatVehicleTitle({ year: listing.vehicle?.year ?? null, make: listing.vehicle?.make ?? null, model: listing.vehicle?.model ?? null, trim: listing.vehicle?.trim ?? null }),
-            decodeConfirmed: !!nhtsaResult, titleFromCatalogue: true,
+            decodeConfirmed: decodeMakeOk && decodeModelOk, titleFromCatalogue: true,
             facts: { price: listing.retailListing?.price ?? null, mileage: listing.retailListing?.miles ?? null, dealer: listing.retailListing?.dealer ?? null, city: listing.retailListing?.city ?? null, state: listing.retailListing?.state ?? null, zip: null, used: listing.retailListing?.used ?? null, rowChangedAt: null },
             vehicle: { year: listing.vehicle?.year ?? null, make: listing.vehicle?.make ?? null, model: listing.vehicle?.model ?? null }, used: listing.retailListing?.used ?? null,
           }));

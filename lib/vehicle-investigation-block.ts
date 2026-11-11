@@ -24,11 +24,17 @@ export interface InvestigationInput {
 /** The block, as lines to append to the reply text. */
 export function investigationBlock(i: InvestigationInput): string[] {
   const a = buildAssessment({ vin: i.vin, status: i.status, title: i.title, decodeConfirmed: i.decodeConfirmed, titleFromCatalogue: i.titleFromCatalogue, facts: i.facts ?? null, seller: null });
-  const n = a.dealerQuestions.length;
+  // W2 (ChatGPT lane review, André's yes 11 Nov 2026): when the catalogue lookup FAILED but a VIN was given, the module's first question asks for the VIN; swap it for the module's own question used when a VIN is known.
+  const questions = [...a.dealerQuestions];
+  if (a.status === "catalogue_unavailable" && i.vin && /^Can you give me the VIN/.test(questions[0] ?? "")) questions[0] = `Is this exact car (VIN ${i.vin}) available right now, and at which store can I see it?`;
+  const n = questions.length;
   const things = `${n} ${n === 1 ? "thing" : "things"}`;
+  // W1 (same review): "Confirmed" only when the NHTSA VIN decode confirmed the identity; otherwise say where the title came from.
   const lead = a.status === "identity_only"
     ? (a.identity.title ? `Identity as given: ${a.identity.title} (no VIN, so not confirmed). ` : "")
-    : (a.identity.title ? `Confirmed: ${a.identity.title}. ` : "");
+    : a.identity.title
+      ? (a.identity.confirmedByDecode ? `Confirmed: ${a.identity.title}. ` : `Listed as: ${a.identity.title} (the NHTSA VIN decode did not confirm it). `)
+      : "";
   const L: string[] = ["", "Before you contact the dealer:"];
   L.push(`${lead}Still to confirm with the dealer: ${things}. Contact the dealer to confirm.`);
   if (a.status === "identity_only") L.push("For a full check of this exact car, please share its VIN (on the listing, the dashboard or the driver's door jamb).");
@@ -41,7 +47,7 @@ export function investigationBlock(i: InvestigationInput): string[] {
   L.push("Still unknown:");
   a.unknowns.forEach((u) => L.push(`- ${u}`));
   L.push("Questions to ask the dealer:");
-  a.dealerQuestions.forEach((q, k) => L.push(`${k + 1}) ${q}`));
+  questions.forEach((q, k) => L.push(`${k + 1}) ${q}`));
   if (a.continuation.kind !== "none") L.push(`Edmunds: ${a.continuation.note}`);
   return L;
 }

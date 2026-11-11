@@ -25,7 +25,7 @@ test("listed car: readiness line, still unknown, 7 questions, the Edmunds availa
 });
 test("not in the catalogue: the similar-vehicles note says it is not this exact car; lookup failed: says nothing about inventory and asks for the VIN; neither claims a listing", () => {
   const n = notListed(); assert.match(n, /Confirmed: 2003 Honda Accord EX-V6\./); assert.match(n, /the checked catalogue has no record of it/); assert.match(n, /Edmunds: We don't have a link to this exact car\..*\(not this exact car\)/);
-  const f = failed(); assert.match(f, /Whether this VIN is listed: the catalogue did not answer, so nothing here says anything about inventory\./); assert.match(f, /1\) Can you give me the VIN for this exact car so it can be checked\?/); assert.ok(!/^Edmunds: /m.test(f), "no Edmunds availability line when there is no link to offer");
+  const f = failed(); assert.match(f, /Whether this VIN is listed: the catalogue did not answer, so nothing here says anything about inventory\./); assert.match(f, /1\) Is this exact car \(VIN 1HGCM82633A004352\) available right now, and at which store can I see it\?/); assert.ok(!/Can you give me the VIN/.test(f), "W2: the VIN was given, so the block does not ask the dealer for it"); assert.ok(!/^Edmunds: /m.test(f), "no Edmunds availability line when there is no link to offer");
 });
 test("make, model and year only: the identity is NOT called confirmed; the VIN is asked for; a verified model year gets its review link with the not-a-check note", () => {
   const t = typed(); assert.match(t, /Identity as given: 2024 Honda CR-V \(no VIN, so not confirmed\)\. Still to confirm with the dealer: 7 things\./); assert.ok(!/Confirmed:/.test(t));
@@ -78,4 +78,16 @@ test("the reply block is wired into all four check_vehicle paths and adds no str
   assert.match(src, /status: inventoryLookupFailed \? "catalogue_unavailable" : "not_listed"/); assert.match(src, /status: "listed", vin: listing\.vin/); assert.match(src, /status: "identity_only", vin: null/);
   assert.match(src, /lines\.push\(\.\.\.recallListLines\(recall, listing\.vehicle\?\.year \?\? null\)\)/);
   assert.ok(!/lines\.push\(["`]Before you contact/.test(src), "the words live in the builder, not in the route");
+});
+
+test("W1: the word Confirmed only when the NHTSA VIN decode confirmed make and model; otherwise it says the title is from the listing and was not confirmed", () => {
+  const base = { status: "listed" as const, vin: "2HKRS4H24SH442431", title: "2025 Honda CR-V LX", titleFromCatalogue: true, facts: { price: 26584, mileage: 9734, dealer: "D", city: "C", state: "CA", zip: null, used: true, rowChangedAt: null }, vehicle: { year: 2025, make: "Honda", model: "CR-V" }, used: true, now: NOW };
+  const yes = investigationBlock({ ...base, decodeConfirmed: true }).join("\n");
+  const no = investigationBlock({ ...base, decodeConfirmed: false }).join("\n");
+  assert.match(yes, /\nConfirmed: 2025 Honda CR-V LX\. Still to confirm with the dealer: 7 things\./);
+  assert.match(no, /\nListed as: 2025 Honda CR-V LX \(the NHTSA VIN decode did not confirm it\)\. Still to confirm with the dealer: 7 things\. Contact the dealer to confirm\./); assert.ok(!/Confirmed:/.test(no));
+  const src = readFileSync("app/[transport]/route.ts", "utf8"); assert.match(src, /decodeConfirmed: decodeMakeOk && decodeModelOk, titleFromCatalogue: true/, "the listed path passes the real decode result");
+});
+test("W2: a missing VIN (make, model and year only) still asks for the VIN as the first dealer question", () => {
+  assert.match(typed(), /1\) Can you give me the VIN for this exact car so it can be checked\?/);
 });
