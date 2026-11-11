@@ -53,6 +53,7 @@ const applyLocalBestForBudgetOrdering = ((...a: Parameters<typeof applyLocalBest
 import { FindMatchingVehicleInputCatalog } from "@/lib/find-matching-vehicle-input";
 import { fetchRecallStatus, clipRecallText, type RecallInfo } from "@/lib/nhtsa-recalls-client";
 import { recallApplicabilityLine } from "@/lib/recall-note";
+import { investigationBlock, recallListLines } from "@/lib/vehicle-investigation-block";
 import { LOCATION_NOT_RECOGNISED_NOTE } from "@/lib/location-note";
 import { buildSeatsSummary, isSeatsNote } from "@/lib/seats-summary";
 import { tieNote } from "@/lib/tie-note";
@@ -2865,6 +2866,12 @@ const handler = createMcpHandler((server) => {
             if (nhtsaRecallCheckUrl(rawVin)) lines.push(`Open recalls on this exact VIN: check it with NHTSA's free lookup, ${nhtsaRecallCheckUrl(rawVin)}. ${"NHTSA's lookup covers participating manufacturers and does not show recalls that were already repaired"}.`);
             if (!inventoryLookupFailed) lines.push("No Buyer Check available — that requires a listing to verify against, and none exists for this VIN here.");
             if ((identityCard as any).links?.affiliateFallbackUrl) lines.push(`Similar used vehicles on Edmunds: ${(identityCard as any).links.affiliateFallbackUrl}`);
+            // Vehicle investigation (release 4): the "Before you contact the dealer" block, appended at the end; nothing above it changes.
+            lines.push(...investigationBlock({
+              status: inventoryLookupFailed ? "catalogue_unavailable" : "not_listed", vin: rawVin,
+              title: standaloneNhtsa ? formatVehicleTitle({ year: recallYear, make: recallMakeDisplay, model: recallModel, trim: identityCard.identity.trim }) : null,
+              decodeConfirmed: standaloneNhtsa != null, vehicle: { year: recallYear ?? null, make: recallMakeDisplay ?? null, model: recallModel ?? null },
+            }));
 
             const standaloneVinResults = shapeCardsForSource([identityCard]);
             return {
@@ -2995,8 +3002,16 @@ const handler = createMcpHandler((server) => {
           {
             lines.push("Full vehicle history: see the Edmunds listing, and confirm it with the dealer.");
             lines.push(`Check this VIN for open recalls: https://www.nhtsa.gov/recalls?vymm=${listing.vin}`);
+            lines.push(...recallListLines(recall, listing.vehicle?.year ?? null)); // vehicle investigation (release 4): the same recall list as the website
             lines.push("Next steps: 1) Open the Edmunds listing for photos, price and dealer details. 2) Contact the dealer to confirm the recall status, ask for a vehicle history report and arrange an inspection.");
           }
+          // Vehicle investigation (release 4): the "Before you contact the dealer" block, appended at the end; nothing above it changes (the recall list above is the one addition inside the reply).
+          lines.push(...investigationBlock({
+            status: "listed", vin: listing.vin, title: formatVehicleTitle({ year: listing.vehicle?.year ?? null, make: listing.vehicle?.make ?? null, model: listing.vehicle?.model ?? null, trim: listing.vehicle?.trim ?? null }),
+            decodeConfirmed: !!nhtsaResult, titleFromCatalogue: true,
+            facts: { price: listing.retailListing?.price ?? null, mileage: listing.retailListing?.miles ?? null, dealer: listing.retailListing?.dealer ?? null, city: listing.retailListing?.city ?? null, state: listing.retailListing?.state ?? null, zip: null, used: listing.retailListing?.used ?? null, rowChangedAt: null },
+            vehicle: { year: listing.vehicle?.year ?? null, make: listing.vehicle?.make ?? null, model: listing.vehicle?.model ?? null }, used: listing.retailListing?.used ?? null,
+          }));
 
           return {
             content: [{ type: "text" as const, text: lines.join("\n") }],
@@ -3065,6 +3080,8 @@ const handler = createMcpHandler((server) => {
           { const applies = recallApplicabilityLine(year, make, model); if (applies) lines.push(applies); }
           lines.push(`NHTSA source: ${recall.nhtsaSourceUrl}`);
         }
+        // Vehicle investigation (release 4): the "Before you contact the dealer" block, appended at the end; nothing above it changes.
+        lines.push(...investigationBlock({ status: "identity_only", vin: null, title: `${year} ${make} ${model}`, decodeConfirmed: false, vehicle: { year, make, model } }));
 
         const noVinResults = shapeCardsForSource([noVinCard]);
         return {

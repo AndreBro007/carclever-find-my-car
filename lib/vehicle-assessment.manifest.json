@@ -1,0 +1,7 @@
+{
+  "file": "lib/vehicle-assessment.ts",
+  "gitBlobSha1": "c4b849179a2dc12027671355050107842bfaf631",
+  "byteLength": 12647,
+  "origin": "T134 assessment module, wording version 2 (11 Nov 2026, Andr\u00e9's approved wording: points the unknown, not-listed and link lines at the dealer, a history report and Edmunds similar listings; one history question reworded, one test-drive question added). Stored in getcarwise-docs as ASSESSMENT_MODULE_V2_lib_vehicle-assessment_20261111.ts.txt. Version 1 (9 Nov 2026) is TESTBUILD_VEHICLE_INVESTIGATION_lib_vehicle-assessment_20261109.ts.txt, also bundled in the Stage 1 demo and the parked MCP build.",
+  "rule": "The file must stay byte-identical to the origin. Provenance lives here, never inside the file. tests/vehicle-assessment-copy.test.ts fails if the file differs."
+}
