@@ -16,10 +16,12 @@ function fakeDb() {
     async query(sql, p = []) {
       log.push(sql.slice(0, 40));
       if (/^CREATE/.test(sql)) return { rows: [] };
-      if (/^DELETE FROM search_slate WHERE expires_at/.test(sql)) { for (const [k, v] of rows) if (v.expires < Number(p[0])) rows.delete(k); return { rows: [] }; }
-      if (/^DELETE FROM search_slate WHERE ref IN/.test(sql)) { const lim = Math.max(0, rows.size - 9999); [...rows.entries()].sort((a, b) => a[1].created - b[1].created).slice(0, lim).forEach(([k]) => rows.delete(k)); return { rows: [] }; }
+      if (/^WITH expired AS/.test(sql)) { // the one-statement first-search write: delete expired, enforce the cap, insert
+        for (const [k, v] of rows) if (v.expires < Number(p[0])) rows.delete(k);
+        const lim = Math.max(0, rows.size - 9999); [...rows.entries()].sort((a, b) => a[1].created - b[1].created).slice(0, lim).forEach(([k]) => rows.delete(k));
+        rows.set(String(p[1]), { expires: Number(p[2]), version: Number(p[3]), first: Number(p[4]), body: String(p[5]), created: ++seq }); return { rows: [] };
+      }
       if (/^DELETE FROM search_slate WHERE ref = /.test(sql)) { rows.delete(String(p[0])); return { rows: [] }; }
-      if (/^INSERT/.test(sql)) { rows.set(String(p[0]), { expires: Number(p[1]), version: Number(p[2]), first: Number(p[3]), body: String(p[4]), created: ++seq }); return { rows: [] }; }
       if (/^SELECT/.test(sql)) { const r = rows.get(String(p[0])); return { rows: r ? [{ version: r.version, first_shown: r.first, body: JSON.parse(r.body), expires_ms: r.expires }] : [] }; }
       if (/^UPDATE/.test(sql)) { const r = rows.get(String(p[0])); if (!r || r.version !== Number(p[1]) || r.expires <= Number(p[4])) return { rows: [] }; r.version = Number(p[2]); r.body = String(p[3]); return { rows: [{ version: r.version }] }; }
       throw new Error("unexpected sql " + sql);
@@ -66,6 +68,10 @@ test("an expired list is expired at once by its stored time, then removed; unkno
   assert.equal((await readSlate(db, now + SLATE_TTL_MS - 1, ref)).status, "ok");
   assert.equal((await readSlate(db, now + SLATE_TTL_MS, ref)).status, "expired"); assert.equal(rows.has(ref), false);
   assert.equal((await readSlate(db, now, "zzzzzzzzzzzz")).status, "unknown"); assert.equal((await readSlate(db, now, "nope")).status, "unknown");
+});
+test("the first-search write is ONE statement (expired rows, the cap and the insert together)", async () => {
+  const { db, log } = fakeDb(); await writeSlate(db, 1, mkSlate(), {});
+  assert.equal(log.filter((l) => /^WITH expired AS/.test(l)).length, 1); assert.equal(log.filter((l) => /^(DELETE|INSERT)/.test(l)).length, 0, "no separate delete or insert round trips");
 });
 test("a first-search write first deletes expired rows", async () => {
   const { db, rows } = fakeDb(); const t0 = 1000;
