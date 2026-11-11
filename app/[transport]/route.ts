@@ -314,6 +314,7 @@ async function buildResultCardUntimed(
   nhtsa?: NhtsaElectrificationResult | null,
   evidenceRequest?: ConstraintEvidenceRequest,
   relaxedFields?: ReadonlySet<string>,
+  distanceMiles?: number | null,
 ) {
   // Database mode: fill blank drivetrain/transmission/engine/cylinders/seats from the NHTSA decode already made for this car (never overrides the listing).
   listing = withNhtsaSpecs(listing, nhtsa);
@@ -403,6 +404,8 @@ async function buildResultCardUntimed(
   if (nhtsa?.makeConflict) badges.push("nhtsa-make-conflict");
   if (nhtsa?.modelConflict) badges.push("nhtsa-model-conflict");
   if (nhtsa?.cylindersConflict) badges.push("nhtsa-cylinders-conflict");
+  // R4-7 (f): the distance from the search ZIP, whole miles, as one token in the already-declared badges list (no published schema change).
+  if (typeof distanceMiles === "number" && Number.isFinite(distanceMiles) && distanceMiles >= 0 && distanceMiles <= 3000) badges.push(`distance-mi:${Math.round(distanceMiles)}`);
   // Trim conflict (SYS-20260904-004): a DATA-QUALITY signal (does the
   // listing's claimed trim match what the VIN itself decodes to?), not a
   // purchase-risk one — deliberately a badge, never fed into
@@ -756,7 +759,7 @@ async function runShowMore(args: { reference: string; total: number }) {
     const listing = got.listing;
     let nh: unknown;
     try { const d = await decodeNhtsaElectrification(listing.vin, listing.vehicle?.make, listing.vehicle?.model, listing.vehicle?.cylinders); [nh] = await attachNhtsaRatings([d as never]); } catch { nh = undefined; }
-    const card = await buildResultCard(listing, ctx.intent, ctx.intentInput, (nh ?? undefined) as never, ctx.evidence, ctx.relaxedFields);
+    const card = await buildResultCard(listing, ctx.intent, ctx.intentInput, (nh ?? undefined) as never, ctx.evidence, ctx.relaxedFields, slate.distances?.[slot.vin.trim().toUpperCase()]);
     if (!card) return { n, line: unchecked(n, slot.vin, slot.price), card: null };
     const v = listing.vehicle; const rl = listing.retailListing;
     return { n, card, line: slotLine({ n, title: [v?.year, v?.make, v?.model, v?.trim].filter((x) => x != null && x !== "").join(" "), vin: slot.vin, price: rl?.price ?? null, miles: rl?.miles ?? null, used: rl?.used ?? null, place: [rl?.dealer, [rl?.city, rl?.state].filter(Boolean).join(", ")].filter(Boolean).join(", "), firstPrice: slot.price }) };
@@ -2269,10 +2272,13 @@ const handler = createMcpHandler((server) => {
         electrificationTypes: electrificationRequired ? input.electrificationTypes : undefined,
       };
 
+      // R4-7 (f): distance from the search ZIP per car (whole miles, from the database query), for the card pill and for the stored list.
+      const distanceByVin = new Map<string, number>();
+      for (const l of [...leanShortlist, ...spareLean]) { const d = (l as { catalog?: { distanceMiles?: number } }).catalog?.distanceMiles; if (typeof d === "number") distanceByVin.set(String(l.vin).trim().toUpperCase(), d); }
       const cards = (
         await Promise.all(
           shortlist.map((listing) =>
-            buildResultCard(listing, intent, intentInput, nhtsaByVin.get(listing.vin), searchEvidenceRequest, relaxedFields),
+            buildResultCard(listing, intent, intentInput, nhtsaByVin.get(listing.vin), searchEvidenceRequest, relaxedFields, distanceByVin.get(String(listing.vin).trim().toUpperCase())),
           ),
         )
       ).filter((c): c is NonNullable<typeof c> => c !== null);
@@ -2469,6 +2475,7 @@ const handler = createMcpHandler((server) => {
             excludedVins: [...stage2RejectedVins],
             driveRequired: !!input.drivetrain, driveConfirmed: driveConfirmedVins,
             fuelRequired: electrificationRequired, fuelMatched: electrificationResult.matchedVins,
+            distances: distanceByVin,
             valueLines: valueRanking ? new Map([...valueRanking.scores.entries()].map(([vin, sc]) => [vin, valueLineFor(sc)] as const).filter(([, line]) => !!line)) : undefined,
           });
           const requirements = slate ? buildRequirements({

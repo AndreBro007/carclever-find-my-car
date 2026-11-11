@@ -114,3 +114,11 @@ test("the value lines travel with the list: written, read back, and kept through
   const again = await readSlate(db, now + 2, ref); if (again.status === "ok") assert.deepEqual(again.slate.valueLines, slate.valueLines);
   const plain = (await writeSlate(db, now, mkSlate(), {}))!; const p2 = await readSlate(db, now + 1, plain); if (p2.status === "ok") assert.equal(p2.slate.valueLines, undefined);
 });
+
+test("the distances travel with the list: written, read back, kept through a commit", async () => {
+  const { db } = fakeDb(); const now = 9_000; const slate = { ...mkSlate(), distances: { S1: 41, R1: 6 } };
+  const ref = (await writeSlate(db, now, slate, {}))!;
+  const got = await readSlate(db, now + 1, ref); assert.equal(got.status, "ok"); if (got.status === "ok") assert.deepEqual(got.slate.distances, { S1: 41, R1: 6 });
+  const next = { ...slate, version: slate.version + 1 }; assert.equal(await commitSlate(db, now, ref, slate.version, next, {}), true);
+  const again = await readSlate(db, now + 2, ref); if (again.status === "ok") assert.deepEqual(again.slate.distances, { S1: 41, R1: 6 });
+});

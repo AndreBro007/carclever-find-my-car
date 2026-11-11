@@ -206,6 +206,8 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
 .cc-fresh.is-drop{background:rgba(16,145,86,.95);border-color:rgba(9,110,64,.9);color:#f3fff9}
 /* "EXACT VIN" bottom-left image badge — same direct-VIN-lookup-only scope
    as .cc-risk above. */
+.cc-dist{position:absolute;bottom:8px;left:8px;border-radius:999px;border:1px solid rgba(255,255,255,.16);font-size:9.5px;line-height:1;padding:4px 7px;font-weight:700;background:rgba(8,18,31,.82);color:#edf4fc;letter-spacing:.02em}
+.cc-exact-vin ~ .cc-dist{display:none}
 .cc-exact-vin{position:absolute;bottom:8px;left:8px;border-radius:6px;font-size:8.5px;line-height:1;padding:3px 6px;font-weight:700;background:rgba(8,18,31,.82);color:#edf4fc;border:1px solid rgba(255,255,255,.16);text-transform:uppercase;letter-spacing:.03em}
 .cc-body{padding:10px 10px 9px;display:flex;flex-direction:column;flex:1;min-width:0}
 .cc-title{font-size:13.5px;line-height:1.2;font-weight:700;margin:0 0 6px;color:var(--cc-text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:32px}
@@ -499,6 +501,10 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
       (c.detail && c.detail.priceDrop && typeof c.detail.priceDrop.amount === \"number\" && c.detail.priceDrop.amount > 0
         ? '<span class=\"cc-fresh is-drop\" title=\"The price fell by this amount in the last 7 days\">Price down $' + Math.round(c.detail.priceDrop.amount).toLocaleString(\"en-US\") + \"</span>\"
         : \"\");
+    // R4-7 (f) (André approved 11 Nov 2026): the distance from the search ZIP travels as one token in the already-declared badges list ("distance-mi:41"), so the published schema does not change; the card shows it as a pill on the photo.
+    var distMi = null;
+    for (var bi = 0; bi < badges.length; bi++) { var bt = String(badges[bi]); if (bt.indexOf("distance-mi:") === 0) { var dv = Number(bt.slice(12)); if (isFinite(dv) && dv >= 0 && dv <= 3000) distMi = Math.round(dv); } }
+    var distPill = distMi === null ? "" : '<span class="cc-dist">' + esc(distMi < 1 ? "Under 1 mi away" : distMi + " mi away") + "</span>";
     var exactVinBadge = buyerCheck ? '<div class="cc-exact-vin">EXACT VIN</div>' : "";
     // CTA link/label (fix/affiliate-routing): the card's clickable CTA never
     // routes to links.dealerListingUrl — including Carvana. affiliateUrl
@@ -605,7 +611,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
       : "";
 
     return '<article class="cc-card">' +
-      '<div class="cc-photo-wrap">' + photoBlock + exactVinBadge +
+      '<div class="cc-photo-wrap">' + photoBlock + exactVinBadge + distPill +
         '<div class="cc-badges">' + (listingType ? '<span class="cc-type">' + esc(listingType) + "</span>" : "") + '<span style="display:flex;gap:6px">' + freshPills + ratePill + riskPill + "</span></div>" +
       "</div>" +
       '<div class="cc-body">' +

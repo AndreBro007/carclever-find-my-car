@@ -21,6 +21,8 @@ export interface FirstSearchData {
   fuelRequired: boolean; fuelMatched: Set<string> | null;
   /** Best value only: VIN to the car's value line text. */
   valueLines?: Map<string, string>;
+  /** VIN to whole miles from the search ZIP. */
+  distances?: Map<string, number>;
 }
 
 const norm = (v: string) => String(v ?? "").trim().toUpperCase();
@@ -47,6 +49,12 @@ export function buildFirstSearchSlate(d: FirstSearchData): Slate | null {
     const lines: Record<string, string> = {};
     for (const [vin, line] of d.valueLines) { const v = norm(vin); if (keep.has(v) && VALUE_LINE_OK.test(line)) lines[v] = line; }
     if (Object.keys(lines).length) slate.valueLines = lines;
+  }
+  if (d.distances && d.distances.size > 0) {
+    const keep = new Set([...slate.slots.map((x) => x.vin), ...slate.reserve.map((x) => x.vin)]);
+    const out: Record<string, number> = {};
+    for (const [vin, mi] of d.distances) { const v = norm(vin); if (keep.has(v) && Number.isFinite(mi) && mi >= 0 && mi <= 3000) out[v] = Math.round(mi); }
+    if (Object.keys(out).length) slate.distances = out;
   }
   return slate;
 }

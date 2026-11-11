@@ -65,3 +65,14 @@ test("(d) identity-only replies: header left by case, middle 'Identity only'", a
   const normal = await render({ meta: meta(), results: [car(1)] });
   assert.equal(normal.querySelector(".cc-scale")?.textContent, "Scan 1.4 million \u2192 221 found", "a normal search keeps its header");
 });
+
+test("(f) distance pill on the photo: '41 mi away' from the distance token in badges; none without the token or with a bad one; 'Under 1 mi away' for 0", async () => {
+  const d = await render({ meta: meta(), results: [car(1, { badges: ["vin-verified", "distance-mi:41"] }), car(2, { badges: ["vin-verified"] }), car(3, { badges: ["distance-mi:abc"] }), car(4, { badges: ["distance-mi:99999"] }), car(5, { badges: ["distance-mi:0"] }), car(6, { badges: ["distance-mi:1"] })] });
+  const pills = [...d.querySelectorAll("#cc-carousel > article")].map((a) => a.querySelector(".cc-dist")?.textContent ?? null);
+  assert.deepEqual(pills, ["41 mi away", null, null, null, "Under 1 mi away", "1 mi away"]);
+  assert.ok(d.querySelector(".cc-photo-wrap .cc-dist"), "the pill sits on the photo");
+});
+test("(f) the pill never sits on top of the EXACT VIN pill (a VIN check has no ZIP, so no distance)", async () => {
+  const src = (await import("node:fs")).readFileSync("lib/results-card.ts", "utf8");
+  assert.match(src, /\.cc-exact-vin ~ \.cc-dist\{display:none\}/);
+});

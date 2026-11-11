@@ -56,3 +56,16 @@ test("best value: each pool car's value line is kept in the list (shown and rese
   assert.match(s.valueLines!.S1, /^Value: 11\.9% below/);
   assert.equal(buildFirstSearchSlate(base())!.valueLines, undefined, "no value ranking: no value lines");
 });
+
+test("distances from the search ZIP are kept in the list (shown and reserve cars, whole miles, sane values only)", () => {
+  const dist = new Map<string, number>([["s1", 41.4], ["r1", 6], ["zz", 12], ["s2", -3], ["r2", 99999], ["s3", Number.NaN]]);
+  const s = buildFirstSearchSlate(base({ distances: dist }))!;
+  assert.deepEqual(s.distances, { S1: 41, R1: 6 }, "not a car outside the list, not a negative, absurd or missing value");
+  assert.equal(buildFirstSearchSlate(base())!.distances, undefined, "no ZIP, no distances");
+});
+test("the search hands each car's distance to its card and Show 8 more hands the stored one", () => {
+  const src = readFileSync("app/[transport]/route.ts", "utf8");
+  assert.match(src, /distanceByVin\.get\(String\(listing\.vin\)\.trim\(\)\.toUpperCase\(\)\)/);
+  assert.match(src, /slate\.distances\?\.\[slot\.vin\.trim\(\)\.toUpperCase\(\)\]/);
+  assert.match(src, /badges\.push\(`distance-mi:\$\{Math\.round\(distanceMiles\)\}`\)/);
+});

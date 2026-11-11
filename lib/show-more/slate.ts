@@ -31,6 +31,8 @@ export interface Slate {
   excluded: Excluded[];
   /** Best value searches only: each pool car's value line as first judged (fixed words and numbers), repeated under its number at expansion. */
   valueLines?: Record<string, string>;
+  /** Distance from the search ZIP per car in whole miles as first judged (a search with a ZIP only), repeated on the card pill at expansion. */
+  distances?: Record<string, number>;
 }
 
 /** What checking one reserve car came to. */
