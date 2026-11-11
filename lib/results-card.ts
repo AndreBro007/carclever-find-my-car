@@ -429,7 +429,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
   // R4-7 (b): the legend under the compare table (only when the table has a safety or recall row).
   function legendHtml(rows){
     var has = (rows || []).some(function(r){ var l = String((r && r.label) || "").toLowerCase(); return l.indexOf("safety") !== -1 || l.indexOf("recall") !== -1; });
-    return has ? '<div class="cc-legend">' + esc("Safety rating and recall campaigns are for the model year, not this specific car.") + "</div>" : "";
+    return has ? '<div class="cc-legend">' + esc("Safety rating and recalls are for the model year, not this specific car.") + "</div>" : "";
   }
 
   function scaleHeaderText(meta){
@@ -742,7 +742,7 @@ html,body{margin:0;padding:0;background:transparent;font-family:var(--font-sans,
       // only ever reflected the first visible card) is redundant. Footer
       // is back to two items: swipe hint + affiliate disclosure.
       '<footer class="cc-footer">' +
-        "<span>Swipe \\u2192</span>" + (hasAffiliate ? \'<span class="cc-footer-more">\' + (moreReady(structuredContent) ? "View similar \\u2197 or ask for more here" : "More: View similar \\u2197") + \'</span>\' : "") +
+        "<span>Swipe \\u2192</span>" + (hasAffiliate ? \'<span class="cc-footer-more">\' + (moreReady(structuredContent) ? "View similar \\u2197 or ask for more in the chat" : "More: View similar \\u2197") + \'</span>\' : "") +
         '<span class="cc-footer-right">' + (hasAffiliate ? "Edmunds affiliate links" : "Current dealer listings") + "</span>" +
       "</footer>" +
       "</section>";

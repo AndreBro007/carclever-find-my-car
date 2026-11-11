@@ -29,13 +29,13 @@ test("(e) the card shows 12 cars with the header '12 shown' (was 'Top 8 of 12 sh
   const d = await render({ meta: meta(), results: Array.from({ length: 12 }, (_, i) => car(i)) });
   assert.equal(d.querySelectorAll("#cc-carousel > article").length, 12); assert.equal(d.querySelector(".cc-header-center")?.textContent, "12 shown");
 });
-test("(a) footer: unchanged when nothing more is ready; 'View similar ↗ or ask for more here' when the reply carries the marker or a show-more reply can add more", async () => {
+test("(a) footer: unchanged when nothing more is ready; 'View similar ↗ or ask for more in the chat' when the reply carries the marker or a show-more reply can add more", async () => {
   const plain = await render({ meta: meta(), results: [car(1)] });
   assert.equal(footerMore(plain), "More: View similar \u2197");
   const hinted = await render({ meta: meta({ dataNotes: ["[more] More cars are available for this search. Reference abcdefghjkmn."] }), results: [car(1)] });
-  assert.equal(footerMore(hinted), "View similar \u2197 or ask for more here");
+  assert.equal(footerMore(hinted), "View similar \u2197 or ask for more in the chat");
   const more = await render({ meta: meta(), results: [car(1)], continuation: { canAdd: 3 } });
-  assert.equal(footerMore(more), "View similar \u2197 or ask for more here");
+  assert.equal(footerMore(more), "View similar \u2197 or ask for more in the chat");
   const done = await render({ meta: meta(), results: [car(1)], continuation: { canAdd: 0 } });
   assert.equal(footerMore(done), "More: View similar \u2197", "nothing left to add: the old line");
   const other = await render({ meta: meta({ dataNotes: ["Some other note"] }), results: [car(1)] });
@@ -50,7 +50,7 @@ test("(c) one compact extra line under the place line: exterior, interior, body 
 test("(b) compare view: the legend line under the table, only when the table has a safety or recall row", async () => {
   const rows = [{ label: "Price", values: ["$1", "$2"], best: [0] }, { label: "Safety rating (model yr)", values: ["5", "4"] }];
   const d = await render({ meta: meta(), results: [car(1), car(2)], comparison: rows });
-  assert.equal(d.querySelector(".cc-legend")?.textContent, "Safety rating and recall campaigns are for the model year, not this specific car.");
+  assert.equal(d.querySelector(".cc-legend")?.textContent, "Safety rating and recalls are for the model year, not this specific car.");
   const d2 = await render({ meta: meta(), results: [car(1), car(2)], comparison: [{ label: "Price", values: ["$1", "$2"] }] });
   assert.equal(d2.querySelector(".cc-legend"), null);
 });
