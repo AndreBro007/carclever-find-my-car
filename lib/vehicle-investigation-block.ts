@@ -32,16 +32,17 @@ export function investigationBlock(i: InvestigationInput): string[] {
   const L: string[] = ["", "Before you contact the dealer:"];
   L.push(`${lead}Still to confirm with the dealer: ${things}. Contact the dealer to confirm.`);
   if (a.status === "identity_only") L.push("For a full check of this exact car, please share its VIN (on the listing, the dashboard or the driver's door jamb).");
+  // The two links come right after the readiness line: hosts passed on the lines near the top and the dealer questions but dropped links at the very end (host tests, 11 Nov 2026; André approved the move).
+  const reading = readingLinkFor({ vehicle: i.vehicle, used: i.used, now: i.now });
+  L.push("Share these two links with the buyer:");
+  L.push(`Helpful reading: ${reading.text}: ${reading.url}${reading.note ? ` (${reading.note})` : ""}`);
+  const t = tradeInLink();
+  L.push(`${t.text}: ${t.url}`);
   L.push("Still unknown:");
   a.unknowns.forEach((u) => L.push(`- ${u}`));
   L.push("Questions to ask the dealer:");
   a.dealerQuestions.forEach((q, k) => L.push(`${k + 1}) ${q}`));
   if (a.continuation.kind !== "none") L.push(`Edmunds: ${a.continuation.note}`);
-  const reading = readingLinkFor({ vehicle: i.vehicle, used: i.used, now: i.now });
-  L.push("Share these two links with the buyer:"); // ChatGPT dropped both links without this label (host test, 11 Nov 2026); André approved the line
-  L.push(`Helpful reading: ${reading.text}: ${reading.url}${reading.note ? ` (${reading.note})` : ""}`);
-  const t = tradeInLink();
-  L.push(`${t.text}: ${t.url}`);
   return L;
 }
 

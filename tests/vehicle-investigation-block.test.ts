@@ -14,11 +14,12 @@ const typed = (y = 2024, mk = "Honda", md = "CR-V") => investigationBlock({ stat
 
 test("listed car: readiness line, still unknown, 7 questions, the Edmunds availability note, one reading link (used guide), one trade-in link", () => {
   const b = listed();
-  assert.match(b, /^\nBefore you contact the dealer:\nConfirmed: 2025 Honda CR-V LX\. Still to confirm with the dealer: 7 things\. Contact the dealer to confirm\.\nStill unknown:/);
+  assert.match(b, /^\nBefore you contact the dealer:\nConfirmed: 2025 Honda CR-V LX\. Still to confirm with the dealer: 7 things\. Contact the dealer to confirm\.\nShare these two links with the buyer:\nHelpful reading: .*\nReplacing a car\?.*\nStill unknown:/, "the links come right after the readiness line");
   assert.match(b, /- Whether it's still available: confirm with the dealer before you visit\./);
   assert.match(b, /1\) Is this exact car \(VIN 2HKRS4H24SH442431\) available right now, and at which store can I see it\?/); assert.match(b, /7\) Can I book a test drive, and can you hold the car until then\?/);
   assert.match(b, /Edmunds: Check availability opens this car on Edmunds\. The dealer can confirm it's still for sale\./);
   assert.equal((b.match(/Share these two links with the buyer:\nHelpful reading: .*\nReplacing a car\?/g) ?? []).length, 1, "the label comes right before the two links");
+  assert.ok(b.indexOf("Helpful reading:") < b.indexOf("Still unknown:") && b.indexOf("Replacing a car?") < b.indexOf("Questions to ask the dealer:"), "both links sit above the unknowns and the questions");
   assert.equal((b.match(/Helpful reading:/g) ?? []).length, 1); assert.match(b, /Helpful reading: Edmunds used-car buying guide: https:\/\/edmunds\.sjv\.io\//);
   assert.equal((b.match(/Replacing a car\?/g) ?? []).length, 1);
 });
