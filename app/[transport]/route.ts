@@ -24,7 +24,12 @@ import { getCatalogPool, rowToListing, stockPhotoFor, CATALOG_SERVICE_ERROR, fet
 import { rankListingsByValue, valueLineFor, VALUE_POOL_BOUND, type ValueRanking } from "@/lib/best-value";
 import { showMoreEnabled, buildFirstSearchSlate, hintNote, moreText } from "@/lib/show-more/first-search";
 import { buildRequirements } from "@/lib/show-more/requirements";
-import { writeSlate } from "@/lib/show-more/store";
+import { writeSlate, readSlate, commitSlate, type Queryable as SlateDb } from "@/lib/show-more/store";
+import { expandSlate, viewSlots, slateCounts, SLATE_CAP } from "@/lib/show-more/slate";
+import { evaluateReserveCar, type EvalDeps } from "@/lib/show-more/evaluate";
+import { cardContextFromRequirements } from "@/lib/show-more/card-context";
+import { statusText, notFoundText, slotLine, gone, unchecked } from "@/lib/show-more/reply";
+import { ShowMoreOutputSchema, SHOW_MORE_DESCRIPTION, type ShowMoreOutput } from "@/lib/show-more/output";
 import { stockCodeFor } from "@/lib/stock-photo-svg";
 import { logSearchEvent } from "@/lib/search-log";
 import { registerS1Spike } from "@/lib/s1-spike";
@@ -707,9 +712,85 @@ function buildStandaloneIdentityCard(params: {
   };
 }
 
+// ---- R4-6 step 4b: Show 8 more (preview builds only until release) ----
+async function runShowMore(args: { reference: string; total: number }) {
+  const db = getCatalogPool() as unknown as SlateDb;
+  const ref = String(args.reference ?? "").trim().toLowerCase();
+  const total = Math.min(Math.max(Math.floor(Number(args.total) || 0), 1), SLATE_CAP);
+  const emptyMeta = (notes: string[]): ShowMoreOutput["meta"] => ({ totalCandidatesConsidered: 0, totalMatches: null, resultsShown: 0, corpusSizeApprox: getCorpusCountForDescription(), relaxations: [], dataNotes: notes, scopeNote: "local", serviceError: null, interpretationNotes: [], qualifierAccounting: [] });
+  const read0 = await readSlate(db, Date.now(), ref);
+  if (read0.status !== "ok") {
+    const text = notFoundText(read0.status);
+    return { content: [{ type: "text" as const, text }], structuredContent: { meta: emptyMeta([]), results: [], continuation: null } satisfies ShowMoreOutput };
+  }
+  let slate = read0.slate;
+  const requirements = read0.requirements;
+  const deps: EvalDeps = {
+    lookup: (vin) => lookupListingByVin(vin) as never,
+    rate: async (l) => {
+      try {
+        const nh = await decodeNhtsaElectrification(l.vin, l.vehicle?.make, l.vehicle?.model, l.vehicle?.cylinders);
+        const [r] = await attachNhtsaRatings([nh as never]);
+        return ((r as { rating?: { overall?: number } } | null | undefined)?.rating?.overall) ?? undefined;
+      } catch { return undefined; }
+    },
+  };
+  // Grow the list: one committed list per reference (compare-and-swap); a lost race re-reads, at most twice more.
+  for (let attempt = 0; attempt < 3 && slate.slots.length < total && slate.reserve.length > 0; attempt++) {
+    const grown = await expandSlate(slate, total, (e) => evaluateReserveCar(e, requirements, deps));
+    if (!grown.changed) break;
+    if (await commitSlate(db, Date.now(), ref, slate.version, grown.slate, requirements)) { slate = grown.slate; break; }
+    const again = await readSlate(db, Date.now(), ref);
+    if (again.status !== "ok") break;
+    slate = again.slate;
+  }
+  // Every numbered car, same number and VIN as before: re-read now, price when first shown disclosed when it moved.
+  const ctx = cardContextFromRequirements(requirements);
+  const slots = viewSlots(slate, total);
+  const rows = await Promise.all(slots.map(async (slot, i) => {
+    const n = i + 1;
+    const got = await lookupListingByVin(slot.vin).catch(() => ({ status: "error" as const }));
+    if (got.status === "absent") return { n, line: gone(n, slot.vin, slot.price), card: null };
+    if (got.status !== "found") return { n, line: unchecked(n, slot.vin, slot.price), card: null };
+    const listing = got.listing;
+    let nh: unknown;
+    try { const d = await decodeNhtsaElectrification(listing.vin, listing.vehicle?.make, listing.vehicle?.model, listing.vehicle?.cylinders); [nh] = await attachNhtsaRatings([d as never]); } catch { nh = undefined; }
+    const card = await buildResultCard(listing, ctx.intent, ctx.intentInput, (nh ?? undefined) as never, ctx.evidence, ctx.relaxedFields);
+    if (!card) return { n, line: unchecked(n, slot.vin, slot.price), card: null };
+    const v = listing.vehicle; const rl = listing.retailListing;
+    return { n, card, line: slotLine({ n, title: [v?.year, v?.make, v?.model, v?.trim].filter((x) => x != null && x !== "").join(" "), vin: slot.vin, price: rl?.price ?? null, miles: rl?.miles ?? null, used: rl?.used ?? null, place: [rl?.dealer, [rl?.city, rl?.state].filter(Boolean).join(", ")].filter(Boolean).join(", "), firstPrice: slot.price }) };
+  }));
+  const counts = slateCounts(slate, slots.length);
+  const cards = rows.map((r) => r.card).filter((c): c is NonNullable<typeof c> => c !== null);
+  const dataNotes: string[] = [];
+  if (counts.added > 0) dataNotes.push(`Cars added after the first ${slate.firstShown} follow the order fixed at the first search; the cars already shown keep their numbers.`);
+  const text = `Showing ${slots.length} cars from your search (reference ${ref}).\n\n${rows.map((r) => r.line).join("\n\n")}\n\n${statusText(counts, total)}`;
+  const response = {
+    meta: { ...emptyMeta(dataNotes), totalCandidatesConsidered: slate.slots.length + slate.reserve.length + slate.excluded.length + slate.couldNotCheck.length, resultsShown: cards.length, qualifierAccounting: buildQualifierAccounting(ctx.intentInput) },
+    results: shapeCardsForSource(cards),
+    continuation: { reference: ref, shown: counts.shown, added: counts.added, leftOut: counts.leftOut, leftOutTotal: counts.leftOutTotal, pending: counts.pending, couldNotCheck: counts.couldNotCheck, canAdd: counts.canAdd, cap: SLATE_CAP, state: counts.state },
+  } satisfies ShowMoreOutput;
+  return { content: [{ type: "text" as const, text }], structuredContent: response };
+}
+
 const handler = createMcpHandler((server) => {
   instrumentTools(server); // usage events (Phase C P6): times and records each tool call after the answer; inert unless enabled for this host
   registerS1Spike(server); // R4-6 spike S1: preview builds only, throwaway, removed before release 4 goes live
+  // R4-6 step 4b: the added tool. Preview builds only until André releases the feature (the first search writes the list under the same switch).
+  if (showMoreEnabled()) {
+    server.registerTool(
+      "show_more_vehicles",
+      {
+        title: "Show More Vehicles",
+        description: SHOW_MORE_DESCRIPTION,
+        inputSchema: { reference: z.string().describe("The reference printed under the earlier search results."), total: z.number().describe("The total number of cars to show, 1 to 16. Cars already shown keep their numbers.") },
+        outputSchema: ShowMoreOutputSchema,
+        annotations: { title: "Show More Vehicles", readOnlyHint: false, idempotentHint: true, openWorldHint: true, destructiveHint: false },
+        _meta: { ui: { resourceUri: RESULTS_CARD_RESOURCE_URI }, "openai/outputTemplate": RESULTS_CARD_RESOURCE_URI },
+      },
+      async (args) => runShowMore(args),
+    );
+  }
   // MCP Apps (SEP-1865) result-card widget — a STATIC resource, registered
   // once. Real per-search data is delivered to it client-side via
   // ui/notifications/tool-result (see lib/results-card.ts); this server-side

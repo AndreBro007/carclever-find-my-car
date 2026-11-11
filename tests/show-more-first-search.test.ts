@@ -43,7 +43,8 @@ test("the texts carry the reference, the 24 hours, the tool name and the cap; th
 });
 test("the search hooks the write before the reply is built, and adds the text only when a reference exists", () => {
   const src = readFileSync("app/[transport]/route.ts", "utf8");
-  assert.ok(src.indexOf("buildFirstSearchSlate(") < src.indexOf("const response = {"), "the write happens before the reply object");
+  assert.ok(src.indexOf("buildFirstSearchSlate(") < src.indexOf("const response = {", src.indexOf("buildFirstSearchSlate(") - 6000), "the write happens before the search's reply object");
+  assert.ok(src.indexOf("buildFirstSearchSlate(") < src.indexOf("const response = {", src.indexOf("buildFirstSearchSlate(")), "and a reply object follows the write");
   assert.match(src, /\(moreRef \? moreText\(moreRef\) : ""\)/);
   assert.match(src, /showMoreEnabled\(\) && cards\.length > 0/);
 });

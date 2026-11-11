@@ -747,19 +747,20 @@ test("D7b. every meta object literal in route.ts sets resultsShown from the same
   const resultsShownMatches = routeSource.match(/resultsShown:\s*[^,]+,/g) ?? [];
   // Tenth site (19 Oct 2026, review finding 7): find_matching_vehicle's exact-VIN lookup-failed reply (service error, empty results), literal 0.
   // Eleventh site (10 Nov 2026, R4-5 best value): find_matching_vehicle's "best value needs a ZIP" reply (empty results), literal 0.
-  assert.equal(resultsShownMatches.length, 11, `expected exactly 11 resultsShown assignments, found ${resultsShownMatches.length} — every meta object must set it`);
+  // Twelfth and thirteenth (11 Nov 2026, R4-6 show_more_vehicles): its shared empty-meta literal (resultsShown: 0, used for the unknown, expired and unreadable list replies with empty results) and its normal reply (resultsShown: cards.length, the same array as its results).
+  assert.equal(resultsShownMatches.length, 13, `expected exactly 13 resultsShown assignments, found ${resultsShownMatches.length} — every meta object must set it`);
 
   // The three empty-result error paths must use the literal 0, not a variable
   // that could silently drift from the actual (empty) results array.
   const zeroAssignments = routeSource.match(/resultsShown:\s*0,/g) ?? [];
-  assert.equal(zeroAssignments.length, 5, "all five find_matching_vehicle empty-result paths (invalid format, invalid check digit, not found, lookup failed, best value needs a ZIP) must set resultsShown: 0 to match their empty results: [] arrays");
+  assert.equal(zeroAssignments.length, 6, "all six empty-result paths (the five find_matching_vehicle ones: invalid format, invalid check digit, not found, lookup failed, best value needs a ZIP; plus show_more_vehicles's shared empty meta) must set resultsShown: 0 to match their empty results: [] arrays");
 
   // The five success paths (find_matching_vehicle VIN-success and normal-
   // search, plus check_vehicle's VIN-success, VIN-not-found, and no-VIN
   // paths) must derive resultsShown from a `.length` expression (ground
   // truth), never a hardcoded/copied number.
   const lengthDerivedAssignments = routeSource.match(/resultsShown:\s*\w+(\.\w+)*\.length,/g) ?? [];
-  assert.equal(lengthDerivedAssignments.length, 6, "all six success paths (the five above plus compare_vehicles) must derive resultsShown via .length, not a separate hardcoded number");
+  assert.equal(lengthDerivedAssignments.length, 7, "all seven success paths (the five above, compare_vehicles and show_more_vehicles) must derive resultsShown via .length, not a separate hardcoded number");
 });
 
 // ============================================================================
