@@ -29,6 +29,8 @@ export interface Slate {
   /** Cars that failed every attempt: final for this list, not excluded for cause, never shown, never retried. */
   couldNotCheck: string[];
   excluded: Excluded[];
+  /** Best value searches only: each pool car's value line as first judged (fixed words and numbers), repeated under its number at expansion. */
+  valueLines?: Record<string, string>;
 }
 
 /** What checking one reserve car came to. */

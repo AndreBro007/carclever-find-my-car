@@ -765,7 +765,9 @@ async function runShowMore(args: { reference: string; total: number }) {
   const cards = rows.map((r) => r.card).filter((c): c is NonNullable<typeof c> => c !== null);
   const dataNotes: string[] = [];
   if (counts.added > 0) dataNotes.push(`Cars added after the first ${slate.firstShown} follow the order fixed at the first search; the cars already shown keep their numbers.`);
-  const text = `Showing ${slots.length} cars from your search (reference ${ref}).\n\n${rows.map((r) => r.line).join("\n\n")}\n\n${statusText(counts, total)}`;
+  const vlines = slate.valueLines ?? {};
+  if (Object.keys(vlines).length > 0) dataNotes.push("Ranked by best value: each car's asking price compared with similar listings in the latest catalogue update; the Value line under each number is the one from the first search. It says nothing about reliability, condition or guaranteed savings.");
+  const text = `Showing ${slots.length} cars from your search (reference ${ref}).\n\n${rows.map((r, i) => r.line + (r.card && vlines[slots[i].vin] ? `\n   ${vlines[slots[i].vin]}` : "")).join("\n\n")}\n\n${statusText(counts, total)}`;
   const response = {
     meta: { ...emptyMeta(dataNotes), totalCandidatesConsidered: slate.slots.length + slate.reserve.length + slate.excluded.length + slate.couldNotCheck.length, resultsShown: cards.length, qualifierAccounting: buildQualifierAccounting(ctx.intentInput) },
     results: shapeCardsForSource(cards),
@@ -2467,6 +2469,7 @@ const handler = createMcpHandler((server) => {
             excludedVins: [...stage2RejectedVins],
             driveRequired: !!input.drivetrain, driveConfirmed: driveConfirmedVins,
             fuelRequired: electrificationRequired, fuelMatched: electrificationResult.matchedVins,
+            valueLines: valueRanking ? new Map([...valueRanking.scores.entries()].map(([vin, sc]) => [vin, valueLineFor(sc)] as const).filter(([, line]) => !!line)) : undefined,
           });
           const requirements = slate ? buildRequirements({
             make: intent.hardConstraints.make, model: intent.hardConstraints.model, trimRequired: intent.trimRequired, droppedBodyStyle,

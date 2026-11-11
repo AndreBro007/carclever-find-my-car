@@ -19,6 +19,8 @@ export interface FirstSearchData {
   excludedVins: string[];
   driveRequired: boolean; driveConfirmed: Set<string>;
   fuelRequired: boolean; fuelMatched: Set<string> | null;
+  /** Best value only: VIN to the car's value line text. */
+  valueLines?: Map<string, string>;
 }
 
 const norm = (v: string) => String(v ?? "").trim().toUpperCase();
@@ -39,8 +41,17 @@ export function buildFirstSearchSlate(d: FirstSearchData): Slate | null {
   const reserve = [...new Set(d.reserveVins.map(norm))].filter((v) => v && !shownVins.has(v) && !excludedSet.has(v))
     .map((vin) => ({ vin, drive: triState(d.driveRequired, d.driveConfirmed.has(vin)), fuel: triState(d.fuelRequired, d.fuelMatched != null && d.fuelMatched.has(vin)) }));
   if (reserve.length === 0) return null;
-  return newSlate(slots, reserve, excluded);
+  const slate = newSlate(slots, reserve, excluded);
+  if (d.valueLines && d.valueLines.size > 0) {
+    const keep = new Set([...slate.slots.map((x) => x.vin), ...slate.reserve.map((x) => x.vin)]);
+    const lines: Record<string, string> = {};
+    for (const [vin, line] of d.valueLines) { const v = norm(vin); if (keep.has(v) && VALUE_LINE_OK.test(line)) lines[v] = line; }
+    if (Object.keys(lines).length) slate.valueLines = lines;
+  }
+  return slate;
 }
+/** Only text our own value function can produce: starts with "Value: ", one line, bounded. */
+export const VALUE_LINE_OK = /^Value: [^\n]{1,260}$/;
 
 export function hintNote(ref: string): string {
   return `${HINT_MARKER} More cars are available for this search. Reference ${ref}. To see more, ask for more and call show_more_vehicles with this reference and the total number of cars wanted (up to 16).`;

@@ -24,8 +24,8 @@ let ensured = false;
 export async function ensureSlateTable(db: Queryable): Promise<void> { if (ensured) return; for (const sql of DDL) await db.query(sql); ensured = true; }
 export function resetEnsuredForTests(): void { ensured = false; }
 
-interface Body { slots: Slate["slots"]; reserve: Slate["reserve"]; couldNotCheck: string[]; excluded: Slate["excluded"]; requirements: Requirements }
-const bodyOf = (slate: Slate, requirements: Requirements): Body => ({ slots: slate.slots, reserve: slate.reserve, couldNotCheck: slate.couldNotCheck, excluded: slate.excluded, requirements });
+interface Body { slots: Slate["slots"]; reserve: Slate["reserve"]; couldNotCheck: string[]; excluded: Slate["excluded"]; requirements: Requirements; valueLines?: Record<string, string> }
+const bodyOf = (slate: Slate, requirements: Requirements): Body => ({ slots: slate.slots, reserve: slate.reserve, couldNotCheck: slate.couldNotCheck, excluded: slate.excluded, requirements, ...(slate.valueLines ? { valueLines: slate.valueLines } : {}) });
 
 /** The first-search write: clean up, then insert. Returns the reference, or null on ANY failure (the search then answers normally with no reference and no hint). */
 export async function writeSlate(db: Queryable, nowMs: number, slate: Slate, requirements: Requirements): Promise<string | null> {
@@ -60,7 +60,7 @@ export async function readSlate(db: Queryable, nowMs: number, ref: string): Prom
     const expiresAtMs = Number(row.expires_ms);
     if (nowMs >= expiresAtMs) { await db.query(`DELETE FROM search_slate WHERE ref = $1`, [ref]).catch(() => undefined); return { status: "expired" }; }
     const b = (typeof row.body === "string" ? JSON.parse(row.body) : row.body) as Body;
-    return { status: "ok", slate: { version: Number(row.version), firstShown: Number(row.first_shown), slots: b.slots, reserve: b.reserve, couldNotCheck: b.couldNotCheck, excluded: b.excluded }, requirements: b.requirements, expiresAtMs };
+    return { status: "ok", slate: { version: Number(row.version), firstShown: Number(row.first_shown), slots: b.slots, reserve: b.reserve, couldNotCheck: b.couldNotCheck, excluded: b.excluded, ...(b.valueLines ? { valueLines: b.valueLines } : {}) }, requirements: b.requirements, expiresAtMs };
   } catch { return { status: "unavailable" }; }
 }
 

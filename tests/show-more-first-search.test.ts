@@ -48,3 +48,11 @@ test("the search hooks the write before the reply is built, and adds the text on
   assert.match(src, /\(moreRef \? moreText\(moreRef\) : ""\)/);
   assert.match(src, /showMoreEnabled\(\) && cards\.length > 0/);
 });
+
+test("best value: each pool car's value line is kept in the list (shown and reserve cars only, our own text only)", () => {
+  const lines = new Map<string, string>([["s1", "Value: 11.9% below the typical asking price (9 similar listings within 50 miles, mileage within 20%, limited sample)."], ["r1", "Value: not judged (fewer than eight similar listings found)."], ["zz", "Value: 5% below"], ["s2", "free text from a host"], ["r2", "Value: line one\nline two"]]);
+  const s = buildFirstSearchSlate(base({ valueLines: lines }))!;
+  assert.deepEqual(Object.keys(s.valueLines!).sort(), ["R1", "S1"], "not a car outside the list, not text we did not write, not more than one line");
+  assert.match(s.valueLines!.S1, /^Value: 11\.9% below/);
+  assert.equal(buildFirstSearchSlate(base())!.valueLines, undefined, "no value ranking: no value lines");
+});

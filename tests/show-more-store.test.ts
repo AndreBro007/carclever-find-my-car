@@ -105,3 +105,12 @@ test("the dropped body style is stored only when the search had to drop its body
   assert.equal(buildRequirements({ bodyType: "Sedan", droppedBodyStyle: "Sedan" })!.droppedBodyStyle, "Sedan");
   assert.equal(buildRequirements({ droppedBodyStyle: "<b>" }), null);
 });
+
+test("the value lines travel with the list: written, read back, and kept through a commit", async () => {
+  const { db } = fakeDb(); const now = 7_000; const slate = { ...mkSlate(), valueLines: { S1: "Value: 11.9% below the typical asking price (9 similar listings within 50 miles)." } };
+  const ref = (await writeSlate(db, now, slate, {}))!;
+  const got = await readSlate(db, now + 1, ref); assert.equal(got.status, "ok"); if (got.status === "ok") assert.deepEqual(got.slate.valueLines, slate.valueLines);
+  const next = { ...slate, version: slate.version + 1 }; assert.equal(await commitSlate(db, now, ref, slate.version, next, {}), true);
+  const again = await readSlate(db, now + 2, ref); if (again.status === "ok") assert.deepEqual(again.slate.valueLines, slate.valueLines);
+  const plain = (await writeSlate(db, now, mkSlate(), {}))!; const p2 = await readSlate(db, now + 1, plain); if (p2.status === "ok") assert.equal(p2.slate.valueLines, undefined);
+});

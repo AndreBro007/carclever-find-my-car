@@ -67,6 +67,10 @@ test("the new tool's own output is the search's results and meta plus a continua
   assert.equal(ShowMoreOutputSchema.safeParse({ meta, results: [], continuation: { ...cont, state: "weird" } }).success, false);
   assert.ok(SHOW_MORE_DESCRIPTION.length < 600 && /never make one up/.test(SHOW_MORE_DESCRIPTION));
 });
+test("the Value line of each numbered car is repeated under it, for cars with a card only, and the value note is added", () => {
+  const src = readFileSync("app/[transport]/route.ts", "utf8");
+  assert.match(src, /r\.card && vlines\[slots\[i\]\.vin\]/); assert.match(src, /Ranked by best value: each car's asking price compared with similar listings in the latest catalogue update; the Value line under each number/);
+});
 test("the tool exists only on preview builds, is flagged as writing list state, and the search's own contract is untouched", () => {
   const src = readFileSync("app/[transport]/route.ts", "utf8");
   assert.match(src, /if \(showMoreEnabled\(\)\) \{\s*server\.registerTool\(\s*"show_more_vehicles"/);
