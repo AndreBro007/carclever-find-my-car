@@ -4,7 +4,8 @@
  * NO row is written, the search answers exactly as today, and no hint is sent. Raw host text is never stored; no ZIP, radius, distance or caller data ever appears here.
  */
 export const COLOUR_KEYS = ["gray", "grey", "silver", "white", "black", "blue", "red", "green", "brown", "orange", "yellow", "gold", "burgundy", "beige", "tan"] as const;
-export type ColourKey = (typeof COLOUR_KEYS)[number];
+/** A word from the fixed colour table, kept as the buyer typed it (letters only): the card's "filtered on exterior color = Silver" line repeats it, so changing its case would change the text. */
+export type ColourKey = string;
 export const DRIVETRAINS = ["AWD", "4WD", "FWD", "RWD"] as const;
 export type Drivetrain = (typeof DRIVETRAINS)[number];
 export const ELECTRIFICATION = ["hybrid", "plug_in_hybrid", "electric"] as const;
@@ -43,10 +44,14 @@ const names = (v: unknown, max: number): string[] | undefined | "bad" => {
 };
 export function colourKeys(text: unknown): ColourKey[] | undefined | "bad" {
   if (text == null || text === "") return undefined;
-  const words = String(text).toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  const words = String(text).split(/[^A-Za-z]+/).filter(Boolean);
   if (words.length === 0) return undefined;
+  if (words.length > 3) return "bad";
   const out: ColourKey[] = [];
-  for (const w of words) { if (!(COLOUR_KEYS as readonly string[]).includes(w)) return "bad"; if (!out.includes(w as ColourKey)) out.push(w as ColourKey); }
+  for (const w of words) {
+    if (!(COLOUR_KEYS as readonly string[]).includes(w.toLowerCase())) return "bad"; // any word outside the table: the whole search is not expandable
+    if (!out.some((x) => x.toLowerCase() === w.toLowerCase())) out.push(w);
+  }
   return out;
 }
 

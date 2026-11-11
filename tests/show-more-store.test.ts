@@ -33,11 +33,11 @@ beforeEach(() => resetEnsuredForTests());
 
 test("requirements: validated values only; an odd value anywhere means no row at all", () => {
   const ok = buildRequirements({ make: "Honda", model: "CR-V, RAV4", priceMax: 30000.4, yearMin: 2020, condition: "used", drivetrain: "awd, 4wd", electrificationTypes: ["hybrid"], electrificationRequirement: "required", cpo: true, exteriorColor: "Gray silver", relaxations: ["radius", "radius"] });
-  assert.deepEqual(ok, { make: "Honda", models: ["CR-V", "RAV4"], priceMax: 30000, yearMin: 2020, condition: "used", drivetrain: ["AWD", "4WD"], electrificationTypes: ["hybrid"], electrificationRequirement: "required", cpo: true, exteriorColors: ["gray", "silver"], relaxations: ["radius"] });
+  assert.deepEqual(ok, { make: "Honda", models: ["CR-V", "RAV4"], priceMax: 30000, yearMin: 2020, condition: "used", drivetrain: ["AWD", "4WD"], electrificationTypes: ["hybrid"], electrificationRequirement: "required", cpo: true, exteriorColors: ["Gray", "silver"], relaxations: ["radius"] });
   assert.equal(buildRequirements({ exteriorColor: "Gray and silver" }), null, "\"and\" is not a colour word: the whole search is not expandable");
 });
 test("colour words: only the fixed base table; anything else makes the whole search unexpandable", () => {
-  assert.deepEqual(colourKeys("Silver"), ["silver"]); assert.equal(colourKeys("Glacier White"), "bad"); assert.equal(colourKeys("navy"), "bad"); assert.equal(colourKeys(""), undefined);
+  assert.deepEqual(colourKeys("Silver"), ["Silver"], "kept as typed (the card line repeats it)"); assert.deepEqual(colourKeys("Gray GRAY"), ["Gray"]); assert.equal(colourKeys("gray silver black white"), "bad"); assert.equal(colourKeys("Glacier White"), "bad"); assert.equal(colourKeys("navy"), "bad"); assert.equal(colourKeys(""), undefined);
   assert.equal(buildRequirements({ make: "Honda", exteriorColor: "Glacier White" }), null);
 });
 test("requirements: bad characters, unknown drivetrain words, bad numbers, bad flags, bad codes all refuse", () => {

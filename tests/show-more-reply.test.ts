@@ -5,6 +5,8 @@ import { readFileSync } from "node:fs";
 import { statusText, notFoundText, slotLine, gone, unchecked, leftOutPhrase } from "../lib/show-more/reply";
 import { slateCounts, newSlate, expandSlate, type Slot } from "../lib/show-more/slate";
 import { cardContextFromRequirements } from "../lib/show-more/card-context";
+import { buildRequirements } from "../lib/show-more/requirements";
+import { buildQualifierAccounting } from "../lib/qualifier-accounting";
 import { ShowMoreOutputSchema, SHOW_MORE_DESCRIPTION } from "../lib/show-more/output";
 
 const slot = (vin: string): Slot => ({ vin, price: 20000, drive: "na", fuel: "na", stars: 5 });
@@ -47,6 +49,15 @@ test("the card context is rebuilt from the stored requirements only", () => {
   assert.equal(ctx.intent.hardConstraints.priceMax, 30000); assert.equal(ctx.intentInput.used, true); assert.equal(ctx.intentInput.exteriorColor, "gray silver");
   assert.equal(ctx.evidence.used, true); assert.deepEqual([...ctx.relaxedFields].sort(), ["priceMax", "trimRequired"]);
   assert.doesNotThrow(() => cardContextFromRequirements({}));
+});
+test("CONFIRM AT BUILD (design section 7): the colour disclosure is IDENTICAL when fed the stored colour words instead of the original wording", () => {
+  for (const wording of ["Silver", "silver", "WHITE", "Gray silver"]) {
+    const req = buildRequirements({ make: "Honda", exteriorColor: wording, interiorColor: wording })!;
+    const original = buildQualifierAccounting({ exteriorColor: wording, interiorColor: wording } as never);
+    const rebuilt = buildQualifierAccounting(cardContextFromRequirements(req).intentInput);
+    assert.deepEqual(rebuilt, original, wording);
+  }
+  assert.equal(buildRequirements({ exteriorColor: "Glacier White" }), null, "a word outside the table: not expandable, the search answers as today");
 });
 test("the new tool's own output is the search's results and meta plus a continuation (null when the list is unknown)", () => {
   const meta = { totalCandidatesConsidered: 0, totalMatches: null, resultsShown: 0, corpusSizeApprox: "1.4 million", relaxations: [], dataNotes: [], scopeNote: "local", serviceError: null, interpretationNotes: [], qualifierAccounting: [] };
