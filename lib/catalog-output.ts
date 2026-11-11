@@ -92,7 +92,8 @@ export const CHECK_VEHICLE_DESCRIPTION_EDITS: Array<[from: string, to: string]> 
 ];
 export function catalogCheckVehicleDescription(base: string): string {
   
-  return "A VIN check for one known vehicle: identity, recall and listing details, for a VIN, or for a make, model and year. For a used car with a VIN, it includes NHTSA's recall lookup link. Use it for one known vehicle, including a follow-up to a search. To compare two or more vehicles, use Compare Vehicles. For a broad search, use Find Matching Vehicle.";
+  // Vehicle investigation (release 4, André approved this exact text on 11 Nov 2026): adds the "specific car in mind / is it a good buy / what to ask the dealer" trigger and the no-verdict rule. Host routing tests are the go/no-go.
+  return "A VIN check for one known vehicle: identity, recall and listing details, and what to confirm with the dealer, for a VIN, or for a make, model and year. For a used car with a VIN, it includes NHTSA's recall lookup link. Use it when a buyer has a specific car in mind, including one found elsewhere, or asks whether it is a good buy or what to ask the dealer; ask for the VIN if it is not given. It reports what is confirmed and what is unknown, never a verdict or a value. To compare two or more vehicles, use Compare Vehicles. For a broad search, use Find Matching Vehicle.";
   let d = base;
   for (const [from, to] of CHECK_VEHICLE_DESCRIPTION_EDITS) {
     if (!d.includes(from)) console.error("[catalog-output] check_vehicle description sentence not found, left unchanged:", from.slice(0, 60));

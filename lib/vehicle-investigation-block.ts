@@ -31,6 +31,7 @@ export function investigationBlock(i: InvestigationInput): string[] {
     : (a.identity.title ? `Confirmed: ${a.identity.title}. ` : "");
   const L: string[] = ["", "Before you contact the dealer:"];
   L.push(`${lead}Still to confirm with the dealer: ${things}. Contact the dealer to confirm.`);
+  if (a.status === "identity_only") L.push("For a full check of this exact car, please share its VIN (on the listing, the dashboard or the driver's door jamb).");
   L.push("Still unknown:");
   a.unknowns.forEach((u) => L.push(`- ${u}`));
   L.push("Questions to ask the dealer:");

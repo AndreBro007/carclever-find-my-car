@@ -27,6 +27,8 @@ test("not in the catalogue: the similar-vehicles note says it is not this exact 
 });
 test("make, model and year only: the identity is NOT called confirmed; the VIN is asked for; a verified model year gets its review link with the not-a-check note", () => {
   const t = typed(); assert.match(t, /Identity as given: 2024 Honda CR-V \(no VIN, so not confirmed\)\. Still to confirm with the dealer: 7 things\./); assert.ok(!/Confirmed:/.test(t));
+  assert.match(t, /\nFor a full check of this exact car, please share its VIN \(on the listing, the dashboard or the driver's door jamb\)\.\n/, "the buyer is asked for the VIN");
+  for (const b of [listed(), notListed(), failed()]) assert.ok(!/please share its VIN/.test(b), "a VIN was already given: no request");
   assert.match(t, /Which specific car this is: no VIN was given, so there is no listing check\./); assert.match(t, /1\) Can you give me the VIN for this exact car so it can be checked\?/);
   assert.match(t, /Helpful reading: Edmunds 2024 Honda CR-V review: https:\/\/edmunds\.sjv\.io\/.*\(A model-year review, not a check of this car\.\)/);
 });
