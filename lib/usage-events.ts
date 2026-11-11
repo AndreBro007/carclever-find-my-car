@@ -14,7 +14,7 @@ import { setSharedIdPlatformProvider } from "./shared-id-context";
  * Logging can never change or delay a tool answer: every write is scheduled after the response and every failure is swallowed.
  */
 export const USAGE_LABEL_VERSION = 1;
-export type UsageTool = "search" | "compare" | "check" | "link";
+export type UsageTool = "search" | "compare" | "check" | "link" | "more";
 export type UsageEnv = "test" | "live" | "unknown";
 export type CallerClass = "claude" | "chatgpt" | "grok" | "other" | "unknown";
 
@@ -24,6 +24,7 @@ const TOOL_BY_NAME: Record<string, UsageTool> = {
   compare_vehicles: "compare",
   get_edmunds_vehicle_link: "link",
   resolve_dealer_url: "link",
+  show_more_vehicles: "more", // R4-6 (André approved the count-only line, 11 Nov 2026): counts and fixed words only; never the reference, a VIN or a car
 };
 
 export function callerClass(userAgent?: string | null): CallerClass {
@@ -118,11 +119,11 @@ export function bodyStyleOf(v: unknown): string | null {
 }
 const PRICE_BANDS = ["up to 15k", "15k to 25k", "25k to 40k", "over 40k"];
 export const INTENT_LABELS = ["value", "three_row", "truck", "electric", "hybrid", "family", "commute", "luxury", "unknown"];
-export const OUTCOMES = ["results", "none", "error", "invalid_input", "decoded_recall_known", "decoded_recall_unknown", "not_decoded", "produced", "generated"];
+export const OUTCOMES = ["results", "none", "error", "invalid_input", "decoded_recall_known", "decoded_recall_unknown", "not_decoded", "produced", "generated", "added", "unchanged", "pending", "list_unknown", "list_expired", "list_unavailable"];
 const int = (v: unknown, max = 1_000_000_000): number | null => (typeof v === "number" && Number.isFinite(v) ? Math.min(max, Math.max(0, Math.round(v))) : null);
 /** Last line of defence: whatever reaches insertUsageEvent is forced into the fixed vocabularies, so even a future bug cannot store caller text. */
 export function sanitizeUsageEvent(e: UsageEvent): UsageEvent | null {
-  if (!["search", "compare", "check", "link"].includes(e.tool)) return null;
+  if (!["search", "compare", "check", "link", "more"].includes(e.tool)) return null;
   const a = e.attrs;
   return {
     tool: e.tool,
@@ -170,6 +171,24 @@ export function compareOutcome(r: ToolResult): string {
   if (!r || r.isError || sc?.meta?.serviceError) return "error";
   return Array.isArray(sc?.results) && sc.results.length >= 2 ? "produced" : "error";
 }
+/**
+ * Show 8 more (R4-6): the outcome in fixed words, and two counts. found = cars added by THIS call, shown = cars now shown. Nothing about the list, its reference or any car is read out of the reply.
+ * added = at least one car was added; unchanged = nothing new (same total, or nothing left); pending = some cars could not be checked right now; list_unknown / list_expired / list_unavailable = no list.
+ */
+export function moreOutcome(r: ToolResult): { outcome: string; found: number | null; shown: number | null } {
+  if (!r || r.isError) return { outcome: "error", found: null, shown: null };
+  const c = r.structuredContent?.continuation;
+  if (c && typeof c === "object") {
+    const added = int(c.added) ?? 0, shown = int(c.shown, 100000);
+    const outcome = (int(c.pending) ?? 0) > 0 ? "pending" : added > 0 ? "added" : "unchanged";
+    return { outcome, found: added, shown };
+  }
+  const t = textOf(r);
+  if (/^That list has expired/.test(t)) return { outcome: "list_expired", found: null, shown: null };
+  if (/^I could not read the saved list/.test(t)) return { outcome: "list_unavailable", found: null, shown: null };
+  return { outcome: "list_unknown", found: null, shown: null };
+}
+
 export function linkOutcome(r: ToolResult): string {
   const sc = r?.structuredContent;
   if (!r || r.isError) return "error";
@@ -339,6 +358,7 @@ export function instrumentTools(server: { registerTool: (...a: any[]) => any }):
       catch (e) { try { record(tool, "error", cbArgs[0], {}, Date.now() - t0, nhtsa(), false, stages); } catch { /* never alter the failure */ } throw e; }
       try {
         if (tool === "search") { const s = searchOutcome(result); record(tool, s.outcome, cbArgs[0], s, Date.now() - t0, nhtsa(), false, stages); }
+        else if (tool === "more") { const m = moreOutcome(result); record(tool, m.outcome, {}, m, Date.now() - t0, null, false, stages); }
         else record(tool, tool === "check" ? checkOutcome(result) : tool === "compare" ? compareOutcome(result) : linkOutcome(result), cbArgs[0], {}, Date.now() - t0, null, false, stages);
       } catch { /* logging must never change the answer */ }
       return result;

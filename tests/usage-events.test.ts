@@ -283,7 +283,7 @@ const FIELDS = ["make", "model", "bodyType", "condition", "zip", "vin", "vins", 
 const BANDS = ["up to 15k", "15k to 25k", "25k to 40k", "over 40k"];
 function assertSafeParams(p: unknown[]) {
   const [tool, outcome, env, caller, found, shown, body, band, cond, mk, md, fc, label, ver, link, dur, nh] = p;
-  assert.ok(["search", "compare", "check", "link"].includes(tool as string)); assert.ok(OUTCOMES.includes(outcome as string));
+  assert.ok(["search", "compare", "check", "link", "more"].includes(tool as string)); assert.ok(OUTCOMES.includes(outcome as string));
   assert.ok(["test", "live", "unknown"].includes(env as string)); assert.ok(["claude", "chatgpt", "grok", "other", "unknown"].includes(caller as string));
   for (const n of [found, shown, fc, ver, dur, nh]) assert.ok(n === null || typeof n === "number", `number or empty, got ${String(n)}`);
   assert.ok(body === null || (BODY_STYLES as readonly string[]).includes(body as string), `body_style ${String(body)}`);
