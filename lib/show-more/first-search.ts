@@ -1,11 +1,10 @@
 /**
  * R4-6 step 3b (11 Nov 2026): turning the first search's result into the stored list (design sections 3 and 8), plus the texts. Pure; the route passes plain data in.
- * Switched on only on PREVIEW builds (or with SHOW_MORE_ENABLED=1): production stays exactly as it is until André releases the feature.
+ * On wherever the code is deployed (the preview-only switch was removed on André's yes, 11 Nov 2026: the release is the merge, there is no setting to forget).
  */
 import { newSlate, type Excluded, type Slate, type Slot, type Stars, type TriState } from "./slate";
 
 export const HINT_MARKER = "[more]";
-export function showMoreEnabled(env: Record<string, string | undefined> = process.env): boolean { return env.VERCEL_ENV === "preview" || env.SHOW_MORE_ENABLED === "1"; }
 
 export function starsOf(rating: unknown): Stars { return typeof rating === "number" && rating >= 0 && rating <= 5 ? (Math.round(rating) as 0 | 1 | 2 | 3 | 4 | 5) : "none"; }
 export function triState(required: boolean, confirmed: boolean): TriState { return !required ? "na" : confirmed ? "confirmed" : "unconfirmed"; }

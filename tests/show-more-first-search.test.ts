@@ -1,16 +1,12 @@
 // R4-6 step 3b (11 Nov 2026): the first-search snapshot and the texts. Run: npx tsx --test tests/show-more-first-search.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildFirstSearchSlate, showMoreEnabled, starsOf, triState, hintNote, moreText, HINT_MARKER, type FirstSearchData } from "../lib/show-more/first-search";
+import { buildFirstSearchSlate, starsOf, triState, hintNote, moreText, HINT_MARKER, type FirstSearchData } from "../lib/show-more/first-search";
 import { readFileSync } from "node:fs";
 
 const shown = (n: number) => Array.from({ length: n }, (_, i) => ({ vin: `s${i + 1}`, price: 20000 + i * 100.4, rating: 5 }));
 const base = (over: Partial<FirstSearchData> = {}): FirstSearchData => ({ shown: shown(8), reserveVins: ["r1", "r2", "r3"], excludedVins: [], driveRequired: false, driveConfirmed: new Set(), fuelRequired: false, fuelMatched: null, ...over });
 
-test("only preview builds (or an explicit switch) write a list; production stays off", () => {
-  assert.equal(showMoreEnabled({ VERCEL_ENV: "preview" }), true); assert.equal(showMoreEnabled({ SHOW_MORE_ENABLED: "1" }), true);
-  assert.equal(showMoreEnabled({ VERCEL_ENV: "production" }), false); assert.equal(showMoreEnabled({}), false); assert.equal(showMoreEnabled({ SHOW_MORE_ENABLED: "0" }), false);
-});
 test("the list freezes the shown cars exactly: upper-case VINs, whole-dollar price when first shown, stars, states", () => {
   const s = buildFirstSearchSlate(base())!;
   assert.equal(s.slots.length, 8); assert.equal(s.firstShown, 8); assert.deepEqual(s.slots[0], { vin: "S1", price: 20000, drive: "na", fuel: "na", stars: 5 }); assert.equal(s.slots[1].price, 20100);
@@ -46,7 +42,7 @@ test("the search hooks the write before the reply is built, and adds the text on
   assert.ok(src.indexOf("buildFirstSearchSlate(") < src.indexOf("const response = {", src.indexOf("buildFirstSearchSlate(") - 6000), "the write happens before the search's reply object");
   assert.ok(src.indexOf("buildFirstSearchSlate(") < src.indexOf("const response = {", src.indexOf("buildFirstSearchSlate(")), "and a reply object follows the write");
   assert.match(src, /\(moreRef \? moreText\(moreRef\) : ""\)/);
-  assert.match(src, /showMoreEnabled\(\) && cards\.length > 0/);
+  assert.match(src, /if \(cards\.length > 0\) \{\s*try \{\s*const vinOf/); assert.ok(!src.includes("showMoreEnabled"), "no preview-only switch is left anywhere");
 });
 
 test("best value: each pool car's value line is kept in the list (shown and reserve cars only, our own text only)", () => {

@@ -22,7 +22,7 @@ import { seatUnknownFootnote } from "@/lib/seat-note";
 import { rowByVin } from "@/lib/catalog-db/search";
 import { getCatalogPool, rowToListing, stockPhotoFor, CATALOG_SERVICE_ERROR, fetchValueComparables } from "@/lib/catalog-db-source";
 import { rankListingsByValue, valueLineFor, VALUE_POOL_BOUND, type ValueRanking } from "@/lib/best-value";
-import { showMoreEnabled, buildFirstSearchSlate, hintNote, moreText } from "@/lib/show-more/first-search";
+import { buildFirstSearchSlate, hintNote, moreText } from "@/lib/show-more/first-search";
 import { buildRequirements } from "@/lib/show-more/requirements";
 import { writeSlate, readSlate, commitSlate, type Queryable as SlateDb } from "@/lib/show-more/store";
 import { expandSlate, viewSlots, slateCounts, SLATE_CAP } from "@/lib/show-more/slate";
@@ -32,7 +32,6 @@ import { statusText, notFoundText, slotLine, gone, unchecked } from "@/lib/show-
 import { ShowMoreOutputSchema, SHOW_MORE_DESCRIPTION, type ShowMoreOutput } from "@/lib/show-more/output";
 import { stockCodeFor } from "@/lib/stock-photo-svg";
 import { logSearchEvent } from "@/lib/search-log";
-import { registerS1Spike } from "@/lib/s1-spike";
 import { instrumentTools, runWithUsageContext, noteListenMessages, noteListenOutcome, countListenMessages, noteToolValidationFailure } from "@/lib/usage-events";
 import { verifyAgainstConstraints } from "@/lib/post-verify";
 import { parseIntent } from "@/lib/intent-parser";
@@ -715,7 +714,7 @@ function buildStandaloneIdentityCard(params: {
   };
 }
 
-// ---- R4-6 step 4b: Show 8 more (preview builds only until release) ----
+// ---- R4-6 step 4b: Show 8 more ----
 async function runShowMore(args: { reference: string; total: number }) {
   const db = getCatalogPool() as unknown as SlateDb;
   const ref = String(args.reference ?? "").trim().toLowerCase();
@@ -781,22 +780,20 @@ async function runShowMore(args: { reference: string; total: number }) {
 
 const handler = createMcpHandler((server) => {
   instrumentTools(server); // usage events (Phase C P6): times and records each tool call after the answer; inert unless enabled for this host
-  registerS1Spike(server); // R4-6 spike S1: preview builds only, throwaway, removed before release 4 goes live
   // R4-6 step 4b: the added tool. Preview builds only until André releases the feature (the first search writes the list under the same switch).
-  if (showMoreEnabled()) {
-    server.registerTool(
-      "show_more_vehicles",
-      {
-        title: "Show More Vehicles",
-        description: SHOW_MORE_DESCRIPTION,
-        inputSchema: { reference: z.string().describe("The reference printed under the earlier search results."), total: z.number().describe("The total number of cars to show, 1 to 16. Cars already shown keep their numbers.") },
-        outputSchema: ShowMoreOutputSchema,
-        annotations: { title: "Show More Vehicles", readOnlyHint: false, idempotentHint: true, openWorldHint: true, destructiveHint: false },
-        _meta: { ui: { resourceUri: RESULTS_CARD_RESOURCE_URI }, "openai/outputTemplate": RESULTS_CARD_RESOURCE_URI },
-      },
-      async (args) => runShowMore(args),
-    );
-  }
+  // R4-6 (release 4): the added tool. Always registered (the preview-only gate was removed on André's yes, 11 Nov 2026; the usage line stays behind its own switch).
+  server.registerTool(
+    "show_more_vehicles",
+    {
+      title: "Show More Vehicles",
+      description: SHOW_MORE_DESCRIPTION,
+      inputSchema: { reference: z.string().describe("The reference printed under the earlier search results."), total: z.number().describe("The total number of cars to show, 1 to 16. Cars already shown keep their numbers.") },
+      outputSchema: ShowMoreOutputSchema,
+      annotations: { title: "Show More Vehicles", readOnlyHint: false, idempotentHint: true, openWorldHint: true, destructiveHint: false },
+      _meta: { ui: { resourceUri: RESULTS_CARD_RESOURCE_URI }, "openai/outputTemplate": RESULTS_CARD_RESOURCE_URI },
+    },
+    async (args) => runShowMore(args),
+  );
   // MCP Apps (SEP-1865) result-card widget — a STATIC resource, registered
   // once. Real per-search data is delivered to it client-side via
   // ui/notifications/tool-result (see lib/results-card.ts); this server-side
@@ -2462,10 +2459,10 @@ const handler = createMcpHandler((server) => {
         dataNotes.push(`No specific ZIP or city was given, so this search covers all of ${baseQuery.state} rather than a specific area.`);
       }
 
-      // R4-6 step 3b (André approved the build, 11 Nov 2026): the ONE first-search write behind Show 8 more. Preview builds only until release. Any problem (validator refuses, write fails or
+      // R4-6 step 3b (André approved the build, 11 Nov 2026): the ONE first-search write behind Show 8 more. Any problem (validator refuses, write fails or
       // takes over 300 ms, nothing left in reserve) means: no reference, no hint, and the search answers exactly as before.
       let moreRef: string | null = null;
-      if (showMoreEnabled() && cards.length > 0) {
+      if (cards.length > 0) {
         try {
           const vinOf = (v: unknown) => String(v ?? "").trim().toUpperCase();
           const shownVins = new Set((cards as Array<{ identity?: { vin?: string } }>).map((c) => vinOf(c.identity?.vin)));

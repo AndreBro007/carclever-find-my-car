@@ -71,9 +71,9 @@ test("the Value line of each numbered car is repeated under it, for cars with a 
   const src = readFileSync("app/[transport]/route.ts", "utf8");
   assert.match(src, /r\.card && vlines\[slots\[i\]\.vin\]/); assert.match(src, /Ranked by best value: each car's asking price compared with similar listings in the latest catalogue update; the Value line under each number/);
 });
-test("the tool exists only on preview builds, is flagged as writing list state, and the search's own contract is untouched", () => {
+test("the tool is always registered (no preview-only gate), flagged as writing list state, and the search's own contract is untouched", () => {
   const src = readFileSync("app/[transport]/route.ts", "utf8");
-  assert.match(src, /if \(showMoreEnabled\(\)\) \{\s*server\.registerTool\(\s*"show_more_vehicles"/);
+  assert.match(src, /server\.registerTool\(\s*"show_more_vehicles"/); assert.ok(!/if \(showMoreEnabled/.test(src), "no gate"); assert.ok(!src.includes("registerS1Spike") && !src.includes("spike_added_tool"), "the spike is gone");
   assert.match(src, /readOnlyHint: false, idempotentHint: true, openWorldHint: true, destructiveHint: false/);
   assert.ok(src.includes('outputSchema: CatalogDbOutputSchema'), "the search keeps its own published output schema");
 });
